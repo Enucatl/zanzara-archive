@@ -1,0 +1,2250 @@
+{
+  "schema_version": 1,
+  "repository": "Enucatl/zanzara-archive",
+  "project": {
+    "owner": "Enucatl",
+    "title": "Zanzara Archive — Evaluation and Search",
+    "visibility": "PRIVATE",
+    "milestones": [],
+    "fields": {
+      "Status": [
+        "Backlog",
+        "Blocked",
+        "Ready",
+        "In progress",
+        "In review",
+        "Done"
+      ],
+      "Phase": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "P8"
+      ],
+      "Kind": [
+        "Phase",
+        "Implementation",
+        "Evaluation",
+        "Operator",
+        "Review follow-up"
+      ],
+      "Executor": [
+        "Luna",
+        "Human"
+      ],
+      "Priority": [
+        "P0",
+        "P1",
+        "P2"
+      ],
+      "Order": "NUMBER"
+    },
+    "views": [
+      {
+        "name": "Implementation queue",
+        "layout": "TABLE_LAYOUT",
+        "filter": "Executor:Luna -Status:Done",
+        "sort": "Order ASC",
+        "group": "Status"
+      },
+      {
+        "name": "Phase progress",
+        "layout": "TABLE_LAYOUT",
+        "filter": "Kind:Phase",
+        "sort": "Order ASC",
+        "group": null
+      },
+      {
+        "name": "Evaluation work",
+        "layout": "TABLE_LAYOUT",
+        "filter": "Kind:Evaluation",
+        "sort": "Order ASC",
+        "group": "Phase"
+      },
+      {
+        "name": "Human actions",
+        "layout": "TABLE_LAYOUT",
+        "filter": "Executor:Human -Status:Done",
+        "sort": "Order ASC",
+        "group": "Phase"
+      }
+    ]
+  },
+  "labels": [
+    {
+      "name": "phase:P0",
+      "color": "5319E7",
+      "description": "Zanzara phase P0"
+    },
+    {
+      "name": "phase:P1",
+      "color": "5319E7",
+      "description": "Zanzara phase P1"
+    },
+    {
+      "name": "phase:P2",
+      "color": "5319E7",
+      "description": "Zanzara phase P2"
+    },
+    {
+      "name": "phase:P3",
+      "color": "5319E7",
+      "description": "Zanzara phase P3"
+    },
+    {
+      "name": "phase:P4",
+      "color": "5319E7",
+      "description": "Zanzara phase P4"
+    },
+    {
+      "name": "phase:P5",
+      "color": "5319E7",
+      "description": "Zanzara phase P5"
+    },
+    {
+      "name": "phase:P6",
+      "color": "5319E7",
+      "description": "Zanzara phase P6"
+    },
+    {
+      "name": "phase:P7",
+      "color": "5319E7",
+      "description": "Zanzara phase P7"
+    },
+    {
+      "name": "phase:P8",
+      "color": "5319E7",
+      "description": "Zanzara phase P8"
+    },
+    {
+      "name": "kind:phase",
+      "color": "1D76DB",
+      "description": "Zanzara phase work"
+    },
+    {
+      "name": "kind:implementation",
+      "color": "1D76DB",
+      "description": "Zanzara implementation work"
+    },
+    {
+      "name": "kind:evaluation",
+      "color": "1D76DB",
+      "description": "Zanzara evaluation work"
+    },
+    {
+      "name": "kind:operator",
+      "color": "1D76DB",
+      "description": "Zanzara operator work"
+    },
+    {
+      "name": "kind:review-follow-up",
+      "color": "1D76DB",
+      "description": "Zanzara review follow-up work"
+    },
+    {
+      "name": "executor:luna",
+      "color": "0E8A16",
+      "description": "Executed by Luna"
+    },
+    {
+      "name": "executor:human",
+      "color": "D93F0B",
+      "description": "Executed by Human"
+    },
+    {
+      "name": "priority:P0",
+      "color": "B60205",
+      "description": "Zanzara priority P0"
+    },
+    {
+      "name": "priority:P1",
+      "color": "FBCA04",
+      "description": "Zanzara priority P1"
+    },
+    {
+      "name": "priority:P2",
+      "color": "C2E0C6",
+      "description": "Zanzara priority P2"
+    }
+  ],
+  "issues": [
+    {
+      "id": "P0",
+      "title": "[P0] Foundation and reproducible corpus",
+      "phase": "P0",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 0,
+      "blocked_by": [
+        "P0-01",
+        "P0-02",
+        "P0-03",
+        "P0-04",
+        "P0-05",
+        "P0-06"
+      ],
+      "body": "issues/P0.md",
+      "children": [
+        "P0-01",
+        "P0-02",
+        "P0-03",
+        "P0-04",
+        "P0-05",
+        "P0-06"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P0-01",
+      "title": "[P0-01] Package layout, uv configuration and CPU-only CI",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 10,
+      "blocked_by": [],
+      "body": "issues/P0-01.md",
+      "design_refs": [
+        "D1"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Ready"
+    },
+    {
+      "id": "P0-02",
+      "title": "[P0-02] Frozen 20-episode manifest and read-only source validation",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 20,
+      "blocked_by": [
+        "P0-01"
+      ],
+      "body": "issues/P0-02.md",
+      "design_refs": [
+        "D2",
+        "D3"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P0-03",
+      "title": "[P0-03] Typed artifact, model, timestamp, job and API contracts",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 30,
+      "blocked_by": [
+        "P0-01"
+      ],
+      "body": "issues/P0-03.md",
+      "design_refs": [
+        "D2",
+        "D3",
+        "D5",
+        "D10"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P0-04",
+      "title": "[P0-04] SQLite migrations, canonical entities and artifact publication",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 40,
+      "blocked_by": [
+        "P0-03"
+      ],
+      "body": "issues/P0-04.md",
+      "design_refs": [
+        "D3",
+        "D4",
+        "D7"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P0-05",
+      "title": "[P0-05] Resumable worker, stage fingerprints and crash recovery",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 50,
+      "blocked_by": [
+        "P0-04"
+      ],
+      "body": "issues/P0-05.md",
+      "design_refs": [
+        "D3",
+        "D4",
+        "D8"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P0-06",
+      "title": "[P0-06] Repository Sol phase-review skill and Luna handoff",
+      "phase": "P0",
+      "parent": "P0",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 60,
+      "blocked_by": [
+        "P0-01"
+      ],
+      "body": "issues/P0-06.md",
+      "design_refs": [
+        "D1",
+        "E7",
+        "R"
+      ],
+      "labels": [
+        "phase:P0",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1",
+      "title": "[P1] Measured transcription and diarization baseline",
+      "phase": "P1",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 1000,
+      "blocked_by": [
+        "P0",
+        "P1-H01",
+        "P1-01",
+        "P1-02",
+        "P1-03",
+        "P1-04",
+        "P1-05",
+        "P1-06",
+        "P1-07",
+        "P1-08"
+      ],
+      "body": "issues/P1.md",
+      "children": [
+        "P1-H01",
+        "P1-01",
+        "P1-02",
+        "P1-03",
+        "P1-04",
+        "P1-05",
+        "P1-06",
+        "P1-07",
+        "P1-08"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-H01",
+      "title": "[P1-H01] Operator: accept model terms and provision download access",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 1005,
+      "blocked_by": [
+        "P0"
+      ],
+      "body": "issues/P1-H01.md",
+      "design_refs": [
+        "D5"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-01",
+      "title": "[P1-01] Model locks, CUDA compatibility and container smoke checks",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1010,
+      "blocked_by": [
+        "P0",
+        "P1-H01"
+      ],
+      "body": "issues/P1-01.md",
+      "design_refs": [
+        "D1",
+        "D5",
+        "D11"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-02",
+      "title": "[P1-02] Parakeet service and genuine word timestamps",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1020,
+      "blocked_by": [
+        "P0",
+        "P1-01"
+      ],
+      "body": "issues/P1-02.md",
+      "design_refs": [
+        "D2",
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-03",
+      "title": "[P1-03] Community-1 service with standard and exclusive diarization",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1030,
+      "blocked_by": [
+        "P0",
+        "P1-01"
+      ],
+      "body": "issues/P1-03.md",
+      "design_refs": [
+        "D2",
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-04",
+      "title": "[P1-04] Word attribution and structured transcript exports",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1040,
+      "blocked_by": [
+        "P0",
+        "P1-02",
+        "P1-03"
+      ],
+      "body": "issues/P1-04.md",
+      "design_refs": [
+        "D6",
+        "D10"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-05",
+      "title": "[P1-05] Local annotation UI and versioned reviewed exports",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1050,
+      "blocked_by": [
+        "P0",
+        "P1-04"
+      ],
+      "body": "issues/P1-05.md",
+      "design_refs": [
+        "D10",
+        "E1"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-06",
+      "title": "[P1-06] Human: review golden transcript and freeze evaluation split",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 1060,
+      "blocked_by": [
+        "P0",
+        "P1-05"
+      ],
+      "body": "issues/P1-06.md",
+      "design_refs": [
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-07",
+      "title": "[P1-07] ASR, diarization, attribution and timing evaluation harness",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 1070,
+      "blocked_by": [
+        "P0",
+        "P1-05"
+      ],
+      "body": "issues/P1-07.md",
+      "design_refs": [
+        "E1",
+        "E2",
+        "E6"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-08",
+      "title": "[P1-08] Execute local baseline and publish measured evidence",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 1080,
+      "blocked_by": [
+        "P0",
+        "P1-06",
+        "P1-07"
+      ],
+      "body": "issues/P1-08.md",
+      "design_refs": [
+        "E2",
+        "E6",
+        "E7"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2",
+      "title": "[P2] Three-model voice retrieval and identity review",
+      "phase": "P2",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 2000,
+      "blocked_by": [
+        "P1",
+        "P2-01",
+        "P2-02",
+        "P2-03",
+        "P2-04",
+        "P2-05",
+        "P2-06",
+        "P2-07",
+        "P2-08",
+        "P2-09"
+      ],
+      "body": "issues/P2.md",
+      "children": [
+        "P2-01",
+        "P2-02",
+        "P2-03",
+        "P2-04",
+        "P2-05",
+        "P2-06",
+        "P2-07",
+        "P2-08",
+        "P2-09"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-01",
+      "title": "[P2-01] Deterministic clean-exemplar extraction",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2010,
+      "blocked_by": [
+        "P1"
+      ],
+      "body": "issues/P2-01.md",
+      "design_refs": [
+        "D2",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-02",
+      "title": "[P2-02] ResNet293 service adapter and validated embedding fixtures",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2020,
+      "blocked_by": [
+        "P1"
+      ],
+      "body": "issues/P2-02.md",
+      "design_refs": [
+        "D5",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-03",
+      "title": "[P2-03] ERes2Net service adapter and validated embedding fixtures",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2030,
+      "blocked_by": [
+        "P1"
+      ],
+      "body": "issues/P2-03.md",
+      "design_refs": [
+        "D5",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-04",
+      "title": "[P2-04] WavLM Large verification service adapter and validated embedding fixtures",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2040,
+      "blocked_by": [
+        "P1"
+      ],
+      "body": "issues/P2-04.md",
+      "design_refs": [
+        "D5",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-05",
+      "title": "[P2-05] Qdrant exemplar and centroid generations",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2050,
+      "blocked_by": [
+        "P1",
+        "P2-01",
+        "P2-02",
+        "P2-03",
+        "P2-04"
+      ],
+      "body": "issues/P2-05.md",
+      "design_refs": [
+        "D3",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-06",
+      "title": "[P2-06] Candidate retrieval and robust exemplar verification",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2060,
+      "blocked_by": [
+        "P1",
+        "P2-05"
+      ],
+      "body": "issues/P2-06.md",
+      "design_refs": [
+        "D7",
+        "D10"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-07",
+      "title": "[P2-07] Human: cross-episode labels and frozen voice splits",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 2070,
+      "blocked_by": [
+        "P1",
+        "P2-06"
+      ],
+      "body": "issues/P2-07.md",
+      "design_refs": [
+        "E3",
+        "D7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-08",
+      "title": "[P2-08] Encoder and ensemble evaluation with conditional calibration",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 2080,
+      "blocked_by": [
+        "P1",
+        "P2-07"
+      ],
+      "body": "issues/P2-08.md",
+      "design_refs": [
+        "E3",
+        "E6",
+        "E7"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P2-09",
+      "title": "[P2-09] Audited manual identity decisions, undo and split",
+      "phase": "P2",
+      "parent": "P2",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 2090,
+      "blocked_by": [
+        "P1",
+        "P2-06"
+      ],
+      "body": "issues/P2-09.md",
+      "design_refs": [
+        "D3",
+        "D7",
+        "D10"
+      ],
+      "labels": [
+        "phase:P2",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3",
+      "title": "[P3] Hybrid text retrieval and replaceable inference",
+      "phase": "P3",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 3000,
+      "blocked_by": [
+        "P2",
+        "P3-01",
+        "P3-02",
+        "P3-03",
+        "P3-04",
+        "P3-H01",
+        "P3-05",
+        "P3-06",
+        "P3-07"
+      ],
+      "body": "issues/P3.md",
+      "children": [
+        "P3-01",
+        "P3-02",
+        "P3-03",
+        "P3-04",
+        "P3-H01",
+        "P3-05",
+        "P3-06",
+        "P3-07"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-H01",
+      "title": "[P3-H01] Operator: provision capped OpenRouter benchmark key",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 3005,
+      "blocked_by": [
+        "P2"
+      ],
+      "body": "issues/P3-H01.md",
+      "design_refs": [
+        "D8",
+        "E5"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-01",
+      "title": "[P3-01] Upstream shared-inference transcription and pinned integration",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 3010,
+      "blocked_by": [
+        "P2"
+      ],
+      "body": "issues/P3-01.md",
+      "design_refs": [
+        "D5",
+        "D8"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-02",
+      "title": "[P3-02] Local BGE-M3 and shared-inference embedding adapter",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 3020,
+      "blocked_by": [
+        "P2"
+      ],
+      "body": "issues/P3-02.md",
+      "design_refs": [
+        "D1",
+        "D5",
+        "D8"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-03",
+      "title": "[P3-03] Speaker-aware chunks, FTS5 and dense text indexing",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 3030,
+      "blocked_by": [
+        "P2",
+        "P3-02"
+      ],
+      "body": "issues/P3-03.md",
+      "design_refs": [
+        "D3",
+        "D9"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-04",
+      "title": "[P3-04] Filtered lexical, dense and hybrid search",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 3040,
+      "blocked_by": [
+        "P2",
+        "P3-03"
+      ],
+      "body": "issues/P3-04.md",
+      "design_refs": [
+        "D9",
+        "D10"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-05",
+      "title": "[P3-05] Provider probes, generation safety and cost controls",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 3050,
+      "blocked_by": [
+        "P2",
+        "P3-01",
+        "P3-02",
+        "P3-H01"
+      ],
+      "body": "issues/P3-05.md",
+      "design_refs": [
+        "D8",
+        "E5"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-06",
+      "title": "[P3-06] Human: frozen Italian text-query relevance set",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 3060,
+      "blocked_by": [
+        "P2",
+        "P3-04"
+      ],
+      "body": "issues/P3-06.md",
+      "design_refs": [
+        "E4"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P3-07",
+      "title": "[P3-07] Cloud/local ASR and text-search evaluation reports",
+      "phase": "P3",
+      "parent": "P3",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 3070,
+      "blocked_by": [
+        "P2",
+        "P3-05",
+        "P3-06"
+      ],
+      "body": "issues/P3-07.md",
+      "design_refs": [
+        "E4",
+        "E5",
+        "E6",
+        "E7"
+      ],
+      "labels": [
+        "phase:P3",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4",
+      "title": "[P4] Complete private website",
+      "phase": "P4",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 4000,
+      "blocked_by": [
+        "P3",
+        "P4-01",
+        "P4-02",
+        "P4-03",
+        "P4-04",
+        "P4-05",
+        "P4-06"
+      ],
+      "body": "issues/P4.md",
+      "children": [
+        "P4-01",
+        "P4-02",
+        "P4-03",
+        "P4-04",
+        "P4-05",
+        "P4-06"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-01",
+      "title": "[P4-01] Responsive application shell and API integration",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 4010,
+      "blocked_by": [
+        "P3"
+      ],
+      "body": "issues/P4-01.md",
+      "design_refs": [
+        "D1",
+        "D10",
+        "D11"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-02",
+      "title": "[P4-02] Text search, transcripts and timestamped audio playback",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 4020,
+      "blocked_by": [
+        "P3",
+        "P4-01"
+      ],
+      "body": "issues/P4-02.md",
+      "design_refs": [
+        "D6",
+        "D9",
+        "D10"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-03",
+      "title": "[P4-03] Archive-speaker and bounded upload voice-search jobs",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 4030,
+      "blocked_by": [
+        "P3",
+        "P4-01"
+      ],
+      "body": "issues/P4-03.md",
+      "design_refs": [
+        "D7",
+        "D10"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-04",
+      "title": "[P4-04] Speaker comparison, identity review and chronology",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 4040,
+      "blocked_by": [
+        "P3",
+        "P4-01"
+      ],
+      "body": "issues/P4-04.md",
+      "design_refs": [
+        "D7",
+        "D10"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-05",
+      "title": "[P4-05] Evaluation dashboard and job/error states",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 4050,
+      "blocked_by": [
+        "P3",
+        "P4-01"
+      ],
+      "body": "issues/P4-05.md",
+      "design_refs": [
+        "D10",
+        "E6"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P4-06",
+      "title": "[P4-06] Browser tests for complete user journeys",
+      "phase": "P4",
+      "parent": "P4",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 4060,
+      "blocked_by": [
+        "P3",
+        "P4-02",
+        "P4-03",
+        "P4-04",
+        "P4-05"
+      ],
+      "body": "issues/P4-06.md",
+      "design_refs": [
+        "D10",
+        "D11",
+        "E7"
+      ],
+      "labels": [
+        "phase:P4",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5",
+      "title": "[P5] Operational 20-episode release and public documentation",
+      "phase": "P5",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 5000,
+      "blocked_by": [
+        "P4",
+        "P5-01",
+        "P5-H01",
+        "P5-02",
+        "P5-03",
+        "P5-04",
+        "P5-05",
+        "P5-06"
+      ],
+      "body": "issues/P5.md",
+      "children": [
+        "P5-01",
+        "P5-H01",
+        "P5-02",
+        "P5-03",
+        "P5-04",
+        "P5-05",
+        "P5-06"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-H01",
+      "title": "[P5-H01] Operator: provision Cloudflare Access and deployment configuration",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 5005,
+      "blocked_by": [
+        "P4"
+      ],
+      "body": "issues/P5-H01.md",
+      "design_refs": [
+        "D11"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-01",
+      "title": "[P5-01] Production Compose profiles and configuration reference",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 5010,
+      "blocked_by": [
+        "P4"
+      ],
+      "body": "issues/P5-01.md",
+      "design_refs": [
+        "D1",
+        "D3",
+        "D11"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-02",
+      "title": "[P5-02] Cloudflare tunnel, origin JWT enforcement and provisioning runbook",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 5020,
+      "blocked_by": [
+        "P4",
+        "P5-01",
+        "P5-H01"
+      ],
+      "body": "issues/P5-02.md",
+      "design_refs": [
+        "D10",
+        "D11"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-03",
+      "title": "[P5-03] Backup/restore, Qdrant rebuild and interrupted-job drills",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 5030,
+      "blocked_by": [
+        "P4",
+        "P5-01"
+      ],
+      "body": "issues/P5-03.md",
+      "design_refs": [
+        "D3",
+        "D4",
+        "D7",
+        "D11"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-04",
+      "title": "[P5-04] Concurrent GPU benchmark and measured serving defaults",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 5040,
+      "blocked_by": [
+        "P4",
+        "P5-01"
+      ],
+      "body": "issues/P5-04.md",
+      "design_refs": [
+        "D11",
+        "E6"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-05",
+      "title": "[P5-05] Public README and three architecture-generation prompts",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 5050,
+      "blocked_by": [
+        "P4",
+        "P5-02",
+        "P5-03",
+        "P5-04"
+      ],
+      "body": "issues/P5-05.md",
+      "design_refs": [
+        "D12",
+        "E6"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P5-06",
+      "title": "[P5-06] Complete 20-episode acceptance and release evidence packet",
+      "phase": "P5",
+      "parent": "P5",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 5060,
+      "blocked_by": [
+        "P4",
+        "P5-05"
+      ],
+      "body": "issues/P5-06.md",
+      "design_refs": [
+        "D12",
+        "E2",
+        "E3",
+        "E4",
+        "E7"
+      ],
+      "labels": [
+        "phase:P5",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P6",
+      "title": "[P6] 400 recent episodes",
+      "phase": "P6",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 6000,
+      "blocked_by": [
+        "P5",
+        "P6-01",
+        "P6-02",
+        "P6-03",
+        "P6-04"
+      ],
+      "body": "issues/P6.md",
+      "children": [
+        "P6-01",
+        "P6-02",
+        "P6-03",
+        "P6-04"
+      ],
+      "labels": [
+        "phase:P6",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P6-01",
+      "title": "[P6-01] Freeze 400 recent episodes and incremental estimates",
+      "phase": "P6",
+      "parent": "P6",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 6010,
+      "blocked_by": [
+        "P5"
+      ],
+      "body": "issues/P6-01.md",
+      "design_refs": [
+        "D2",
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P6",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P6-02",
+      "title": "[P6-02] Human: authorize 400-episode expansion from estimates",
+      "phase": "P6",
+      "parent": "P6",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 6020,
+      "blocked_by": [
+        "P5",
+        "P6-01"
+      ],
+      "body": "issues/P6-02.md",
+      "design_refs": [
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P6",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P6-03",
+      "title": "[P6-03] Process 40-total canary and check drift/regressions",
+      "phase": "P6",
+      "parent": "P6",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 6030,
+      "blocked_by": [
+        "P5",
+        "P6-02"
+      ],
+      "body": "issues/P6-03.md",
+      "design_refs": [
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P6",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P6-04",
+      "title": "[P6-04] Process remaining 400 manifest and publish coverage",
+      "phase": "P6",
+      "parent": "P6",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 6040,
+      "blocked_by": [
+        "P5",
+        "P6-03"
+      ],
+      "body": "issues/P6-04.md",
+      "design_refs": [
+        "D4",
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P6",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P7",
+      "title": "[P7] Historical voice index",
+      "phase": "P7",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 7000,
+      "blocked_by": [
+        "P6",
+        "P7-01",
+        "P7-02",
+        "P7-03",
+        "P7-04"
+      ],
+      "body": "issues/P7.md",
+      "children": [
+        "P7-01",
+        "P7-02",
+        "P7-03",
+        "P7-04"
+      ],
+      "labels": [
+        "phase:P7",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P7-01",
+      "title": "[P7-01] Freeze historical manifest and execute stratified voice canary",
+      "phase": "P7",
+      "parent": "P7",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 7010,
+      "blocked_by": [
+        "P6"
+      ],
+      "body": "issues/P7-01.md",
+      "design_refs": [
+        "D2",
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P7",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P7-02",
+      "title": "[P7-02] Human: cross-year labels and historical retrieval evaluation",
+      "phase": "P7",
+      "parent": "P7",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 7020,
+      "blocked_by": [
+        "P6",
+        "P7-01"
+      ],
+      "body": "issues/P7-02.md",
+      "design_refs": [
+        "E3",
+        "E7"
+      ],
+      "labels": [
+        "phase:P7",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P7-03",
+      "title": "[P7-03] Human: authorize historical voice processing",
+      "phase": "P7",
+      "parent": "P7",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 7030,
+      "blocked_by": [
+        "P6",
+        "P7-02"
+      ],
+      "body": "issues/P7-03.md",
+      "design_refs": [
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P7",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P7-04",
+      "title": "[P7-04] Resumable historical voice index and ASR-missing appearances",
+      "phase": "P7",
+      "parent": "P7",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 7040,
+      "blocked_by": [
+        "P6",
+        "P7-03"
+      ],
+      "body": "issues/P7-04.md",
+      "design_refs": [
+        "D4",
+        "D7",
+        "D10",
+        "D12"
+      ],
+      "labels": [
+        "phase:P7",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P8",
+      "title": "[P8] Remaining historical transcription",
+      "phase": "P8",
+      "parent": null,
+      "executor": "Human",
+      "kind": "Phase",
+      "priority": "P0",
+      "order": 8000,
+      "blocked_by": [
+        "P7",
+        "P8-01",
+        "P8-02",
+        "P8-03",
+        "P8-04"
+      ],
+      "body": "issues/P8.md",
+      "children": [
+        "P8-01",
+        "P8-02",
+        "P8-03",
+        "P8-04"
+      ],
+      "labels": [
+        "phase:P8",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P8-01",
+      "title": "[P8-01] Prioritized remaining transcription queue and estimates",
+      "phase": "P8",
+      "parent": "P8",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 8010,
+      "blocked_by": [
+        "P7"
+      ],
+      "body": "issues/P8-01.md",
+      "design_refs": [
+        "D4",
+        "D12"
+      ],
+      "labels": [
+        "phase:P8",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P8-02",
+      "title": "[P8-02] Human: authorize remaining transcription resources",
+      "phase": "P8",
+      "parent": "P8",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 8020,
+      "blocked_by": [
+        "P7",
+        "P8-01"
+      ],
+      "body": "issues/P8-02.md",
+      "design_refs": [
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P8",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P8-03",
+      "title": "[P8-03] Bounded historical transcription and searchable publication",
+      "phase": "P8",
+      "parent": "P8",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 8030,
+      "blocked_by": [
+        "P7",
+        "P8-02"
+      ],
+      "body": "issues/P8-03.md",
+      "design_refs": [
+        "D4",
+        "D6",
+        "D9",
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P8",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P8-04",
+      "title": "[P8-04] Final coverage, quality, recovery and documentation audit",
+      "phase": "P8",
+      "parent": "P8",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 8040,
+      "blocked_by": [
+        "P7",
+        "P8-03"
+      ],
+      "body": "issues/P8-04.md",
+      "design_refs": [
+        "D11",
+        "D12",
+        "E7"
+      ],
+      "labels": [
+        "phase:P8",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R01",
+      "requirement": "Python 3.14, uv/src package, Python 3.11 ML isolation and CPU CI",
+      "issues": [
+        "P0-01",
+        "P1-01"
+      ]
+    },
+    {
+      "id": "R02",
+      "requirement": "Frozen exactly-20 corpus, golden episode, readonly NFS source and millisecond metadata",
+      "issues": [
+        "P0-02",
+        "P0-03"
+      ]
+    },
+    {
+      "id": "R03",
+      "requirement": "Local SQLite WAL/FTS5, dedicated Qdrant, atomic artifacts and resumable worker",
+      "issues": [
+        "P0-04",
+        "P0-05",
+        "P2-05",
+        "P3-03"
+      ]
+    },
+    {
+      "id": "R04",
+      "requirement": "Locked model revisions/licenses/head and measured RTX 5090 compatibility",
+      "issues": [
+        "P1-H01",
+        "P1-01",
+        "P2-02",
+        "P2-03",
+        "P2-04",
+        "P3-02"
+      ]
+    },
+    {
+      "id": "R05",
+      "requirement": "Real ASR word timing, window boundaries, episode-wide standard/exclusive diarization and attribution",
+      "issues": [
+        "P1-02",
+        "P1-03",
+        "P1-04"
+      ]
+    },
+    {
+      "id": "R06",
+      "requirement": "Human golden annotations, 200 timing samples, frozen 80/20 splits and metrics",
+      "issues": [
+        "P1-05",
+        "P1-06",
+        "P1-07",
+        "P1-08"
+      ]
+    },
+    {
+      "id": "R07",
+      "requirement": "Clean exemplars, three-vector indexes, centroids and deterministic retrieval",
+      "issues": [
+        "P2-01",
+        "P2-05",
+        "P2-06"
+      ]
+    },
+    {
+      "id": "R08",
+      "requirement": "Human voice truth, valid calibration, host/non-host evaluation and uncertainty",
+      "issues": [
+        "P2-07",
+        "P2-08"
+      ]
+    },
+    {
+      "id": "R09",
+      "requirement": "Human-only global identities, manual names, contradictions, undo and split",
+      "issues": [
+        "P2-09",
+        "P4-04"
+      ]
+    },
+    {
+      "id": "R10",
+      "requirement": "Shared-inference transcription upstream extension and merged pin",
+      "issues": [
+        "P3-01"
+      ]
+    },
+    {
+      "id": "R11",
+      "requirement": "Replaceable inference, capabilities and safe vector-generation swaps",
+      "issues": [
+        "P3-02",
+        "P3-05"
+      ]
+    },
+    {
+      "id": "R12",
+      "requirement": "Hybrid text search, speaker-aware chunks, filters and lexical fallback",
+      "issues": [
+        "P3-03",
+        "P3-04",
+        "P4-02"
+      ]
+    },
+    {
+      "id": "R13",
+      "requirement": "40 reviewed Italian queries and lexical/dense/hybrid quality comparison",
+      "issues": [
+        "P3-06",
+        "P3-07"
+      ]
+    },
+    {
+      "id": "R14",
+      "requirement": "Identical 20-minute local/cloud ASR subset and enforced US$10 total benchmark",
+      "issues": [
+        "P3-H01",
+        "P3-05",
+        "P3-07"
+      ]
+    },
+    {
+      "id": "R15",
+      "requirement": "Private FastAPI/Jinja website, API v1, playback and bounded media access",
+      "issues": [
+        "P4-01",
+        "P4-02",
+        "P4-06"
+      ]
+    },
+    {
+      "id": "R16",
+      "requirement": "Archive-speaker/upload queries, formats/limits, selected speaker and one-hour expiry",
+      "issues": [
+        "P4-03"
+      ]
+    },
+    {
+      "id": "R17",
+      "requirement": "Candidate comparison, anonymous recurrence, appearances and chronology",
+      "issues": [
+        "P4-04"
+      ]
+    },
+    {
+      "id": "R18",
+      "requirement": "Evaluation/job dashboard, measured coverage/latency/cost and failure behavior",
+      "issues": [
+        "P4-05",
+        "P5-06"
+      ]
+    },
+    {
+      "id": "R19",
+      "requirement": "Compose profiles, 4 GiB VRAM headroom and full ensemble contention benchmark",
+      "issues": [
+        "P5-01",
+        "P5-04"
+      ]
+    },
+    {
+      "id": "R20",
+      "requirement": "Cloudflare Access on entire website, origin JWT and CSRF, operator deployment configuration",
+      "issues": [
+        "P5-H01",
+        "P5-02"
+      ]
+    },
+    {
+      "id": "R21",
+      "requirement": "Backups, Qdrant rebuild, interrupted job recovery and private evidence storage",
+      "issues": [
+        "P5-03"
+      ]
+    },
+    {
+      "id": "R22",
+      "requirement": "Public README, screenshots and three implementation-grounded architecture prompts",
+      "issues": [
+        "P5-05",
+        "P8-04"
+      ]
+    },
+    {
+      "id": "R23",
+      "requirement": "20-episode acceptance and quality/regression gates",
+      "issues": [
+        "P1-08",
+        "P2-08",
+        "P3-07",
+        "P5-06"
+      ]
+    },
+    {
+      "id": "R24",
+      "requirement": "Gated 400 expansion, estimates and 40-total canary",
+      "issues": [
+        "P6-01",
+        "P6-02",
+        "P6-03",
+        "P6-04"
+      ]
+    },
+    {
+      "id": "R25",
+      "requirement": "Gated historical voice-only pass, 20 canary and cross-year human labels",
+      "issues": [
+        "P7-01",
+        "P7-02",
+        "P7-03",
+        "P7-04"
+      ]
+    },
+    {
+      "id": "R26",
+      "requirement": "Gated prioritized remaining ASR, bounded batches and final audit",
+      "issues": [
+        "P8-01",
+        "P8-02",
+        "P8-03",
+        "P8-04"
+      ]
+    },
+    {
+      "id": "R27",
+      "requirement": "Luna implementation, Sol review/remediation, user release of every phase",
+      "issues": [
+        "P0-06",
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "P8"
+      ]
+    },
+    {
+      "id": "R28",
+      "requirement": "Idempotent GitHub setup, native parents/blockers, fields/views and no milestones",
+      "issues": [
+        "P0-06"
+      ]
+    }
+  ]
+}

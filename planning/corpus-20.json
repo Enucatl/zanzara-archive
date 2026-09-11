@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-11",
+  "selection": "Explicit frozen filenames from planning handoff; never reselect latest at run time",
+  "golden_episode": "260910-lazanzara.opus",
+  "episodes": [
+    {
+      "relative_filename": "260910-lazanzara.opus",
+      "episode_date": "2026-09-10",
+      "sha256": "06de18da0691a19738bcda30dace2d5be87c8be651e9bd9ed8e56b5828f64536",
+      "size_bytes": 32215323,
+      "duration_ms": 6108584,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260907-lazanzara.opus",
+      "episode_date": "2026-09-07",
+      "sha256": "103f5f31976975644815f9e5aa8018642fa2abf8b64a6d2d6a632f2d5ca6c4a6",
+      "size_bytes": 33147785,
+      "duration_ms": 6314431,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260724-lazanzara.opus",
+      "episode_date": "2026-07-24",
+      "sha256": "81076cdedae070ee60e60e339304e58e841b1b1a1cc7b3df48c86f8fea182b5e",
+      "size_bytes": 32753090,
+      "duration_ms": 6230681,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260723-lazanzara.opus",
+      "episode_date": "2026-07-23",
+      "sha256": "5032e58b89184992c010fa47b74aa0908cbf531876766e8c995286ce8e31fcd2",
+      "size_bytes": 33134106,
+      "duration_ms": 6331775,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260722-lazanzara.opus",
+      "episode_date": "2026-07-22",
+      "sha256": "16a6a473b77dc7c8f7431516a6616234652a10e6d5a60ff56722364a803d14bc",
+      "size_bytes": 31900035,
+      "duration_ms": 6119112,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260721-lazanzara.opus",
+      "episode_date": "2026-07-21",
+      "sha256": "a78cfa4bdd6c07ddcdd6fb4766b1851e09a92e9ac6167ef251ca6c596b03152e",
+      "size_bytes": 31487851,
+      "duration_ms": 6041711,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260720-lazanzara.opus",
+      "episode_date": "2026-07-20",
+      "sha256": "c6280ce40e45d07398b6d47a6435554eb19ca90e9fb934568365a6471b503379",
+      "size_bytes": 32135632,
+      "duration_ms": 6162893,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260717-lazanzara.opus",
+      "episode_date": "2026-07-17",
+      "sha256": "642698764a1a8e2ec75195e8a2800c108f91284540b2b6aa1db60171356b449c",
+      "size_bytes": 29359076,
+      "duration_ms": 5628943,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260716-lazanzara.opus",
+      "episode_date": "2026-07-16",
+      "sha256": "c531f64a3f4799672d402736289ad6dbdb00f4e20298ae4689a3d1e51fd09c71",
+      "size_bytes": 31852240,
+      "duration_ms": 6083873,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260715-lazanzara.opus",
+      "episode_date": "2026-07-15",
+      "sha256": "2b47e9fc102ee61355c0feb191f205162a592939853af317ea0457fd1ea6b765",
+      "size_bytes": 31641160,
+      "duration_ms": 6027631,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260714-lazanzara.opus",
+      "episode_date": "2026-07-14",
+      "sha256": "4f0e0f9acd6687e7d51177d52e0ac48028fa27d3c8a35072399865a3e62b8449",
+      "size_bytes": 31770928,
+      "duration_ms": 6044114,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260713-lazanzara.opus",
+      "episode_date": "2026-07-13",
+      "sha256": "64921cd3ff2113c9c4f64a9535df7231957b7920d959ea9affdcddc09805ad71",
+      "size_bytes": 31812627,
+      "duration_ms": 6012402,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260710-lazanzara.opus",
+      "episode_date": "2026-07-10",
+      "sha256": "1b8ece78547f9b4e3ad4718edb05ac256a8fc50f86c1205329ce1fe7731c88ed",
+      "size_bytes": 31310673,
+      "duration_ms": 6000803,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260709-lazanzara.opus",
+      "episode_date": "2026-07-09",
+      "sha256": "0dc025841ce90ce3f6d1cfb30fd614b66f9fb2fe23f73b635be9ca8150ba33bc",
+      "size_bytes": 31210653,
+      "duration_ms": 5950700,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260708-lazanzara.opus",
+      "episode_date": "2026-07-08",
+      "sha256": "eec31e4f3a2fb97aec21019d4414b902bfccc261c576bb3f1962ac732ad9d476",
+      "size_bytes": 31791364,
+      "duration_ms": 6055739,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260707-lazanzara.opus",
+      "episode_date": "2026-07-07",
+      "sha256": "1f9e6b22d035ad84beb107a1ea9fafd9c397e8a42c52ffbd536b4b0cce654149",
+      "size_bytes": 31135847,
+      "duration_ms": 5929332,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260706-lazanzara.opus",
+      "episode_date": "2026-07-06",
+      "sha256": "5472f87088acd4eca34474a9c02b204478a63c00bdc683e50d2023c45f7efbfe",
+      "size_bytes": 32020033,
+      "duration_ms": 6094759,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260703-lazanzara.opus",
+      "episode_date": "2026-07-03",
+      "sha256": "ab746d555101291ef09b8d4ef3da70898cb18fedfe4b0879dfb4567ac9d4fbbb",
+      "size_bytes": 30281501,
+      "duration_ms": 5829858,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260702-lazanzara.opus",
+      "episode_date": "2026-07-02",
+      "sha256": "afd91591b2011825b156725144c09527c6e286baaa965ddad048f7e61a6498e6",
+      "size_bytes": 31101113,
+      "duration_ms": 5930612,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    },
+    {
+      "relative_filename": "260701-lazanzara.opus",
+      "episode_date": "2026-07-01",
+      "sha256": "b6fb79d09ffbcd489de11413a8466f210b70a054af3f6851b3517b19b7637485",
+      "size_bytes": 32044179,
+      "duration_ms": 6084604,
+      "codec": "opus",
+      "channels": 1,
+      "sample_rate_hz": 48000
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "clean-phase",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": true, "commits_pushed": true, "evidence_current": true},
+    "expected": "PASS — awaiting user release"
+  },
+  {
+    "id": "unpushed-child-commit",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": true, "commits_pushed": false, "evidence_current": true},
+    "expected": "BLOCKED"
+  },
+  {
+    "id": "closed-not-planned-prerequisite",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": false, "commits_pushed": true, "evidence_current": true, "not_planned_prerequisite": true},
+    "expected": "BLOCKED"
+  },
+  {
+    "id": "missing-gpu-measurement",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": true, "commits_pushed": true, "evidence_current": false, "missing_gpu": true},
+    "expected": "BLOCKED"
+  },
+  {
+    "id": "unmet-wer",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": true, "commits_pushed": true, "evidence_current": false, "unmet_wer": true},
+    "expected": "BLOCKED"
+  },
+  {
+    "id": "code-after-prior-pass",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": true, "commits_pushed": true, "evidence_current": false, "newer_code_after_pass": true},
+    "expected": "BLOCKED"
+  },
+  {
+    "id": "existing-open-finding",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": false, "commits_pushed": true, "evidence_current": true, "matching_open_finding": true},
+    "expected": "reuse-existing-finding"
+  },
+  {
+    "id": "completed-recurring-finding",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": false, "commits_pushed": true, "evidence_current": true, "matching_completed_finding_recurred": true},
+    "expected": "reopen-existing-finding"
+  },
+  {
+    "id": "human-annotation-blocker",
+    "facts": {"model": "GPT-5.6-Sol", "children_complete": false, "commits_pushed": true, "evidence_current": false, "missing_human_annotation": true},
+    "expected": "BLOCKED"
+  }
+]

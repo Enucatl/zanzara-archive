@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zanzara-archive.local/schemas/contracts.json",
+  "title": "Zanzara Archive contracts",
+  "description": "Versioned shapes for typed records and /api/v1 envelopes. Model output is never implied by this schema.",
+  "$defs": {
+    "ApiError": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "request_id"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "request_id": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "ApiEnvelope": {
+      "type": "object",
+      "required": ["request_id", "status"],
+      "properties": {
+        "request_id": {"type": "string"},
+        "status": {"enum": ["ok", "error"]},
+        "data": {"type": "object"},
+        "error": {"$ref": "#/$defs/ApiError"}
+      },
+      "additionalProperties": false
+    },
+    "AudioArtifact": {
+      "type": "object",
+      "required": ["artifact_id", "source_sha256", "format", "duration_ms", "sample_rate_hz", "channels", "time_origin_ms", "transform_hash", "decoder_version", "preprocessing"],
+      "properties": {
+        "artifact_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "format": {"type": "string"},
+        "duration_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "sample_rate_hz": {"type": "integer", "exclusiveMinimum": 0},
+        "channels": {"type": "integer", "exclusiveMinimum": 0},
+        "time_origin_ms": {"type": "integer", "minimum": 0},
+        "transform_hash": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "decoder_version": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "preprocessing": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "ModelFingerprint": {
+      "type": "object",
+      "required": ["name", "repository", "revision", "checkpoint_sha256", "dimensions", "preprocessing", "precision", "runtime", "terms_evidence"],
+      "properties": {
+        "name": {"type": "string"},
+        "repository": {"type": "string"},
+        "revision": {"type": "string"},
+        "checkpoint_sha256": {"type": "array", "items": {"$ref": "#/$defs/Sha256"}, "minItems": 1},
+        "dimensions": {"anyOf": [{"type": "integer", "exclusiveMinimum": 0}, {"type": "null"}]},
+        "preprocessing": {"type": "object"},
+        "precision": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "runtime": {"type": "object", "additionalProperties": {"type": "string"}},
+        "terms_evidence": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "TimedWord": {
+      "type": "object",
+      "required": ["word_id", "text", "start_ms", "end_ms", "confidence", "speaker_id", "overlap"],
+      "properties": {
+        "word_id": {"type": "string"},
+        "text": {"type": "string"},
+        "start_ms": {"type": "integer", "minimum": 0},
+        "end_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "confidence": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
+        "speaker_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "overlap": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "Turn": {
+      "type": "object",
+      "required": ["speaker_id", "start_ms", "end_ms", "confidence"],
+      "properties": {
+        "speaker_id": {"type": "string"},
+        "start_ms": {"type": "integer", "minimum": 0},
+        "end_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "confidence": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "Overlap": {
+      "type": "object",
+      "required": ["speaker_ids", "start_ms", "end_ms"],
+      "properties": {
+        "speaker_ids": {"type": "array", "items": {"type": "string"}, "minItems": 2},
+        "start_ms": {"type": "integer", "minimum": 0},
+        "end_ms": {"type": "integer", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "TranscriptResult": {
+      "type": "object",
+      "required": ["artifact_id", "source_sha256", "model", "text", "words", "segments", "status", "timestamp_granularities", "request_id", "duration_ms"],
+      "properties": {
+        "artifact_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "model": {"$ref": "#/$defs/ModelFingerprint"},
+        "text": {"type": "string"},
+        "words": {"type": "array", "items": {"$ref": "#/$defs/TimedWord"}},
+        "segments": {"type": "array", "items": {"type": "object"}},
+        "status": {"enum": ["timed", "text_only", "no_words", "missing_asr"]},
+        "timestamp_granularities": {"type": "array", "items": {"enum": ["word", "segment"]}},
+        "request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        ,"duration_ms": {"anyOf": [{"type": "integer", "exclusiveMinimum": 0}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "EmbeddingBatch": {
+      "type": "object",
+      "required": ["model", "item_ids", "vectors", "request_id"],
+      "properties": {
+        "model": {"$ref": "#/$defs/ModelFingerprint"},
+        "item_ids": {"type": "array", "items": {"type": "string"}},
+        "vectors": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+        "request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "DiarizationResult": {
+      "type": "object",
+      "required": ["artifact_id", "source_sha256", "duration_ms", "model", "standard_turns", "exclusive_turns", "overlaps", "request_id"],
+      "properties": {
+        "artifact_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "duration_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "model": {"$ref": "#/$defs/ModelFingerprint"},
+        "standard_turns": {"type": "array", "items": {"$ref": "#/$defs/Turn"}},
+        "exclusive_turns": {"type": "array", "items": {"$ref": "#/$defs/Turn"}},
+        "overlaps": {"type": "array", "items": {"$ref": "#/$defs/Overlap"}},
+        "request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "ArtifactManifest": {
+      "type": "object",
+      "required": ["artifact_id", "source_sha256", "stage", "stage_key", "upstream_artifact_hashes", "file_checksums", "pipeline_version", "schema_version", "model_fingerprint_sha256"],
+      "properties": {
+        "artifact_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "stage": {"type": "string"},
+        "stage_key": {"type": "string"},
+        "upstream_artifact_hashes": {"type": "array", "items": {"$ref": "#/$defs/Sha256"}},
+        "file_checksums": {"type": "object", "additionalProperties": {"$ref": "#/$defs/Sha256"}},
+        "pipeline_version": {"type": "string"},
+        "schema_version": {"type": "integer", "exclusiveMinimum": 0},
+        "model_fingerprint_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "JobStatus": {
+      "type": "object",
+      "required": ["job_id", "stage", "status", "attempts", "fencing_token", "owner", "lease_expires_at", "error", "recovery_action", "request_id"],
+      "properties": {
+        "job_id": {"type": "string"},
+        "stage": {"type": "string"},
+        "status": {"enum": ["queued", "running", "retry_wait", "succeeded", "failed", "cancelled", "blocked"]},
+        "attempts": {"type": "integer", "minimum": 0},
+        "fencing_token": {"type": "integer", "minimum": 0},
+        "owner": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "lease_expires_at": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "error": {"anyOf": [{"$ref": "#/$defs/ApiError"}, {"type": "null"}]},
+        "recovery_action": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "request_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "CandidateScore": {
+      "type": "object",
+      "required": ["candidate_id", "episode_speaker_id", "rank", "score", "model_scores", "calibration_status", "calibration_artifact_sha256", "provenance_artifact_ids"],
+      "properties": {
+        "candidate_id": {"type": "string"},
+        "episode_speaker_id": {"type": "string"},
+        "rank": {"type": "integer", "exclusiveMinimum": 0},
+        "score": {"type": "number"},
+        "model_scores": {"type": "object", "additionalProperties": {"type": "number"}},
+        "calibration_status": {"enum": ["uncalibrated_rank_fusion", "calibrated_estimate", "unavailable"]},
+        "calibration_artifact_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "provenance_artifact_ids": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "IdentityDecision": {
+      "type": "object",
+      "required": ["decision_id", "left_episode_speaker_id", "right_episode_speaker_id", "decision", "reviewer", "evidence_artifact_ids", "created_at", "state", "revision"],
+      "properties": {
+        "decision_id": {"type": "string"},
+        "left_episode_speaker_id": {"type": "string"},
+        "right_episode_speaker_id": {"type": "string"},
+        "decision": {"enum": ["same_person", "different_person", "uncertain"]},
+        "reviewer": {"type": "string"},
+        "evidence_artifact_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "created_at": {"type": "string"},
+        "state": {"enum": ["active", "superseded"]},
+        "revision": {"type": "integer", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "EvaluationReport": {
+      "type": "object",
+      "required": ["report_id", "source_sha256", "split_sha256", "model_fingerprint_sha256", "configuration_sha256", "reviewed_commit", "verdict", "metrics", "limitations", "generated_at"],
+      "properties": {
+        "report_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "split_sha256": {"$ref": "#/$defs/Sha256"},
+        "model_fingerprint_sha256": {"type": "array", "items": {"$ref": "#/$defs/Sha256"}, "minItems": 1},
+        "configuration_sha256": {"$ref": "#/$defs/Sha256"},
+        "reviewed_commit": {"type": "string"},
+        "verdict": {"enum": ["pass", "blocked", "insufficient_evidence"]},
+        "metrics": {"type": "object"},
+        "limitations": {"type": "array", "items": {"type": "string"}},
+        "generated_at": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "Sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "service_routes": {
+    "GET /health": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "GET /ready": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /v1/audio/transcriptions": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /v1/diarize": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /v1/embed-speakers": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /v1/embeddings": {"response": {"$ref": "#/$defs/ApiEnvelope"}}
+  },
+  "routes": {
+    "GET /api/v1/episodes/{id}/transcript": {"response": {"$ref": "#/$defs/ApiEnvelope"}, "missing_asr_status": "missing_asr"},
+    "POST /api/v1/voice-search/jobs": {"response": {"$ref": "#/$defs/ApiEnvelope"}, "calibration_status": "uncalibrated_rank_fusion"},
+    "GET /api/v1/jobs/{id}": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "GET /api/v1/health": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "GET /api/v1/ready": {"response": {"$ref": "#/$defs/ApiEnvelope"}}
+  }
+}

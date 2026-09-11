@@ -48,3 +48,7 @@ uv run pytest -m 'paid'  # only after explicit budget authorization
 Synthetic fixtures belong in `tests/fixtures/` and must contain no private
 audio, credentials, model weights, identities or local database state. Private
 artifacts and generated processing output stay in ignored local directories.
+
+The durable single-worker queue, stage fingerprints and crash recovery contract
+are documented in [`docs/jobs.md`](docs/jobs.md). Jobs and stage state belong on
+the local SQLite `state` volume; the canonical archive remains read-only.

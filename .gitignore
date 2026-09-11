@@ -95,10 +95,7 @@ ipython_config.py
 # Pipfile.lock
 
 # UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
+# The application lock is committed so CI and local installs are reproducible.
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -216,3 +213,32 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Zanzara local and private artifacts
+.zanzara/
+artifacts/
+evidence/
+state/
+scratch/
+credentials/
+secrets/
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
+
+# Archive audio and generated model artifacts must never enter the repository.
+*.opus
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.nemo

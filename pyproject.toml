@@ -1,0 +1,41 @@
+[project]
+name = "zanzara-archive"
+version = "0.1.0"
+description = "Local-first tools for the Zanzara audio archive"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[project.scripts]
+zanzara = "zanzara_archive.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "ruff>=0.11,<0.14",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Paid checks are opt-in with ``pytest -m paid``.
+addopts = "-ra -m 'not paid'"
+markers = [
+    "gpu: requires a real supported GPU and model artifacts",
+    "integration: requires external services or local service containers",
+    "browser: requires a browser and running web application",
+    "paid: incurs an explicitly authorized external inference cost",
+]

@@ -1,6 +1,6 @@
 ---
 name: review-phase
-description: Review an implemented Zanzara Archive phase under GPT 5.6-Sol, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated PR review.
+description: Review an implemented Zanzara Archive phase under GPT 5.6-Sol, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated change review.
 ---
 
 # Review a Zanzara Archive phase
@@ -13,7 +13,7 @@ Read `planning/README.md`, `planning/SYSTEM-DESIGN.md`, `planning/EVALUATION.md`
 
 1. Resolve the parent by number and stable marker; reject a child or unrelated issue as input. Read its release criteria and preceding-phase release evidence. Record repository HEAD, default-branch commit, working-tree state and reviewed commit. Review a concrete commit in a clean isolated checkout if local edits would make evidence ambiguous; preserve user changes.
 2. Fetch all native children and blockers with pagination. Check close reason `completed`, pushed implementation commits and acceptance evidence. `not_planned` is not completion unless the user explicitly approves a replacement and its evidence. Include unresolved review follow-ups in readiness. Detect human tasks marked done without a human action record.
-3. Read relevant current code and contracts across the whole phase, including direct-to-main commits and any optional PR diffs. Trace at least one integrated success path and material failure/recovery path. Check source/model/generation isolation, real timing, human identity decisions, privacy, paid-call gating and phase-specific requirements. Do not run paid experiments or bulk processing as a side effect of review.
+3. Read relevant current code and contracts across the whole phase, including direct-to-main commits and any linked review artifacts. Trace at least one integrated success path and material failure/recovery path. Check source/model/generation isolation, real timing, human identity decisions, privacy, paid-call gating and phase-specific requirements. Do not run paid experiments or bulk processing as a side effect of review.
 4. Verify evidence files exist, checksums match, and commands/results apply to the reviewed commit and frozen corpus/reference/splits. A newer implementation without current results is missing evidence. Run bounded relevant CPU checks where useful; inspect actual GPU/human/paid artifacts instead of substituting mocks for them. Respect the held-out protocol; do not tune after inspecting held-out metrics. Report missing resources as blockers.
 
 ## Publish concrete findings

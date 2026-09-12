@@ -9,7 +9,7 @@ description: In a fresh isolated sub-agent, implement one eligible Zanzara Archi
 
 Run this skill in a fresh sub-agent, with no inherited coordinator/main-thread context. The coordinator must pass only this skill prompt and the requested issue number or stable ID; use the equivalent of `fork_turns=none` when delegating. Reconstruct all repository, GitHub, dependency, and evidence context from the live workspace and the instructions below. Do not rely on summaries, claims, or decisions from the coordinator thread.
 
-Run under GPT 5.6-Luna. This skill cannot switch its own model. Input may be an issue number or stable ID; without one, select the next eligible child from the live GitHub Project.
+Run under the same model and reasoning effort as the spawning coordinator. When using the native delegation tool, set `fork_context: false` and omit both `model` and `reasoning_effort` so the fresh sub-agent inherits the coordinator's runtime selection. This skill must not switch or hard-code the model. The `Executor: Luna` issue field controls backlog eligibility and workflow ownership; it does not force a runtime model. Input may be an issue number or stable ID; without one, select the next eligible child from the live GitHub Project.
 
 ## Select exactly one issue
 

@@ -31,8 +31,6 @@ def _expected_decision(facts: dict[str, Any]) -> str:
         return "reuse-existing-finding"
     if facts.get("matching_completed_finding_recurred"):
         return "reopen-existing-finding"
-    if facts.get("model") != "GPT-5.6-Sol":
-        return "BLOCKED"
     if facts.get("not_planned_prerequisite"):
         return "BLOCKED"
     if not facts.get("commits_pushed") or not facts.get("evidence_current"):
@@ -92,8 +90,8 @@ def test_fixture_outcomes_cover_review_gates_without_live_mutations() -> None:
 def test_skill_preserves_the_fixture_decision_boundaries() -> None:
     skill = _skill()
     required_clauses = (
-        "stop before publishing and ask the operator to select Sol",
-        "never claim to have switched models",
+        "Use whatever model is currently enabled in the chat",
+        "do not gate, switch, or request a model change",
         "Check close reason `completed`, pushed implementation commits and acceptance evidence",
         "`not_planned` is not completion unless the user explicitly approves a replacement",
         "Report missing resources as blockers",
@@ -110,6 +108,19 @@ def test_skill_preserves_the_fixture_decision_boundaries() -> None:
     )
     for clause in required_clauses:
         assert clause in skill
+
+
+def test_current_chat_model_is_not_a_review_gate() -> None:
+    skill = _skill()
+    assert "select Sol" not in skill
+    assert "GPT-5.6-Sol" not in skill
+    facts = {
+        "model": "arbitrary-current-chat-model",
+        "children_complete": True,
+        "commits_pushed": True,
+        "evidence_current": True,
+    }
+    assert _expected_decision(facts) == "PASS — awaiting user release"
 
 
 def test_clean_pass_cannot_close_or_release_the_phase() -> None:

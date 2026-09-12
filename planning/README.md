@@ -49,11 +49,11 @@ Current credentials lack the Project scope; `gh auth refresh -s project` is the 
 
 Stop at the verified GitHub structure and creation report. Do not begin P0 implementation in the setup run. The private Project does not hide public repository issues: raw archive audio, annotations, identities, embeddings, keys and sensitive traces stay in private local storage.
 
-## Luna implementation and Sol review
+## Luna implementation and phase review
 
 Select only eligible open Luna children, including registered review follow-ups, using native blockers and completion evidence. Sort by phase, priority, then numeric Order. A child waits for the **preceding** phase's release, never its own phase's closure. Human tasks and phase parents are not unattended implementation work. A prerequisite closed as `not_planned` needs an explicit user-approved replacement.
 
-Implement one bounded Luna issue, run its required checks, commit the result directly to `main`, push `origin/main`, and record the commit and evidence on the child issue. Mark that child Done only after its acceptance checklist passes; Operator and other Human issues remain explicit human actions. There is no issue-level PR review gate. At each phase boundary present `$review-phase <parent-issue-number>` for invocation under GPT 5.6-Sol. The skill reviews integrated behavior, verifies current evidence and creates deduplicated native remediation children; it does not fix them or release the phase. Every phase stays open until a current PASS and the user's `Release Pn at <reviewed-commit>` record.
+Implement one bounded Luna issue, run its required checks, commit the result directly to `main`, push `origin/main`, and record the commit and evidence on the child issue. Mark that child Done only after its acceptance checklist passes; Operator and other Human issues remain explicit human actions. There is no issue-level PR review gate. At each phase boundary present `$review-phase <parent-issue-number>` for invocation using the model currently enabled in chat. The skill reviews integrated behavior, verifies current evidence and creates deduplicated native remediation children; it does not fix them or release the phase. Every phase stays open until a current PASS and the user's `Release Pn at <reviewed-commit>` record.
 
 ## Package completion checklist
 

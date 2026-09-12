@@ -1,6 +1,6 @@
 # Repository phase-review skill specification
 
-P0-06 installs the proposed content below at `.agents/skills/review-phase/SKILL.md` and verifies repository-relative references. This planning package does not install or invoke it. The operator selects GPT 5.6-Sol before invoking `$review-phase <phase-issue-number>`; a skill cannot switch its own model. Model choice is a workflow requirement, not an API identifier claim.
+P0-06 installs the proposed content below at `.agents/skills/review-phase/SKILL.md` and verifies repository-relative references. This planning package does not install or invoke it. `$review-phase <phase-issue-number>` uses whatever model is currently enabled in the chat; the skill never switches or filters the model. If runtime identity is unavailable, the report records that limitation.
 
 The skill is limited to integrated phase review and GitHub remediation/report publication. Invocation authorizes those follow-up issues and review comments. It does not authorize fixes, closing the phase, relaxing targets, or starting the next phase. It should inspect current live state, never trust a static child list alone.
 
@@ -11,12 +11,12 @@ Copy the contents of this fence verbatim, replacing no placeholders:
 ````markdown
 ---
 name: review-phase
-description: Review an implemented Zanzara Archive phase under GPT 5.6-Sol, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated change review.
+description: Review an implemented Zanzara Archive phase using the model currently enabled in chat, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated change review.
 ---
 
 # Review a Zanzara Archive phase
 
-Run under GPT 5.6-Sol. If the active model is known to differ, stop before publishing and ask the operator to select Sol and invoke again. If the runtime does not expose model identity, record the operator's declared model and the verification limitation; never claim to have switched models. Input is the parent issue number in `Enucatl/zanzara-archive`.
+Use whatever model is currently enabled in the chat; do not gate, switch, or request a model change. If the runtime exposes model identity, record it; otherwise record that identity was not exposed. Input is the parent issue number in `Enucatl/zanzara-archive`.
 
 Read `planning/README.md`, `planning/SYSTEM-DESIGN.md`, `planning/EVALUATION.md`, `planning/GITHUB-SETUP.md` and the matching manifest parent. Resolve paths from the Git repository root. Apply the setup runbook's credential preflight, stable-marker reconciliation and native relationship procedures. Read all pages of current children, dependencies, comments, linked commits, optional PRs, review reports and project fields, including follow-ups absent from the original manifest. A permission failure must produce a local draft report and an explicit publication blocker, not a claimed successful review.
 
@@ -41,7 +41,7 @@ Attach each follow-up with the native sub-issue API under the same parent; wire 
 
 Publish one report comment per phase/reviewed commit using marker `<!-- zanzara-review-report:Pn:commit-sha -->` with the actual commit in the marker. On rerun reconcile that comment; preserve discussion and state which previous findings are fixed or still open. Include:
 
-- reviewed commit, phase, date, declared/verified model and review scope;
+- reviewed commit, phase, date, currently enabled model if exposed (or the identity limitation), and review scope;
 - children/commits reviewed and completion/close reasons;
 - commands and evidence paths/checksums, real vs synthetic provenance;
 - integrated contract/behavior findings and links to remediation issues;
@@ -53,4 +53,4 @@ PASS requires every child/follow-up completed, required implementation commits p
 
 ## Validation required in P0-06
 
-Validate frontmatter/name and all referenced repository paths. Exercise read-only fixtures for: a clean phase; an unpushed child commit; closed-not-planned prerequisite; missing GPU measurements; unmet WER; new pushed code after a prior pass; an existing open finding; a completed recurring finding; and a human annotation blocker. Demonstrate that generated mutations create one native child and the correct blocker direction, never a cycle or duplicate. Test against fixture/API stubs before any real issue publication. Record model declaration accurately and demonstrate that a PASS leaves the parent open. No automated test should pretend a model self-switch occurred.
+Validate frontmatter/name and all referenced repository paths. Exercise read-only fixtures for: a clean phase; an unpushed child commit; closed-not-planned prerequisite; missing GPU measurements; unmet WER; new pushed code after a prior pass; an existing open finding; a completed recurring finding; and a human annotation blocker. Demonstrate that generated mutations create one native child and the correct blocker direction, never a cycle or duplicate. Test against fixture/API stubs before any real issue publication. Record the currently enabled model when exposed, note the limitation otherwise, and demonstrate that a PASS leaves the parent open. No automated test should pretend a model switch occurred.

@@ -1,9 +1,13 @@
 ---
 name: implement-issue
-description: Implement one eligible Zanzara Archive Luna child issue, commit it directly to main, push it, and record acceptance evidence. Use for bounded implementation, evaluation, or review-follow-up work; do not use for Human tasks, phase release, or phase review.
+description: In a fresh isolated sub-agent, implement one eligible Zanzara Archive Luna child issue, commit it directly to main, push it, and record acceptance evidence. Use for bounded implementation, evaluation, or review-follow-up work; do not use for Human tasks, phase release, or phase review.
 ---
 
 # Implement one Zanzara Archive issue
+
+## Execution boundary
+
+Run this skill in a fresh sub-agent, with no inherited coordinator/main-thread context. The coordinator must pass only this skill prompt and the requested issue number or stable ID; use the equivalent of `fork_turns=none` when delegating. Reconstruct all repository, GitHub, dependency, and evidence context from the live workspace and the instructions below. Do not rely on summaries, claims, or decisions from the coordinator thread.
 
 Run under GPT 5.6-Luna. This skill cannot switch its own model. Input may be an issue number or stable ID; without one, select the next eligible child from the live GitHub Project.
 
@@ -31,6 +35,6 @@ Comment on the child issue with the commit SHA, commands and results, acceptance
 
 ## Stop at the phase gate
 
-When all current-phase children and follow-ups are complete, stop and present `$review-phase <phase-parent-number>` for execution under GPT 5.6-Sol. Do not close or release the phase parent, start the next phase, perform excluded Human actions, or run unapproved paid/bulk work. The phase parent remains open until Sol publishes a current PASS and the user posts `Release Pn at <reviewed-commit>`.
+When all current-phase children and follow-ups are complete, stop and present `$review-phase <phase-parent-number>` for execution using the model currently enabled in the chat. Do not close or release the phase parent, start the next phase, perform excluded Human actions, or run unapproved paid/bulk work. The phase parent remains open until a current PASS is published and the user posts `Release Pn at <reviewed-commit>`.
 
 If the tree conflicts, a dependency is ambiguous, acceptance evidence is missing, or the remote cannot be verified, stop with a precise blocker and leave the issue unclaimed or in the truthful status. A local or unpushed commit is never completion.

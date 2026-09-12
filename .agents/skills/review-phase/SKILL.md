@@ -1,11 +1,11 @@
 ---
 name: review-phase
-description: Review an implemented Zanzara Archive phase under GPT 5.6-Sol, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated change review.
+description: Review an implemented Zanzara Archive phase using the model currently enabled in chat, verify integrated code and evaluation evidence, and publish deduplicated remediation sub-issues and a release-readiness report. Use when asked to review a phase issue; do not use for routine implementation or isolated change review.
 ---
 
 # Review a Zanzara Archive phase
 
-Run under GPT 5.6-Sol. If the active model is known to differ, stop before publishing and ask the operator to select Sol and invoke again. If the runtime does not expose model identity, record the operator's declared model and the verification limitation; never claim to have switched models. Input is the parent issue number in `Enucatl/zanzara-archive`.
+Use whatever model is currently enabled in the chat; do not gate, switch, or request a model change. If the runtime exposes model identity, record it; otherwise record that identity was not exposed. Input is the parent issue number in `Enucatl/zanzara-archive`.
 
 Read `planning/README.md`, `planning/SYSTEM-DESIGN.md`, `planning/EVALUATION.md`, `planning/GITHUB-SETUP.md` and the matching manifest parent. Resolve paths from the Git repository root. Apply the setup runbook's credential preflight, stable-marker reconciliation and native relationship procedures. Read all pages of current children, dependencies, comments, linked commits, optional PRs, review reports and project fields, including follow-ups absent from the original manifest. A permission failure must produce a local draft report and an explicit publication blocker, not a claimed successful review.
 
@@ -30,7 +30,7 @@ Attach each follow-up with the native sub-issue API under the same parent; wire 
 
 Publish one report comment per phase/reviewed commit using marker `<!-- zanzara-review-report:Pn:commit-sha -->` with the actual commit in the marker. On rerun reconcile that comment; preserve discussion and state which previous findings are fixed or still open. Include:
 
-- reviewed commit, phase, date, declared/verified model and review scope;
+- reviewed commit, phase, date, currently enabled model if exposed (or the identity limitation), and review scope;
 - children/commits reviewed and completion/close reasons;
 - commands and evidence paths/checksums, real vs synthetic provenance;
 - integrated contract/behavior findings and links to remediation issues;

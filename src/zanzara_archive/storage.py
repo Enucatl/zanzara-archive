@@ -17,6 +17,7 @@ import urllib.parse
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import get_ident
 
 from .contracts import (
     ApiError,
@@ -526,13 +527,16 @@ def _json(value: object) -> str:
 class SQLiteRepository:
     """Repository for canonical records and committed projections."""
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, database_path: Path | None = None):
         self.connection = connection
+        self._database_path = database_path
+        self._connection_thread_id = get_ident()
         assert_sqlite_capabilities(connection)
 
     @classmethod
     def open(cls, path: str | os.PathLike[str]) -> SQLiteRepository:
-        return cls(open_database(path))
+        database_path = ensure_local_state_path(path)
+        return cls(open_database(database_path), database_path)
 
     def close(self) -> None:
         self.connection.close()
@@ -866,16 +870,27 @@ class SQLiteRepository:
         instant = self._instant(now)
         stamp = self._timestamp(instant)
         expiry = self._timestamp(instant + timedelta(seconds=lease_seconds))
-        with self.transaction() as connection:
-            result = connection.execute(
-                """UPDATE jobs SET lease_expires_at=?, updated_at=?
-                WHERE job_id=? AND status='running' AND owner=? AND fencing_token=?
-                AND lease_expires_at > ?""",
-                (expiry, stamp, job_id, owner, fencing_token, stamp),
-            )
-            if result.rowcount != 1:
-                raise StorageConflictError("lease heartbeat rejected by fencing token or expiry")
-            row = connection.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        connection = self.connection
+        separate_connection = False
+        if self._database_path is not None and get_ident() != self._connection_thread_id:
+            connection = open_database(self._database_path)
+            separate_connection = True
+        try:
+            with connection:
+                result = connection.execute(
+                    """UPDATE jobs SET lease_expires_at=?, updated_at=?
+                    WHERE job_id=? AND status='running' AND owner=? AND fencing_token=?
+                    AND lease_expires_at > ?""",
+                    (expiry, stamp, job_id, owner, fencing_token, stamp),
+                )
+                if result.rowcount != 1:
+                    raise StorageConflictError(
+                        "lease heartbeat rejected by fencing token or expiry"
+                    )
+                row = connection.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        finally:
+            if separate_connection:
+                connection.close()
         return self._job_from_row(row)
 
     def complete_job(

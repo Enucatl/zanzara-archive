@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from threading import Event, Thread
 from typing import Any, Protocol
 
 from .contracts import ApiError, JobStatus
-from .storage import SQLiteRepository
+from .storage import SQLiteRepository, StorageConflictError
 
 LEASE_SECONDS = 120
 HEARTBEAT_SECONDS = 30
@@ -43,6 +44,15 @@ def _as_error(value: ApiError | Exception, *, request_id: str) -> ApiError:
     )
 
 
+def _lease_lost_error(job: JobStatus) -> ApiError:
+    return ApiError(
+        code="lease_lost",
+        message="worker lease was lost while the stage was running",
+        retryable=True,
+        request_id=job.request_id or f"job-{job.job_id}",
+    )
+
+
 class DurableWorker:
     """Execute one claimed job at a time with fenced completion."""
 
@@ -53,15 +63,21 @@ class DurableWorker:
         runner: StageRunner,
         *,
         max_attempts: int = MAX_ATTEMPTS,
+        clock: Callable[[], datetime] | None = None,
+        heartbeat_interval: float = HEARTBEAT_SECONDS,
     ) -> None:
         if not owner:
             raise ValueError("owner must be non-empty")
         if max_attempts <= 0:
             raise ValueError("max_attempts must be positive")
+        if heartbeat_interval <= 0:
+            raise ValueError("heartbeat_interval must be positive")
         self.repository = repository
         self.owner = owner
         self.runner = runner
         self.max_attempts = max_attempts
+        self.clock = clock or (lambda: datetime.now(UTC))
+        self.heartbeat_interval = heartbeat_interval
 
     def run_once(self, *, now: datetime | str | None = None) -> WorkerResult:
         claimed = self.repository.claim_next_job(
@@ -69,9 +85,39 @@ class DurableWorker:
         )
         if claimed is None:
             return WorkerResult(None)
+        stopped = Event()
+        lease_lost: list[StorageConflictError] = []
+
+        def renew_lease() -> None:
+            while not stopped.wait(self.heartbeat_interval):
+                try:
+                    self.repository.heartbeat(
+                        claimed.job_id,
+                        owner=self.owner,
+                        fencing_token=claimed.fencing_token,
+                        now=self.clock(),
+                        lease_seconds=LEASE_SECONDS,
+                    )
+                except StorageConflictError as exc:
+                    lease_lost.append(exc)
+                    stopped.set()
+                    return
+
+        heartbeat = Thread(
+            target=renew_lease,
+            name=f"zanzara-heartbeat-{claimed.job_id}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             self.runner(claimed)
         except Exception as exc:  # callback failures become typed durable state
+            stopped.set()
+            heartbeat.join()
+            if lease_lost:
+                return WorkerResult(
+                    self.repository.fetch_job(claimed.job_id), error=_lease_lost_error(claimed)
+                )
             error = _as_error(exc, request_id=claimed.request_id or f"job-{claimed.job_id}")
             final = self.repository.fail_job(
                 claimed.job_id,
@@ -83,6 +129,12 @@ class DurableWorker:
                 max_attempts=self.max_attempts,
             )
             return WorkerResult(final, error=error)
+        stopped.set()
+        heartbeat.join()
+        if lease_lost:
+            return WorkerResult(
+                self.repository.fetch_job(claimed.job_id), error=_lease_lost_error(claimed)
+            )
         final = self.repository.complete_job(
             claimed.job_id,
             owner=self.owner,

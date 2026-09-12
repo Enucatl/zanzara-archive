@@ -9,7 +9,11 @@ reusable when only ASR changes.
 
 `SQLiteRepository` owns one durable worker queue in the local WAL database. A
 claim uses `BEGIN IMMEDIATE`, a 120-second lease, a monotonically increasing
-fencing token and an attempt count. Workers should heartbeat every 30 seconds.
+fencing token and an attempt count. While a stage callback runs,
+`DurableWorker` renews the lease in a daemon heartbeat thread every 30 seconds
+without holding a database transaction during inference. The thread is stopped
+and joined on callback completion, failure, or shutdown. A rejected renewal
+returns a typed `lease_lost` failure and prevents stale completion/publication.
 Expired leases are requeued on recovery, transient failures back off for five
 then thirty seconds, and three attempts is the default limit. Deterministic
 failures become `blocked`; exhausted transient failures become `failed`;

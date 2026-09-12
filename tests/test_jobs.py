@@ -2,12 +2,73 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event
 
 import pytest
 
 from zanzara_archive.contracts import ApiError
+from zanzara_archive.jobs import DurableWorker
 from zanzara_archive.storage import SQLiteRepository, StorageConflictError
+
+
+def test_long_callback_is_renewed_and_cannot_be_reclaimed(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.enqueue_job(job_id="long", stage="decode", source_sha256="a" * 64)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    heartbeat_seen = Event()
+    calls = 0
+
+    def clock() -> datetime:
+        nonlocal calls
+        calls += 1
+        return start + timedelta(seconds=31 * calls)
+
+    original_heartbeat = repository.heartbeat
+
+    def heartbeat(*args: object, **kwargs: object) -> object:
+        result = original_heartbeat(*args, **kwargs)
+        heartbeat_seen.set()
+        return result
+
+    repository.heartbeat = heartbeat  # type: ignore[method-assign]
+
+    def runner(_: object) -> None:
+        assert heartbeat_seen.wait(1)
+        with pytest.raises(StorageConflictError, match="not eligible"):
+            repository.claim_job("long", "worker-b", now=start + timedelta(seconds=121))
+
+    result = DurableWorker(
+        repository, "worker-a", runner, clock=clock, heartbeat_interval=0.01
+    ).run_once(now=start)
+    assert result.completed
+    assert result.job is not None
+    assert result.job.status == "succeeded"
+    repository.close()
+
+
+def test_lease_loss_prevents_successful_completion(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.enqueue_job(job_id="lost", stage="decode", source_sha256="b" * 64)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    heartbeat_attempted = Event()
+
+    def clock() -> datetime:
+        heartbeat_attempted.set()
+        return start + timedelta(seconds=121)
+
+    def runner(_: object) -> None:
+        assert heartbeat_attempted.wait(1)
+
+    result = DurableWorker(
+        repository, "worker-a", runner, clock=clock, heartbeat_interval=0.01
+    ).run_once(now=start)
+    assert not result.completed
+    assert result.error is not None
+    assert result.error.code == "lease_lost"
+    assert repository.fetch_job("lost").status == "running"
+    repository.close()
 
 
 def test_claims_are_fenced_and_stale_workers_cannot_complete(tmp_path: Path) -> None:

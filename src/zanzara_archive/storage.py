@@ -18,10 +18,16 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .contracts import ApiError, ArtifactManifest, IdentityDecision, JobStatus
+from .contracts import (
+    ApiError,
+    ArtifactManifest,
+    EvaluationReport,
+    IdentityDecision,
+    JobStatus,
+)
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -303,6 +309,147 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE jobs ADD COLUMN paid INTEGER NOT NULL DEFAULT 0 CHECK (paid IN (0, 1));
     CREATE INDEX IF NOT EXISTS idx_jobs_stage_key ON jobs(source_sha256, stage, stage_key);
     """,
+    4: """
+    CREATE TABLE IF NOT EXISTS transcript_words (
+        word_id TEXT PRIMARY KEY,
+        transcript_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256 TEXT,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        text TEXT NOT NULL,
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+        episode_speaker_id TEXT REFERENCES episode_speakers(episode_speaker_id) ON DELETE RESTRICT,
+        overlap INTEGER NOT NULL DEFAULT 0 CHECK (overlap IN (0, 1)),
+        UNIQUE (transcript_artifact_id, ordinal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_transcript_words_episode_time
+      ON transcript_words(episode_id, start_ms, end_ms);
+
+    CREATE TABLE IF NOT EXISTS standard_turns (
+        turn_id TEXT PRIMARY KEY,
+        diarization_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256 TEXT,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        local_speaker_id TEXT NOT NULL,
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+        UNIQUE (diarization_artifact_id, ordinal)
+    );
+    CREATE TABLE IF NOT EXISTS exclusive_turns (
+        turn_id TEXT PRIMARY KEY,
+        diarization_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256 TEXT,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        local_speaker_id TEXT NOT NULL,
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+        UNIQUE (diarization_artifact_id, ordinal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_standard_turns_episode_time
+      ON standard_turns(episode_id, start_ms, end_ms);
+    CREATE INDEX IF NOT EXISTS idx_exclusive_turns_episode_time
+      ON exclusive_turns(episode_id, start_ms, end_ms);
+
+    CREATE TABLE IF NOT EXISTS overlap_intervals (
+        overlap_id TEXT PRIMARY KEY,
+        diarization_artifact_id TEXT NOT NULL REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256 TEXT,
+        ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        speaker_ids_json TEXT NOT NULL,
+        UNIQUE (diarization_artifact_id, ordinal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_overlap_intervals_episode_time
+      ON overlap_intervals(episode_id, start_ms, end_ms);
+
+    CREATE TABLE IF NOT EXISTS annotation_revisions (
+        annotation_revision_id TEXT PRIMARY KEY,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_artifact_id TEXT REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        reviewer TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft','submitted','accepted','superseded')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (episode_id, revision)
+    );
+    CREATE TABLE IF NOT EXISTS review_records (
+        review_id TEXT PRIMARY KEY,
+        annotation_revision_id TEXT NOT NULL REFERENCES annotation_revisions(annotation_revision_id)
+            ON DELETE RESTRICT,
+        reviewer TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        state TEXT NOT NULL CHECK (state IN ('active','superseded')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (annotation_revision_id, target_type, target_id, revision)
+    );
+    CREATE TABLE IF NOT EXISTS split_records (
+        split_id TEXT PRIMARY KEY,
+        episode_speaker_id TEXT NOT NULL REFERENCES episode_speakers(episode_speaker_id)
+            ON DELETE RESTRICT,
+        annotation_revision_id TEXT REFERENCES annotation_revisions(annotation_revision_id)
+            ON DELETE RESTRICT,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        requested_memberships_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('proposed','accepted','superseded','rejected')),
+        created_at TEXT NOT NULL,
+        UNIQUE (episode_speaker_id, revision)
+    );
+
+    CREATE TABLE IF NOT EXISTS upload_jobs (
+        upload_job_id TEXT PRIMARY KEY REFERENCES jobs(job_id) ON DELETE RESTRICT,
+        request_id TEXT NOT NULL UNIQUE,
+        owner TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+            status IN ('queued','running','blocked','succeeded','failed','cancelled','expired')
+        ),
+        upload_artifact_id TEXT REFERENCES artifacts(artifact_id) ON DELETE RESTRICT,
+        selected_episode_speaker_id TEXT REFERENCES episode_speakers(episode_speaker_id)
+            ON DELETE RESTRICT,
+        expected_revision INTEGER CHECK (expected_revision IS NULL OR expected_revision > 0),
+        payload_path TEXT,
+        expires_at TEXT NOT NULL,
+        error_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_upload_jobs_expiry ON upload_jobs(status, expires_at);
+
+    CREATE TABLE IF NOT EXISTS evaluation_reports (
+        report_id TEXT PRIMARY KEY,
+        source_sha256 TEXT NOT NULL,
+        split_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256_json TEXT NOT NULL,
+        configuration_sha256 TEXT NOT NULL,
+        reviewed_commit TEXT NOT NULL,
+        verdict TEXT NOT NULL CHECK (verdict IN ('pass','blocked','insufficient_evidence')),
+        metrics_json TEXT NOT NULL,
+        limitations_json TEXT NOT NULL,
+        generated_at TEXT,
+        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_evaluation_reports_verdict
+      ON evaluation_reports(verdict, generated_at);
+    """,
 }
 
 
@@ -334,7 +481,17 @@ def migrate(connection: sqlite3.Connection) -> int:
         raise StorageError(f"database schema {current} is newer than supported {SCHEMA_VERSION}")
     with connection:
         for version in range(current + 1, SCHEMA_VERSION + 1):
-            connection.executescript(MIGRATIONS[version])
+            # ``executescript`` commits any active transaction before running,
+            # which would expose a partially applied migration on failure.
+            # Execute complete statements inside the surrounding transaction.
+            statement = ""
+            for line in MIGRATIONS[version].splitlines(keepends=True):
+                statement += line
+                if sqlite3.complete_statement(statement):
+                    connection.execute(statement)
+                    statement = ""
+            if statement.strip():
+                raise StorageError(f"migration {version} has an incomplete SQL statement")
             connection.execute(f"PRAGMA user_version = {version}")
     return SCHEMA_VERSION
 
@@ -984,6 +1141,53 @@ class SQLiteRepository:
                 VALUES (?, ?, ?, ?)""",
                 (decision.decision_id, decision.revision, payload, _now()),
             )
+
+    def record_evaluation_report(self, report: EvaluationReport) -> None:
+        """Persist one immutable aggregate report with its provenance hashes."""
+
+        with self.transaction() as connection:
+            connection.execute(
+                """INSERT INTO evaluation_reports (
+                    report_id, source_sha256, split_sha256,
+                    model_fingerprint_sha256_json, configuration_sha256,
+                    reviewed_commit, verdict, metrics_json, limitations_json,
+                    generated_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    report.report_id,
+                    report.source_sha256,
+                    report.split_sha256,
+                    _json(report.model_fingerprint_sha256),
+                    report.configuration_sha256,
+                    report.reviewed_commit,
+                    report.verdict,
+                    _json(report.metrics),
+                    _json(report.limitations),
+                    report.generated_at,
+                    _now(),
+                ),
+            )
+
+    def fetch_evaluation_report(self, report_id: str) -> EvaluationReport | None:
+        """Restore a report without losing its model and split provenance."""
+
+        row = self.connection.execute(
+            "SELECT * FROM evaluation_reports WHERE report_id = ?", (report_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return EvaluationReport(
+            report_id=row["report_id"],
+            source_sha256=row["source_sha256"],
+            split_sha256=row["split_sha256"],
+            model_fingerprint_sha256=tuple(json.loads(row["model_fingerprint_sha256_json"])),
+            configuration_sha256=row["configuration_sha256"],
+            reviewed_commit=row["reviewed_commit"],
+            verdict=row["verdict"],
+            metrics=json.loads(row["metrics_json"]),
+            limitations=tuple(json.loads(row["limitations_json"])),
+            generated_at=row["generated_at"],
+        )
 
     def reserve_cost(
         self,

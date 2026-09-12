@@ -20,7 +20,6 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -295,8 +294,14 @@ def _scored_words(
     return tuple(word for word in words if _in_ranges(word, ranges) and not _is_masked(word, masks))
 
 
-def _edit_alignment(reference: Sequence[str], hypothesis: Sequence[str]) -> Alignment:
-    """Return a stable word/character Levenshtein alignment."""
+def _full_edit_alignment(
+    reference: Sequence[str],
+    hypothesis: Sequence[str],
+    *,
+    reference_offset: int = 0,
+    hypothesis_offset: int = 0,
+) -> Alignment:
+    """Return a stable alignment for a bounded dynamic-programming matrix."""
 
     rows = len(reference) + 1
     columns = len(hypothesis) + 1
@@ -323,20 +328,142 @@ def _edit_alignment(reference: Sequence[str], hypothesis: Sequence[str]) -> Alig
             == costs[row - 1][column - 1] + (reference[row - 1] != hypothesis[column - 1])
         ):
             equal = reference[row - 1] == hypothesis[column - 1]
-            operations.append(("equal" if equal else "substitute", row - 1, column - 1))
-            substitutions += not equal
+            operations.append(
+                (
+                    "equal" if equal else "substitute",
+                    reference_offset + row - 1,
+                    hypothesis_offset + column - 1,
+                )
+            )
+            substitutions += int(not equal)
             row -= 1
             column -= 1
         elif row and costs[row][column] == costs[row - 1][column] + 1:
-            operations.append(("delete", row - 1, None))
+            operations.append(("delete", reference_offset + row - 1, None))
             deletions += 1
             row -= 1
         else:
-            operations.append(("insert", None, column - 1))
+            operations.append(("insert", None, hypothesis_offset + column - 1))
             insertions += 1
             column -= 1
     operations.reverse()
     return Alignment(tuple(operations), substitutions, deletions, insertions)
+
+
+def _edit_distance_row(reference: Sequence[str], hypothesis: Sequence[str]) -> list[int]:
+    """Return the final DP row using memory proportional to the hypothesis."""
+
+    previous = list(range(len(hypothesis) + 1))
+    for reference_token in reference:
+        current = [previous[0] + 1]
+        for column, hypothesis_token in enumerate(hypothesis, 1):
+            current.append(
+                min(
+                    previous[column - 1] + int(reference_token != hypothesis_token),
+                    previous[column] + 1,
+                    current[column - 1] + 1,
+                )
+            )
+        previous = current
+    return previous
+
+
+def _hirschberg_alignment(
+    reference: Sequence[str],
+    hypothesis: Sequence[str],
+    *,
+    reference_offset: int = 0,
+    hypothesis_offset: int = 0,
+) -> Alignment:
+    """Return an exact alignment without retaining the full DP matrix."""
+
+    if not reference:
+        return Alignment(
+            tuple(("insert", None, hypothesis_offset + index) for index in range(len(hypothesis))),
+            0,
+            0,
+            len(hypothesis),
+        )
+    if not hypothesis:
+        return Alignment(
+            tuple(("delete", reference_offset + index, None) for index in range(len(reference))),
+            0,
+            len(reference),
+            0,
+        )
+    if len(reference) == 1 or len(hypothesis) == 1 or len(reference) * len(hypothesis) <= 4096:
+        return _full_edit_alignment(
+            reference,
+            hypothesis,
+            reference_offset=reference_offset,
+            hypothesis_offset=hypothesis_offset,
+        )
+
+    reference_midpoint = len(reference) // 2
+    left_reference = reference[:reference_midpoint]
+    right_reference = reference[reference_midpoint:]
+    left_costs = _edit_distance_row(left_reference, hypothesis)
+    right_costs = _edit_distance_row(right_reference[::-1], hypothesis[::-1])
+    hypothesis_midpoint = min(
+        range(len(hypothesis) + 1),
+        key=lambda index: left_costs[index] + right_costs[len(hypothesis) - index],
+    )
+    left = _hirschberg_alignment(
+        left_reference,
+        hypothesis[:hypothesis_midpoint],
+        reference_offset=reference_offset,
+        hypothesis_offset=hypothesis_offset,
+    )
+    right = _hirschberg_alignment(
+        right_reference,
+        hypothesis[hypothesis_midpoint:],
+        reference_offset=reference_offset + reference_midpoint,
+        hypothesis_offset=hypothesis_offset + hypothesis_midpoint,
+    )
+    return Alignment(
+        left.operations + right.operations,
+        left.substitutions + right.substitutions,
+        left.deletions + right.deletions,
+        left.insertions + right.insertions,
+    )
+
+
+def _edit_alignment(reference: Sequence[str], hypothesis: Sequence[str]) -> Alignment:
+    """Return a stable, memory-bounded word/character Levenshtein alignment."""
+
+    prefix = 0
+    common_length = min(len(reference), len(hypothesis))
+    while prefix < common_length and reference[prefix] == hypothesis[prefix]:
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < len(reference) - prefix
+        and suffix < len(hypothesis) - prefix
+        and reference[len(reference) - suffix - 1] == hypothesis[len(hypothesis) - suffix - 1]
+    ):
+        suffix += 1
+
+    middle_reference = reference[prefix : len(reference) - suffix]
+    middle_hypothesis = hypothesis[prefix : len(hypothesis) - suffix]
+    middle = _hirschberg_alignment(
+        middle_reference,
+        middle_hypothesis,
+        reference_offset=prefix,
+        hypothesis_offset=prefix,
+    )
+    operations = (
+        tuple(("equal", index, index) for index in range(prefix))
+        + middle.operations
+        + tuple(
+            (
+                "equal",
+                len(reference) - suffix + index,
+                len(hypothesis) - suffix + index,
+            )
+            for index in range(suffix)
+        )
+    )
+    return Alignment(operations, middle.substitutions, middle.deletions, middle.insertions)
 
 
 def _metric(
@@ -521,35 +648,93 @@ def _speaker_mapping(
     reference_speakers = sorted({speaker for _, _, speakers, _ in events for speaker in speakers})
     if not hypothesis_speakers or not reference_speakers:
         return {}
-    reference_index = {speaker: index for index, speaker in enumerate(reference_speakers)}
 
-    @cache
-    def best(index: int, used: int) -> tuple[int, tuple[str | None, ...]]:
-        if index == len(hypothesis_speakers):
-            return 0, ()
-        hypothesis_speaker = hypothesis_speakers[index]
-        options: list[tuple[int, tuple[str | None, ...]]] = []
-        tail_score, tail_map = best(index + 1, used)
-        options.append((tail_score, (None, *tail_map)))
-        for reference_speaker in reference_speakers:
-            bit = 1 << reference_index[reference_speaker]
-            if used & bit:
-                continue
-            tail_score, tail_map = best(index + 1, used | bit)
-            options.append(
-                (
-                    scores.get((hypothesis_speaker, reference_speaker), 0) + tail_score,
-                    (reference_speaker, *tail_map),
-                )
-            )
-        # Maximize overlap, then prefer a lexicographically stable mapping;
-        # unmapped speakers sort after real IDs.
-        return max(
-            options,
-            key=lambda option: (option[0], tuple(item or "~" for item in option[1])),
+    def maximum_score(rows: Sequence[str], columns: Sequence[str]) -> int:
+        """Return maximum weighted matching score, allowing unmatched rows."""
+
+        if not rows or not columns:
+            return 0
+        # Add one zero-weight dummy column per row so every row can remain
+        # unmapped. The Hungarian algorithm then solves the exact assignment in
+        # polynomial time instead of enumerating every used-reference subset.
+        weights = [
+            [scores.get((row, column), 0) for column in columns] + [0] * len(rows) for row in rows
+        ]
+        column_count = len(weights[0])
+        potential_rows = [0] * (len(rows) + 1)
+        potential_columns = [0] * (column_count + 1)
+        assigned_row = [0] * (column_count + 1)
+        previous_column = [0] * (column_count + 1)
+        for row_index in range(1, len(rows) + 1):
+            assigned_row[0] = row_index
+            current_column = 0
+            minimum = [math.inf] * (column_count + 1)
+            visited = [False] * (column_count + 1)
+            while True:
+                visited[current_column] = True
+                matched_row = assigned_row[current_column]
+                delta = math.inf
+                next_column = 0
+                for column_index in range(1, column_count + 1):
+                    if visited[column_index]:
+                        continue
+                    reduced_cost = (
+                        -weights[matched_row - 1][column_index - 1]
+                        - potential_rows[matched_row]
+                        - potential_columns[column_index]
+                    )
+                    if reduced_cost < minimum[column_index]:
+                        minimum[column_index] = reduced_cost
+                        previous_column[column_index] = current_column
+                    if minimum[column_index] < delta:
+                        delta = minimum[column_index]
+                        next_column = column_index
+                for column_index in range(column_count + 1):
+                    if visited[column_index]:
+                        potential_rows[assigned_row[column_index]] += delta
+                        potential_columns[column_index] -= delta
+                    else:
+                        minimum[column_index] -= delta
+                current_column = next_column
+                if assigned_row[current_column] == 0:
+                    break
+            while True:
+                prior = previous_column[current_column]
+                assigned_row[current_column] = assigned_row[prior]
+                current_column = prior
+                if current_column == 0:
+                    break
+        return sum(
+            weights[assigned_row[column_index] - 1][column_index - 1]
+            for column_index in range(1, len(columns) + 1)
+            if assigned_row[column_index]
         )
 
-    _, selected = best(0, 0)
+    selected: list[str | None] = []
+    used: set[str] = set()
+    remaining_score = maximum_score(hypothesis_speakers, reference_speakers)
+    for index, hypothesis_speaker in enumerate(hypothesis_speakers):
+        options: list[str | None] = [
+            None,
+            *(speaker for speaker in reference_speakers if speaker not in used),
+        ]
+        # Match the former recurrence's lexicographic tie-break: the sentinel
+        # sorts after real speaker IDs, and max() therefore prefers unmapped.
+        options.sort(key=lambda item: item or "~", reverse=True)
+        for candidate in options:
+            candidate_score = scores.get((hypothesis_speaker, candidate), 0) if candidate else 0
+            next_used = used | ({candidate} if candidate else set())
+            tail_score = maximum_score(
+                hypothesis_speakers[index + 1 :],
+                [speaker for speaker in reference_speakers if speaker not in next_used],
+            )
+            if candidate_score + tail_score == remaining_score:
+                selected.append(candidate)
+                used = next_used
+                remaining_score = tail_score
+                break
+        else:
+            raise EvaluationValidationError("speaker assignment could not be reconstructed")
     return {
         hypothesis_speaker: reference_speaker
         for hypothesis_speaker, reference_speaker in zip(hypothesis_speakers, selected, strict=True)
@@ -1229,6 +1414,15 @@ def _render_report_html(report: Mapping[str, Any]) -> str:
         value = html.escape(str(provenance.get(key)))
         return f"<dt>{label}</dt><dd><code>{value}</code></dd>"
 
+    execution = report.get("execution")
+    execution_section = (
+        "<h2>Execution</h2><pre>"
+        + html.escape(json.dumps(execution, indent=2, sort_keys=True))
+        + "</pre>"
+        if isinstance(execution, Mapping)
+        else ""
+    )
+
     return "\n".join(
         (
             "<!doctype html>",
@@ -1256,12 +1450,18 @@ def _render_report_html(report: Mapping[str, Any]) -> str:
             f"<th>Status</th><th>Denominator</th></tr></thead><tbody>{''.join(rows)}</tbody></table>",
             "<h2>Pass/block logic</h2>"
             f"<pre>{html.escape(json.dumps(report['pass_block'], indent=2, sort_keys=True))}</pre>",
+            execution_section,
             "</html>",
         )
     )
 
 
-def write_evaluation_artifacts(report: Mapping[str, Any], output_dir: str | Path) -> dict[str, Any]:
+def write_evaluation_artifacts(
+    report: Mapping[str, Any],
+    output_dir: str | Path,
+    *,
+    run_metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Atomically write the E6 run files to a new private directory."""
 
     destination = Path(output_dir).expanduser()
@@ -1305,9 +1505,11 @@ def write_evaluation_artifacts(report: Mapping[str, Any], output_dir: str | Path
             "private": True,
             "verdict": report["verdict"],
             "provenance": report["provenance"],
-            "commands_require_no_model_or_paid_call": True,
+            "commands_require_no_model_or_paid_call": run_metadata is None,
             "artifact_sha256": artifact_hashes,
         }
+        if run_metadata is not None:
+            run["execution"] = dict(run_metadata)
         _write_private_file(temporary / "run.json", run)
         temporary.chmod(0o700)
         os.replace(temporary, destination)

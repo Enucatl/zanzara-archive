@@ -90,6 +90,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="code commit to record; defaults to the current Git HEAD when available",
     )
     web = commands.add_parser("web", help="run the loopback annotation UI")
+    run = evaluation_commands.add_parser(
+        "run", help="execute the real local golden baseline and write a private E6 run"
+    )
+    run.add_argument("--suite", required=True, choices=("golden",))
+    run.add_argument(
+        "--reference", required=True, help="reviewed reference JSON or artifact directory"
+    )
+    run.add_argument("--split", required=True, help="frozen E1 split JSON")
+    run.add_argument("--output", required=True, help="new private E6 evaluation run directory")
+    run.add_argument("--corpus", default="planning/corpus-20.json")
+    run.add_argument(
+        "--archive-root",
+        default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
+    )
+    run.add_argument(
+        "--artifact-root",
+        default=os.environ.get("ZANZARA_ARTIFACT_ROOT", ".git/zanzara-artifacts"),
+    )
+    run.add_argument(
+        "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
+    )
+    run.add_argument("--model-lock", default="models.lock.json")
+    run.add_argument("--endpoint", help="override the local Parakeet endpoint")
+    run.add_argument(
+        "--diarization-endpoint",
+        default=os.environ.get("DIARIZATION_ENDPOINT", "http://127.0.0.1:18081"),
+    )
+    run.add_argument("--ffmpeg", default="ffmpeg")
+    run.add_argument("--language")
     web.add_argument("--database", required=True, help="local SQLite state path")
     web.add_argument(
         "--artifact-root",
@@ -190,6 +219,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0 if report["verdict"] == "pass" else 1
+        if arguments.evaluation_command == "run":
+            try:
+                from zanzara_archive.baseline import BaselineRunError, run_baseline
+
+                artifacts = run_baseline(arguments)
+            except (
+                AdapterFailure,
+                ArtifactPublicationError,
+                BaselineRunError,
+                CorpusValidationError,
+                EvaluationValidationError,
+                ModelLockError,
+                OSError,
+                StorageError,
+                ValueError,
+            ) as exc:
+                parser.error(str(exc))
+            print(json.dumps(artifacts, indent=2, sort_keys=True))
+            return 0 if artifacts["verdict"] == "pass" else 1
     if arguments.command == "web":
         if arguments.host not in {"127.0.0.1", "localhost", "::1"}:
             parser.error("the annotation UI is loopback-only; choose 127.0.0.1, localhost, or ::1")
@@ -545,7 +593,10 @@ def _process_attribution_stage(arguments: argparse.Namespace) -> dict[str, Any]:
     files.update(
         {name: content.encode("utf-8") for name, content in render_exports(attributed).items()}
     )
-    artifact = ArtifactPublisher(arguments.artifact_root).publish(
+    publisher = ArtifactPublisher(
+        arguments.artifact_root, repository=getattr(arguments, "repository", None)
+    )
+    artifact = publisher.publish(
         source_sha256=episode.sha256,
         stage="attribution",
         stage_key=stage_key,
@@ -554,6 +605,7 @@ def _process_attribution_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         pipeline_version="p1-04",
         artifact_id=artifact_id,
         provenance=provenance,
+        job=getattr(arguments, "job", None),
     )
     return {
         "stage": "attribution",
@@ -649,7 +701,9 @@ def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:
     stage_key = hashlib.sha256(
         json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    publisher = ArtifactPublisher(arguments.artifact_root)
+    publisher = ArtifactPublisher(
+        arguments.artifact_root, repository=getattr(arguments, "repository", None)
+    )
     artifact = publisher.publish(
         source_sha256=episode.sha256,
         stage="asr",
@@ -675,6 +729,7 @@ def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:
             "endpoint": adapter_endpoint,
             "window_count": len(windows),
         },
+        job=getattr(arguments, "job", None),
     )
     return {
         "stage": "asr",
@@ -730,7 +785,9 @@ def _process_diarization_stage(arguments: argparse.Namespace) -> dict[str, Any]:
     stage_key = hashlib.sha256(
         json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    publisher = ArtifactPublisher(arguments.artifact_root)
+    publisher = ArtifactPublisher(
+        arguments.artifact_root, repository=getattr(arguments, "repository", None)
+    )
     artifact = publisher.publish(
         source_sha256=episode.sha256,
         stage="diarization",
@@ -768,6 +825,7 @@ def _process_diarization_stage(arguments: argparse.Namespace) -> dict[str, Any]:
             "exclusive_turn_count": len(result.exclusive_turns),
             "overlap_count": len(result.overlaps),
         },
+        job=getattr(arguments, "job", None),
     )
     return {
         "stage": "diarization",

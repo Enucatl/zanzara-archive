@@ -831,6 +831,7 @@ class SQLiteRepository:
             error=error,
             recovery_action=row["recovery_action"],
             request_id=row["request_id"],
+            paid=bool(row["paid"]),
         )
 
     def fetch_job(self, job_id: str) -> JobStatus | None:
@@ -915,6 +916,7 @@ class SQLiteRepository:
         instant = self._instant(now)
         stamp = self._timestamp(instant)
         expiry = self._timestamp(instant + timedelta(seconds=lease_seconds))
+        blocked_paid = False
         with self.connection:
             self._begin_immediate()
             row = self.connection.execute(
@@ -934,23 +936,87 @@ class SQLiteRepository:
                 raise StorageConflictError(f"job {job_id} is not eligible for claim")
             if row["attempts"] >= max_attempts:
                 raise StorageConflictError(f"job {job_id} exhausted its retry budget")
-            connection = self.connection
-            connection.execute(
-                """UPDATE jobs SET status='running', attempts=attempts+1,
-                fencing_token=fencing_token+1, owner=?, lease_expires_at=?,
-                recovery_action=?, updated_at=? WHERE job_id=?""",
-                (
-                    owner,
-                    expiry,
-                    "reclaimed_expired_lease" if expired else row["recovery_action"],
-                    stamp,
-                    job_id,
-                ),
+            if row["paid"] and not self._paid_attempt_is_dispatchable(self.connection, row):
+                self._block_paid_attempt(self.connection, row, stamp)
+                blocked_paid = True
+            else:
+                connection = self.connection
+                connection.execute(
+                    """UPDATE jobs SET status='running', attempts=attempts+1,
+                    fencing_token=fencing_token+1, owner=?, lease_expires_at=?,
+                    recovery_action=?, updated_at=? WHERE job_id=?""",
+                    (
+                        owner,
+                        expiry,
+                        "reclaimed_expired_lease" if expired else row["recovery_action"],
+                        stamp,
+                        job_id,
+                    ),
+                )
+                updated = connection.execute(
+                    "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
+                ).fetchone()
+        if blocked_paid:
+            raise StorageConflictError(
+                f"paid job {job_id} requires a new reserved attempt before dispatch"
             )
-            updated = connection.execute(
-                "SELECT * FROM jobs WHERE job_id = ?", (job_id,)
-            ).fetchone()
         return self._job_from_row(updated)
+
+    @staticmethod
+    def _paid_attempt_is_dispatchable(connection: sqlite3.Connection, row: sqlite3.Row) -> bool:
+        """Allow only a fresh paid job backed by its own active reservation."""
+
+        if (
+            row["status"] != "queued"
+            or row["attempts"] != 0
+            or row["recovery_action"] is not None
+            or not row["request_id"]
+        ):
+            return False
+        reservation = connection.execute(
+            "SELECT status FROM cost_reservations WHERE request_id=?",
+            (row["request_id"],),
+        ).fetchone()
+        prior_dispatch = connection.execute(
+            """SELECT 1 FROM jobs WHERE request_id=? AND job_id<>? AND attempts>0
+            LIMIT 1""",
+            (row["request_id"], row["job_id"]),
+        ).fetchone()
+        return (
+            reservation is not None
+            and reservation["status"] == "reserved"
+            and prior_dispatch is None
+        )
+
+    @staticmethod
+    def _block_paid_attempt(connection: sqlite3.Connection, row: sqlite3.Row, stamp: str) -> None:
+        """Block a paid retry/reclaim and retain an unknown charge for reconciliation."""
+
+        request_id = row["request_id"] or f"job-{row['job_id']}"
+        ambiguous = row["status"] == "running" or row["attempts"] > 0
+        code = "paid_outcome_ambiguous" if ambiguous else "budget_blocked"
+        message = (
+            "paid attempt outcome must be reconciled before another dispatch"
+            if ambiguous
+            else "paid job requires an active reservation for this attempt"
+        )
+        error = ApiError(code, message, False, request_id)
+        connection.execute(
+            """UPDATE jobs SET status='blocked', owner=NULL, lease_expires_at=NULL,
+            error_json=?, recovery_action=?, updated_at=? WHERE job_id=?""",
+            (
+                _json(error.to_dict()),
+                "reconcile_paid_request" if ambiguous else "reserve_paid_attempt",
+                stamp,
+                row["job_id"],
+            ),
+        )
+        if ambiguous and row["request_id"]:
+            connection.execute(
+                """UPDATE cost_reservations SET status='ambiguous', updated_at=?
+                WHERE request_id=? AND status='reserved'""",
+                (stamp, row["request_id"]),
+            )
 
     def claim_next_job(
         self,
@@ -966,16 +1032,21 @@ class SQLiteRepository:
         stamp = self._timestamp(instant)
         with self.connection:
             self._begin_immediate()
-            row = self.connection.execute(
-                """SELECT job_id FROM jobs WHERE attempts < ? AND
+            while True:
+                row = self.connection.execute(
+                    """SELECT * FROM jobs WHERE attempts < ? AND
                 ((status IN ('queued','retry_wait') AND
                     (status='queued' OR lease_expires_at IS NULL OR lease_expires_at <= ?))
                 OR (status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?))
                 ORDER BY created_at, job_id LIMIT 1""",
-                (max_attempts, stamp, stamp),
-            ).fetchone()
-            if row is None:
-                return None
+                    (max_attempts, stamp, stamp),
+                ).fetchone()
+                if row is None:
+                    return None
+                if row["paid"] and not self._paid_attempt_is_dispatchable(self.connection, row):
+                    self._block_paid_attempt(self.connection, row, stamp)
+                    continue
+                break
             job_id = row["job_id"]
             current = self.connection.execute(
                 "SELECT attempts FROM jobs WHERE job_id=?", (job_id,)
@@ -1192,7 +1263,9 @@ class SQLiteRepository:
                 (stamp,),
             ).fetchall()
             for row in rows:
-                if row["attempts"] >= max_attempts:
+                if row["paid"]:
+                    self._block_paid_attempt(connection, row, stamp)
+                elif row["attempts"] >= max_attempts:
                     error = ApiError(
                         "retry_exhausted",
                         "maximum attempts exhausted",

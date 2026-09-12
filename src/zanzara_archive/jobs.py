@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from threading import Event, Thread
 from typing import Any, Protocol
 
-from .contracts import ApiError, JobStatus
+from .contracts import AdapterFailure, ApiError, JobStatus
 from .storage import SQLiteRepository, StorageConflictError
 
 LEASE_SECONDS = 120
@@ -36,6 +36,8 @@ class WorkerResult:
 def _as_error(value: ApiError | Exception, *, request_id: str) -> ApiError:
     if isinstance(value, ApiError):
         return value
+    if isinstance(value, AdapterFailure):
+        return value.error
     return ApiError(
         code="stage_failed",
         message=str(value) or value.__class__.__name__,
@@ -119,12 +121,15 @@ class DurableWorker:
                     self.repository.fetch_job(claimed.job_id), error=_lease_lost_error(claimed)
                 )
             error = _as_error(exc, request_id=claimed.request_id or f"job-{claimed.job_id}")
+            failure_class = "transient" if error.retryable else "deterministic"
+            if claimed.paid and error.retryable:
+                failure_class = "ambiguous"
             final = self.repository.fail_job(
                 claimed.job_id,
                 owner=self.owner,
                 fencing_token=claimed.fencing_token,
                 error=error,
-                failure_class="transient" if error.retryable else "deterministic",
+                failure_class=failure_class,
                 now=now,
                 max_attempts=self.max_attempts,
             )

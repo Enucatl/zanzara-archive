@@ -755,6 +755,7 @@ class JobStatus:
     error: ApiError | None = None
     recovery_action: str | None = None
     request_id: str | None = None
+    paid: bool = False
 
     def __post_init__(self) -> None:
         _require_id(self.job_id, "job_id")
@@ -770,6 +771,8 @@ class JobStatus:
             _require_id(self.owner, "owner")
         if self.request_id is not None:
             _require_id(self.request_id, "request_id")
+        if not isinstance(self.paid, bool):
+            raise ContractValidationError("paid must be a boolean")
         if self.lease_expires_at is not None:
             _require_text(self.lease_expires_at, "lease_expires_at")
         if self.status in {"failed", "blocked"} and self.error is None:
@@ -794,6 +797,7 @@ class JobStatus:
             "error": self.error.to_dict() if self.error else None,
             "recovery_action": self.recovery_action,
             "request_id": self.request_id,
+            "paid": self.paid,
         }
 
     @classmethod

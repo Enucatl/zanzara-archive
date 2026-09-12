@@ -8,7 +8,12 @@ from threading import Event
 
 import pytest
 
-from zanzara_archive.contracts import ApiError
+from zanzara_archive.contracts import (
+    ApiError,
+    InvalidAudioError,
+    ModelUnavailableError,
+    RequestTimeoutError,
+)
 from zanzara_archive.jobs import DurableWorker
 from zanzara_archive.storage import SQLiteRepository, StorageConflictError
 
@@ -180,4 +185,94 @@ def test_ambiguous_paid_failure_keeps_ledger_reserved(tmp_path: Path) -> None:
         ).fetchone()[0]
         == "ambiguous"
     )
+    repository.close()
+
+
+@pytest.mark.parametrize(
+    ("failure_type", "code"),
+    [(InvalidAudioError, "invalid_audio"), (ModelUnavailableError, "model_unavailable")],
+)
+def test_worker_preserves_deterministic_adapter_failures(
+    tmp_path: Path, failure_type: type[Exception], code: str
+) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.enqueue_job(job_id="typed", stage="asr", request_id="typed-request")
+
+    def runner(_: object) -> None:
+        raise failure_type(ApiError(code, "synthetic adapter failure", False, "typed-request"))
+
+    result = DurableWorker(repository, "worker", runner).run_once(now="2026-01-01T00:00:00+00:00")
+    assert result.error == ApiError(code, "synthetic adapter failure", False, "typed-request")
+    assert result.job is not None
+    assert result.job.status == "blocked"
+    assert result.job.recovery_action == "fix_deterministic_failure"
+    repository.close()
+
+
+def test_paid_timeout_blocks_callback_redispatch_and_retains_ledger(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.reserve_cost(
+        reservation_id="reservation", request_id="paid-request", amount_microusd=100
+    )
+    repository.enqueue_job(job_id="paid", stage="asr", request_id="paid-request", paid=True)
+    calls = 0
+
+    def runner(_: object) -> None:
+        nonlocal calls
+        calls += 1
+        raise RequestTimeoutError(
+            ApiError("timeout", "synthetic unknown outcome", True, "paid-request")
+        )
+
+    worker = DurableWorker(repository, "worker", runner)
+    result = worker.run_once(now="2026-01-01T00:00:00+00:00")
+    assert result.job is not None
+    assert result.job.status == "blocked"
+    assert result.job.error == ApiError(
+        "timeout", "synthetic unknown outcome", True, "paid-request"
+    )
+    assert result.job.recovery_action == "reconcile_paid_request"
+    assert worker.run_once(now="2026-01-01T00:00:06+00:00").job is None
+    assert calls == 1
+    reservation = repository.connection.execute(
+        "SELECT reserved_microusd, status FROM cost_reservations WHERE request_id=?",
+        ("paid-request",),
+    ).fetchone()
+    assert tuple(reservation) == (100, "ambiguous")
+    repository.close()
+
+
+@pytest.mark.parametrize("reservation_status", [None, "settled", "released", "ambiguous"])
+def test_paid_claim_requires_a_fresh_active_reservation(
+    tmp_path: Path, reservation_status: str | None
+) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    if reservation_status is not None:
+        repository.reserve_cost(
+            reservation_id="reservation", request_id="request", amount_microusd=100
+        )
+        if reservation_status == "settled":
+            repository.settle_cost("request", 50)
+        elif reservation_status == "released":
+            repository.release_cost("request")
+        elif reservation_status == "ambiguous":
+            repository.mark_cost_ambiguous("request")
+    repository.enqueue_job(job_id="paid", stage="asr", request_id="request", paid=True)
+
+    with pytest.raises(StorageConflictError, match="requires a new reserved attempt"):
+        repository.claim_job("paid", "worker", now="2026-01-01T00:00:00+00:00")
+    assert repository.fetch_job("paid").status == "blocked"
+    repository.close()
+
+
+def test_paid_reservation_cannot_be_reused_by_another_job(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.reserve_cost(reservation_id="reservation", request_id="request", amount_microusd=100)
+    repository.enqueue_job(job_id="first", stage="asr", request_id="request", paid=True)
+    repository.enqueue_job(job_id="second", stage="asr", request_id="request", paid=True)
+
+    repository.claim_job("first", "worker", now="2026-01-01T00:00:00+00:00")
+    with pytest.raises(StorageConflictError, match="requires a new reserved attempt"):
+        repository.claim_job("second", "worker", now="2026-01-01T00:00:00+00:00")
+    assert repository.fetch_job("second").status == "blocked"
     repository.close()

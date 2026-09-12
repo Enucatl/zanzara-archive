@@ -396,3 +396,84 @@ def test_network_filesystem_is_rejected(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("zanzara_archive.storage._filesystem_type", lambda _: "nfs")
     with pytest.raises(StoragePathError, match="network filesystem"):
         ensure_local_state_path(tmp_path / "state.db")
+
+
+def test_database_file_symlink_cannot_bypass_network_rejection(tmp_path: Path, monkeypatch) -> None:
+    local = tmp_path / "local"
+    network = tmp_path / "network"
+    local.mkdir()
+    network.mkdir()
+    database_path = local / "state.db"
+    network_target = network / "state.db"
+    database_path.symlink_to(network_target)
+
+    def filesystem_type(path: Path) -> str:
+        return "nfs" if path.is_relative_to(network) else "ext4"
+
+    monkeypatch.setattr("zanzara_archive.storage._filesystem_type", filesystem_type)
+    with pytest.raises(StoragePathError, match="network filesystem nfs"):
+        ensure_local_state_path(database_path)
+
+
+def test_database_parent_symlink_cannot_bypass_network_rejection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    network = tmp_path / "network"
+    network.mkdir()
+    linked_parent = tmp_path / "state"
+    linked_parent.symlink_to(network, target_is_directory=True)
+
+    def filesystem_type(path: Path) -> str:
+        return "nfs" if path.is_relative_to(network) else "ext4"
+
+    monkeypatch.setattr("zanzara_archive.storage._filesystem_type", filesystem_type)
+    with pytest.raises(StoragePathError, match="network filesystem nfs"):
+        ensure_local_state_path(linked_parent / "state.db")
+
+
+def test_unknown_filesystem_locality_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("zanzara_archive.storage._filesystem_type", lambda _: None)
+    with pytest.raises(StoragePathError, match="cannot establish local filesystem"):
+        ensure_local_state_path(tmp_path / "state.db")
+
+
+def test_local_database_path_resolves_to_validated_backing_storage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    local = tmp_path / "local"
+    local.mkdir()
+    database_path = local / "state.db"
+    observed: list[Path] = []
+
+    def filesystem_type(path: Path) -> str:
+        observed.append(path)
+        return "ext4"
+
+    monkeypatch.setattr("zanzara_archive.storage._filesystem_type", filesystem_type)
+    resolved = ensure_local_state_path(database_path)
+
+    assert resolved == database_path.resolve()
+    assert observed == [resolved]
+
+
+def test_local_file_symlink_keeps_database_wal_and_shm_on_validated_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    local = tmp_path / "local"
+    target = tmp_path / "target"
+    local.mkdir()
+    target.mkdir()
+    database_path = local / "state.db"
+    database_target = target / "state.db"
+    database_path.symlink_to(database_target)
+    monkeypatch.setattr("zanzara_archive.storage._filesystem_type", lambda _: "ext4")
+
+    connection = open_database(database_path)
+    connection.execute("CREATE TABLE sidecar_fixture (id INTEGER)")
+
+    assert database_target.is_file()
+    assert database_target.with_name("state.db-wal").is_file()
+    assert database_target.with_name("state.db-shm").is_file()
+    assert not database_path.with_name("state.db-wal").exists()
+    assert not database_path.with_name("state.db-shm").exists()
+    connection.close()

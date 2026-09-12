@@ -123,15 +123,19 @@ def ensure_local_state_path(path: str | os.PathLike[str]) -> Path:
     parent = candidate.parent
     try:
         parent.mkdir(parents=True, exist_ok=True)
-        resolved_parent = parent.resolve(strict=True)
-    except OSError as exc:
+        resolved_candidate = candidate.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
         raise StoragePathError(f"cannot create local SQLite parent {parent}: {exc}") from exc
-    filesystem = _filesystem_type(resolved_parent)
+    filesystem = _filesystem_type(resolved_candidate)
+    if filesystem is None:
+        raise StoragePathError(
+            f"cannot establish local filesystem for SQLite/job-state path: {resolved_candidate}"
+        )
     if filesystem in NETWORK_FILESYSTEMS:
         raise StoragePathError(
-            f"SQLite/job-state path is on network filesystem {filesystem}: {resolved_parent}"
+            f"SQLite/job-state path is on network filesystem {filesystem}: {resolved_candidate}"
         )
-    return (resolved_parent / candidate.name).resolve()
+    return resolved_candidate
 
 
 def _now() -> str:

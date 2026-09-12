@@ -1,11 +1,15 @@
 # Canonical storage and artifact publication
 
 `zanzara_archive.storage` owns mutable archive state in a local SQLite
-database. `open_database()` rejects `:memory:`, UNC/network paths, and known
-network filesystems before enabling foreign keys, WAL, a bounded busy timeout,
-and FTS5. It applies the versioned migrations and refuses a database newer than
-the application understands. SQLite state and worker job state therefore stay
-on the local `state` volume; the canonical archive source remains read-only.
+database. `open_database()` rejects `:memory:`, UNC/network paths, known
+network filesystems, and paths whose backing filesystem cannot be established
+before enabling foreign keys, WAL, a bounded busy timeout, and FTS5. It resolves
+both directory and database-file symlinks before checking the filesystem and
+opens the resolved target, so the database and its adjacent WAL/SHM files share
+the same proven-local backing storage. It applies the versioned migrations and
+refuses a database newer than the application understands. SQLite state and
+worker job state therefore stay on the local `state` volume; the canonical
+archive source remains read-only.
 
 `zanzara_archive.artifacts.ArtifactPublisher` writes immutable stage output at
 `<root>/<source_sha256>/<stage>/<stage_key>/`. It writes and fsyncs every file,

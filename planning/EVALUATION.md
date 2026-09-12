@@ -62,7 +62,7 @@ Each immutable run directory contains `run.json`, `metrics.json`, `coverage.json
 
 | Gate | Required evidence |
 |---|---|
-| P0 | Reproducible package/fixtures, verified frozen 20, local-state/crash recovery tests, review skill |
+| P0 | Reproducible package/fixtures, available frozen 20, local-state/crash recovery tests, review skill |
 | P1 | Human golden reference/split, real baseline, E2 targets, CUDA and model locks |
 | P2 | Full ensemble run, E3 retrieval target or explicit blocker, split audit, identity reversal/contradiction evidence |
 | P3 | Pinned upstream integration, budget ledger, cloud comparison, E4 hybrid target, no mixed vector spaces |

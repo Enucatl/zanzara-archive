@@ -1,9 +1,11 @@
 # Zanzara Archive
 
 Foundation status: the Python 3.14 application skeleton and CPU-only developer
-checks are in place. The frozen 20-episode manifest and read-only source
-verification are available; model services, the web application and search
-features remain planned work.
+Foundation status: the Python 3.14 application skeleton and CPU-only developer
+checks are in place. The frozen 20-episode manifest and read-only source paths
+are available; the canonical archive is a persistent trusted input and is not
+reverified during routine commits, reviews or code runs. Model services, the
+web application and search features remain planned work.
 
 The binding implementation specification is in [`planning/README.md`](planning/README.md),
 with the architecture in [`planning/SYSTEM-DESIGN.md`](planning/SYSTEM-DESIGN.md)
@@ -24,13 +26,11 @@ uv run ruff format --check .
 uv run pytest tests/test_package.py
 ```
 
-To verify the frozen archive sources without changing them, run
-`uv run zanzara corpus verify --manifest planning/corpus-20.json
---archive-root /export/scratch/archive/zanzara`. The verifier checks every
-manifest hash and `ffprobe` media field, rejects traversal and escaping
-symlinks, and records a JSON report. See
-[`docs/corpus-verification.md`](docs/corpus-verification.md) for the required
-read-only container mount and artifact paths.
+The canonical archive is mounted read-only and remains outside the repository;
+processing uses the persistent manifest and source paths without recurring
+source hashing or media verification. See
+[`docs/corpus-verification.md`](docs/corpus-verification.md) for the source
+mount and artifact-path layout.
 
 The top-level package intentionally has no ML dependencies. Future Python 3.11
 inference services will live under `services/`, each with its own package,

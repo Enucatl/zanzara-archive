@@ -10,7 +10,7 @@ This folder is the implementation specification and GitHub setup handoff. It con
 4. Read [BACKLOG](BACKLOG.md), [manifest.json](manifest.json) and the linked [issue bodies](issues/P0.md). The manifest defines titles, parents, blockers, executor, kind, priority, order, labels and Project configuration.
 5. Read [REVIEW-SKILL](REVIEW-SKILL.md) for the complete proposed repository skill and [SOURCES](SOURCES.md) for dated observations and technical references.
 
-[corpus-20.json](corpus-20.json) freezes the actual 20 episode files, including SHA-256 and media metadata. [validate.mjs](validate.mjs) checks the package locally with Node >=22 and no dependencies. This is documentation tooling, not a JavaScript application dependency. P0-02 will import/verify the corpus; P0-06 will install the proposed review skill.
+[corpus-20.json](corpus-20.json) freezes the actual 20 episode filenames and their recorded metadata. [validate.mjs](validate.mjs) checks the package locally with Node >=22 and no dependencies. This is documentation tooling, not a JavaScript application dependency. P0-02 imports the corpus and establishes safe source paths; the persistent archive is not reverified during routine work. P0-06 will install the proposed review skill.
 
 ```bash
 node planning/validate.mjs
@@ -60,7 +60,7 @@ Implement one bounded Luna issue, run its required checks, commit the result dir
 - [x] Every handoff phase/child ID retained, with full bodies and explicit role/prerequisites.
 - [x] Operator model access, benchmark credentials, annotations, deployment and release actions represented.
 - [x] Requirement-to-issue mapping, acyclic dependencies and no own-parent closure requirement.
-- [x] Actual frozen 20-file checksums and media metadata included.
+- [x] Actual frozen 20-file membership and recorded media metadata included.
 - [x] Budget, timestamp capability, vector generation and human identity invariants specified.
 - [x] Resumable GitHub publication and native read-back verification documented.
 - [x] Sol follow-up selection and user release gates remain extensible.

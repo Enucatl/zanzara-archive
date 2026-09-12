@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from zanzara_archive import __version__
 from zanzara_archive.corpus import CorpusValidationError, load_manifest, verify_corpus, write_report
 from zanzara_archive.jobs import DurableWorker, synthetic_runner
+from zanzara_archive.model_locks import ModelLockError, validate_model_lock
 from zanzara_archive.storage import SQLiteRepository, StorageError
 
 
@@ -29,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument(
         "--ffprobe", default="ffprobe", help="ffprobe executable (default: ffprobe)"
     )
+    models = commands.add_parser("models", help="validate the immutable model lock")
+    model_commands = models.add_subparsers(dest="models_command", required=True)
+    model_verify = model_commands.add_parser("verify", help="verify model artifacts and smoke lock")
+    model_verify.add_argument("--lock", required=True, help="path to models.lock.json")
     jobs = commands.add_parser("jobs", help="manage durable worker jobs")
     job_commands = jobs.add_subparsers(dest="jobs_command", required=True)
     enqueue = job_commands.add_parser("enqueue", help="enqueue one stage job")
@@ -61,6 +66,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the currently available application commands."""
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "models":
+        try:
+            result = validate_model_lock(arguments.lock)
+        except ModelLockError as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
     if arguments.command not in {"corpus", "jobs", "worker"}:
         parser.print_help()
         return 0

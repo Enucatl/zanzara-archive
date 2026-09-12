@@ -1,6 +1,6 @@
 # Zanzara Archive planning package
 
-This folder is the implementation specification and GitHub setup handoff. It contains **66 complete issue bodies: nine phase parents and 57 children**, including ten explicit human tasks. No GitHub objects or application features were created as part of this package. Preserve [the original plan](../plan.md) as background; the decisions here supersede it.
+This folder is the implementation specification and GitHub setup handoff. It contains **67 complete issue bodies: nine phase parents and 58 children**, including ten explicit human tasks. No GitHub objects or application features were created as part of this package. Preserve [the original plan](../plan.md) as background; the decisions here supersede it.
 
 ## Reading order
 
@@ -26,7 +26,7 @@ The checks validate IDs, issue completeness/metadata, parent/blocker graph, rele
 | Application | Python 3.14, uv/src package, FastAPI/Jinja/vanilla JS; separate locked Python 3.11 ML services | Unspecified application/runtime |
 | Canonical state | SQLite WAL/FTS5 on local volumes, one durable worker | PostgreSQL preference and unspecified orchestration |
 | Vectors | Dedicated Compose Qdrant; individual exemplars plus separate centroids, three named speaker spaces | Existing/shared Qdrant deployment |
-| Models | Parakeet v3, Community-1, ResNet293-LM, fixed ERes2Net v1.0.2, released fine-tuned WavLM Large verification head; dense BGE-M3 | Open ERes2Net/WavLM checkpoint choice |
+| Models | Parakeet v3, Community-1, ResNet293-LM, fixed ERes2Net v1.0.3, released fine-tuned WavLM Large verification head; dense BGE-M3 | Open ERes2Net/WavLM checkpoint choice |
 | Ensemble | Full three-model baseline; centroid union from all three, deterministic one-to-one exemplar matching, conditional logistic calibration | Cascade as initial alternative, vague matching/calibration |
 | Identity | Human-confirmed global membership, manual names, reject/uncertain/undo/split with contradiction checks | Automatic high-confidence linking/clustering |
 | Excerpts/time | >=3 seconds, prefer 8–15, max ten, exclude overlap/250 ms transitions; persisted integer milliseconds | Broader duration guidance and seconds-based examples |

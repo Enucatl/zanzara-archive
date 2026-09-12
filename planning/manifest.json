@@ -371,6 +371,7 @@
       "blocked_by": [
         "P0",
         "P1-H01",
+        "P1-09",
         "P1-01",
         "P1-02",
         "P1-03",
@@ -383,6 +384,7 @@
       "body": "issues/P1.md",
       "children": [
         "P1-H01",
+        "P1-09",
         "P1-01",
         "P1-02",
         "P1-03",
@@ -425,6 +427,33 @@
       "initial_status": "Blocked"
     },
     {
+      "id": "P1-09",
+      "title": "[P1-09] Shared GPU runtime base, Python 3.14 and model-image disk budget",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1009,
+      "blocked_by": [
+        "P0",
+        "P1-H01"
+      ],
+      "body": "issues/P1-09.md",
+      "design_refs": [
+        "D1",
+        "D5",
+        "D11"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
       "id": "P1-01",
       "title": "[P1-01] Model locks, CUDA compatibility and container smoke checks",
       "phase": "P1",
@@ -435,7 +464,8 @@
       "order": 1010,
       "blocked_by": [
         "P0",
-        "P1-H01"
+        "P1-H01",
+        "P1-09"
       ],
       "body": "issues/P1-01.md",
       "design_refs": [
@@ -2003,6 +2033,7 @@
       "requirement": "Python 3.14, uv/src package, Python 3.11 ML isolation and CPU CI",
       "issues": [
         "P0-01",
+        "P1-09",
         "P1-01"
       ]
     },
@@ -2029,6 +2060,7 @@
       "requirement": "Locked model revisions/licenses/head and measured RTX 5090 compatibility",
       "issues": [
         "P1-H01",
+        "P1-09",
         "P1-01",
         "P2-02",
         "P2-03",

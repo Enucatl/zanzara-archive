@@ -51,7 +51,7 @@ Persist job states `queued`, `running`, `retry_wait`, `succeeded`, `failed`, `ca
 | `Transcriber.transcribe` | `nvidia/parakeet-tdt-0.6b-v3` through NeMo | Text, real word timing, optional segments and actual confidence if supplied |
 | `Diarizer.diarize` | `pyannote/speaker-diarization-community-1` | Standard turns, exclusive turns, explicit overlap intervals |
 | `SpeakerEmbedder.embed` A | `Wespeaker/wespeaker-voxceleb-resnet293-LM` | Ordered exemplar vectors, locked dimension/fingerprint |
-| `SpeakerEmbedder.embed` B | `iic/speech_eres2net_sv_en_voxceleb_16k`, revision `v1.0.2` | Same contract, separate vector space |
+| `SpeakerEmbedder.embed` B | `iic/speech_eres2net_sv_en_voxceleb_16k`, revision `v1.0.3` | Same contract, separate vector space |
 | `SpeakerEmbedder.embed` C | Microsoft UniSpeech released **fine-tuned WavLM Large verification checkpoint, Fix pre-train = No**, plus trained verification head | Verification vectors, not mean-pooled base WavLM features |
 | `TextEmbedder.embed` | `BAAI/bge-m3`, dense output | Ordered strings in, ordered 1,024-dimensional vectors out |
 

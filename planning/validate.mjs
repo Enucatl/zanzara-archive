@@ -22,7 +22,7 @@ assert.deepEqual(manifest.project.fields.Status,['Backlog','Blocked','Ready','In
 assert.deepEqual(manifest.project.fields.Phase,Array.from({length:9},(_,i)=>`P${i}`));
 assert.deepEqual(manifest.project.fields.Executor,['Luna','Human']);
 fail(manifest.project.views.length===4,'Four project views required');
-const expectedCounts=[6,8,9,7,6,6,4,4,4];
+const expectedCounts=[6,10,9,7,6,6,4,4,4];
 for(const [phase,count] of expectedCounts.entries()){
  const id=`P${phase}`;const parent=ids.get(id);
  fail(parent?.parent===null && parent.executor==='Human' && parent.kind==='Phase',`Invalid phase ${id}`);

@@ -1,6 +1,6 @@
 # Ordered backlog
 
-[manifest.json](manifest.json) is the machine-readable authority for 67 issues (58 children and nine phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1-H01, P3-H01 and P5-H01 make required operator provisioning explicit; the numbered handoff IDs remain intact.
+[manifest.json](manifest.json) is the machine-readable authority for 68 issues (59 children and nine phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1-H01, P3-H01 and P5-H01 make required operator provisioning explicit; the numbered handoff IDs remain intact.
 
 Every child depends on the preceding phase plus its listed local prerequisites. A parent is blocked by all children, including future review findings, and closes only after Sol review and user release. No child depends on its own parent. Kind/Executor fields distinguish operator work from implementation; a phase parent has Human executor. Select eligible Luna work by phase, priority, then numeric Order, not table position alone.
 
@@ -13,7 +13,7 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P0-04](issues/P0-04.md) | SQLite migrations, canonical entities and artifact publication | P0 | P0-03 | Luna | Implementation | P1 | 40 |
 | [P0-05](issues/P0-05.md) | Resumable worker, stage fingerprints and crash recovery | P0 | P0-04 | Luna | Implementation | P1 | 50 |
 | [P0-06](issues/P0-06.md) | Repository Sol phase-review skill and Luna handoff | P0 | P0-01 | Luna | Implementation | P1 | 60 |
-| [P1](issues/P1.md) | Measured transcription and diarization baseline | — | P0, P1-H01, P1-09, P1-01, P1-02, P1-03, P1-04, P1-05, P1-06, P1-07, P1-08 | Human | Phase | P0 | 1000 |
+| [P1](issues/P1.md) | Measured transcription and diarization baseline | — | P0, P1-H01, P1-09, P1-01, P1-02, P1-03, P1-04, P1-05, P1-06, P1-07, P1-08, P1-10 | Human | Phase | P0 | 1000 |
 | [P1-H01](issues/P1-H01.md) | Operator: accept model terms and provision download access | P1 | P0 | Human | Operator | P0 | 1005 |
 | [P1-09](issues/P1-09.md) | Shared GPU runtime base, Python 3.14 and model-image disk budget | P1 | P0, P1-H01 | Luna | Implementation | P1 | 1009 |
 | [P1-01](issues/P1-01.md) | Model locks, CUDA compatibility and container smoke checks | P1 | P0, P1-H01, P1-09 | Luna | Implementation | P1 | 1010 |
@@ -24,6 +24,7 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1-06](issues/P1-06.md) | Human: review golden transcript and freeze evaluation split | P1 | P0, P1-05 | Human | Operator | P0 | 1060 |
 | [P1-07](issues/P1-07.md) | ASR, diarization, attribution and timing evaluation harness | P1 | P0, P1-05 | Luna | Evaluation | P1 | 1070 |
 | [P1-08](issues/P1-08.md) | Execute local baseline and publish measured evidence | P1 | P0, P1-06, P1-07 | Luna | Evaluation | P1 | 1080 |
+| [P1-10](issues/P1-10.md) | Prefer niquests and minimize HTTP client dependencies | P1 | P0 | Luna | Implementation | P1 | 1090 |
 | [P2](issues/P2.md) | Three-model voice retrieval and identity review | — | P1, P2-01, P2-02, P2-03, P2-04, P2-05, P2-06, P2-07, P2-08, P2-09 | Human | Phase | P0 | 2000 |
 | [P2-01](issues/P2-01.md) | Deterministic clean-exemplar extraction | P2 | P1 | Luna | Implementation | P1 | 2010 |
 | [P2-02](issues/P2-02.md) | ResNet293 service adapter and validated embedding fixtures | P2 | P1 | Luna | Implementation | P1 | 2020 |

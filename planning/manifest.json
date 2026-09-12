@@ -379,7 +379,8 @@
         "P1-05",
         "P1-06",
         "P1-07",
-        "P1-08"
+        "P1-08",
+        "P1-10"
       ],
       "body": "issues/P1.md",
       "children": [
@@ -392,7 +393,8 @@
         "P1-05",
         "P1-06",
         "P1-07",
-        "P1-08"
+        "P1-08",
+        "P1-10"
       ],
       "labels": [
         "phase:P1",
@@ -664,6 +666,31 @@
       "labels": [
         "phase:P1",
         "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1-10",
+      "title": "[P1-10] Prefer niquests and minimize HTTP client dependencies",
+      "phase": "P1",
+      "parent": "P1",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1090,
+      "blocked_by": [
+        "P0"
+      ],
+      "body": "issues/P1-10.md",
+      "design_refs": [
+        "D1",
+        "D10"
+      ],
+      "labels": [
+        "phase:P1",
+        "kind:implementation",
         "executor:luna",
         "priority:P1"
       ],

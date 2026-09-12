@@ -1,6 +1,6 @@
 # Zanzara Archive planning package
 
-This folder is the implementation specification and GitHub setup handoff. It contains **67 complete issue bodies: nine phase parents and 58 children**, including ten explicit human tasks. No GitHub objects or application features were created as part of this package. Preserve [the original plan](../plan.md) as background; the decisions here supersede it.
+This folder is the implementation specification and GitHub setup handoff. It contains the complete issue bodies for all phase parents and children, including explicit human tasks, and is the local source for publication and reconciliation. Preserve [the original plan](../plan.md) as background; the decisions here supersede it.
 
 ## Reading order
 

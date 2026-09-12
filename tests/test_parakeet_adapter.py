@@ -2,10 +2,15 @@
 
 import json
 
+import niquests
 import pytest
 
 from zanzara_archive.contracts import AudioArtifact, ModelFingerprint, UnsupportedCapabilityError
-from zanzara_archive.inference import ParakeetAdapter, parse_parakeet_response
+from zanzara_archive.inference import (
+    ParakeetAdapter,
+    _default_http_post,
+    parse_parakeet_response,
+)
 
 MODEL = ModelFingerprint(
     name="parakeet",
@@ -86,3 +91,56 @@ def test_adapter_sends_the_bounded_local_json_subset() -> None:
     assert payload["response_format"] == "verbose_json"
     assert payload["timestamp_granularities"] == ["word", "segment"]
     assert parsed.result.words[0].end_ms == 250
+
+
+def test_default_http_post_uses_niquests_streaming_and_preserves_error_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    class Response:
+        status_code = 503
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            seen["closed"] = True
+
+        def iter_content(self, *, chunk_size: int):
+            seen["chunk_size"] = chunk_size
+            yield b'{"status":"error"}'
+
+    def post(url: str, **kwargs: object) -> Response:
+        seen.update(url=url, **kwargs)
+        return Response()
+
+    monkeypatch.setattr(niquests, "post", post)
+
+    body = _default_http_post("http://inference/v1", b"{}", 7.5)
+
+    assert body == b'{"status":"error"}'
+    assert seen == {
+        "url": "http://inference/v1",
+        "data": b"{}",
+        "headers": {"Content-Type": "application/json", "Accept": "application/json"},
+        "timeout": 7.5,
+        "allow_redirects": True,
+        "verify": True,
+        "stream": True,
+        "retries": 0,
+        "chunk_size": 64 * 1024,
+        "closed": True,
+    }
+
+
+def test_default_http_post_maps_niquests_timeout_to_adapter_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def post(*_args: object, **_kwargs: object) -> None:
+        raise niquests.exceptions.Timeout("synthetic timeout")
+
+    monkeypatch.setattr(niquests, "post", post)
+
+    with pytest.raises(TimeoutError, match="synthetic timeout"):
+        _default_http_post("http://inference/v1", b"{}", 2)

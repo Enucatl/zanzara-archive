@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import base64
 import json
-import urllib.error
-import urllib.request
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
+
+import niquests
+from niquests.exceptions import Timeout as NiquestsTimeout
 
 from .contracts import (
     AdapterFailure,
@@ -458,20 +459,37 @@ class ParsedDiarization:
 
 
 HttpPost = Callable[[str, bytes, float], bytes]
+MAX_RESPONSE_BYTES = MAX_DIARIZATION_PAYLOAD_BYTES
+RESPONSE_CHUNK_BYTES = 64 * 1024
 
 
 def _default_http_post(url: str, body: bytes, timeout: float) -> bytes:
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read(MAX_AUDIO_PAYLOAD_BYTES * 2)
-    except urllib.error.HTTPError as exc:
-        return exc.read(MAX_AUDIO_PAYLOAD_BYTES * 2)
+        with niquests.post(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=timeout,
+            allow_redirects=True,
+            verify=True,
+            stream=True,
+            retries=0,
+        ) as response:
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8")
+                remaining = MAX_RESPONSE_BYTES - size
+                if remaining <= 0:
+                    break
+                chunks.append(chunk[:remaining])
+                size += min(len(chunk), remaining)
+                if size >= MAX_RESPONSE_BYTES:
+                    break
+            return b"".join(chunks)
+    except NiquestsTimeout as exc:
+        raise TimeoutError(str(exc)) from exc
 
 
 class ParakeetAdapter:

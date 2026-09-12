@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Annotate {{ episode_id }}</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { max-width: 1240px; margin: 1rem auto; padding: 0 1rem; }
+      header, .toolbar, .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+      header { justify-content: space-between; }
+      .panel { border: 1px solid #7776; border-radius: .5rem; padding: .8rem; margin: .8rem 0; }
+      .status { padding: .2rem .5rem; border-radius: .3rem; background: #7775; }
+      .status.reviewed { background: #287a45; color: white; }
+      .status.draft { background: #866c18; color: white; }
+      canvas { width: 100%; height: 130px; background: #101820; border-radius: .35rem; cursor: crosshair; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: .25rem; border-bottom: 1px solid #7774; text-align: left; }
+      input[type="text"] { min-width: 8rem; }
+      input[type="number"] { width: 6.5rem; }
+      .scroll { overflow-x: auto; }
+      .danger { color: #ff9a9a; }
+      button { cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div><h1>Local annotation</h1><code id="episode">{{ episode_id }}</code></div>
+      <span id="status" class="status">empty</span>
+    </header>
+    <section class="panel">
+      <div class="toolbar">
+        {% if audio_url %}<audio id="player" controls preload="metadata" src="{{ audio_url }}"></audio>{% endif %}
+        <label>Reviewer <input id="reviewer" type="text" autocomplete="off" placeholder="identified human"></label>
+        <input id="draft-file" type="file" accept="application/json,.json">
+        <button id="import">Import draft JSON</button>
+        <button id="seed" type="button">Seed machine draft</button>
+        <button id="save" type="button">Save draft</button>
+        <button id="review" type="button">Mark human-reviewed</button>
+      </div>
+      <p id="message" role="status">Import a P1-04 attributed JSON draft or seed one through the API.</p>
+      <canvas id="waveform" width="1200" height="130" aria-label="timestamp waveform"></canvas>
+    </section>
+    <form id="annotation-form">
+      <section class="panel"><h2>Words</h2><div class="scroll"><table><thead><tr><th>Play</th><th>Text</th><th>Start ms</th><th>End ms</th><th>Speaker</th><th>Overlap</th><th>Unintelligible</th><th>Manual timing</th></tr></thead><tbody id="words"></tbody></table></div></section>
+      <section class="panel"><h2>Standard speaker turns</h2><div class="scroll"><table><thead><tr><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="standard-turns"></tbody></table></div><button type="button" class="add-row" data-target="standard-turns">Add standard turn</button></section>
+      <section class="panel"><h2>Exclusive speaker turns</h2><div class="scroll"><table><thead><tr><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="exclusive-turns"></tbody></table></div><button type="button" class="add-row" data-target="exclusive-turns">Add exclusive turn</button></section>
+      <section class="panel"><h2>Overlap intervals</h2><div class="scroll"><table><thead><tr><th>Speakers (comma-separated)</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="overlaps"></tbody></table></div><button type="button" class="add-row" data-target="overlaps">Add overlap</button></section>
+      <section class="panel"><h2>Unintelligible spans</h2><div class="scroll"><table><thead><tr><th>Start ms</th><th>End ms</th></tr></thead><tbody id="unintelligible"></tbody></table></div><button type="button" class="add-row" data-target="unintelligible">Add unintelligible span</button></section>
+    </form>
+    <section class="panel"><h2>Append-only history</h2><ul id="history"></ul></section>
+    <script>
+      const API_URL = {{ api_url|tojson }};
+      const INITIAL = {{ initial_json|safe }};
+      const HISTORY = {{ history_json|safe }};
+      let state = INITIAL.status === "empty" ? null : INITIAL;
+      const $ = (id) => document.getElementById(id);
+      const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
+      const play = (ms) => { const player = $("player"); if (player) { player.currentTime = ms / 1000; player.play().catch(() => {}); } };
+      const input = (value, cls, type="text") => `<input class="${cls}" type="${type}" value="${escapeHtml(value)}">`;
+      function row(item, type, index) {
+        const id = escapeHtml(item.turn_id || `${type}-${index}`);
+        return `<tr data-id="${id}"><td>${input(item.speaker_id || "", "speaker")}</td><td>${input(item.start_ms ?? 0, "start", "number")}</td><td>${input(item.end_ms ?? 1, "end", "number")}</td></tr>`;
+      }
+      function draw() {
+        const words = state?.words || [];
+        $("words").innerHTML = words.map((word, index) => `<tr data-id="${escapeHtml(word.word_id)}" data-start="${word.start_ms}"><td><button type="button" class="play" data-ms="${word.start_ms}">▶</button></td><td>${input(word.text, "text")}</td><td>${input(word.start_ms, "start", "number")}</td><td>${input(word.end_ms, "end", "number")}</td><td>${input(word.speaker_id || "", "speaker")}</td><td><input class="overlap" type="checkbox" ${word.overlap ? "checked" : ""}></td><td><input class="unintelligible" type="checkbox" ${word.unintelligible ? "checked" : ""}></td><td><input class="manual" type="checkbox" ${(state.manual_timing_word_ids || []).includes(word.word_id) ? "checked" : ""}></td></tr>`).join("");
+        $("standard-turns").innerHTML = (state?.standard_turns || []).map((item, index) => row(item, "standard", index)).join("");
+        $("exclusive-turns").innerHTML = (state?.exclusive_turns || []).map((item, index) => row(item, "exclusive", index)).join("");
+        $("overlaps").innerHTML = (state?.overlap_intervals || []).map((item, index) => `<tr data-id="${escapeHtml(item.overlap_id || `overlap-${index}`)}"><td>${input((item.speaker_ids || []).join(", "), "speakers")}</td><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
+        $("unintelligible").innerHTML = (state?.unintelligible_spans || []).map((item) => `<tr><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
+        $("reviewer").value = state?.reviewer === "machine" ? "" : (state?.reviewer || "");
+        $("status").textContent = state?.status || "empty";
+        $("status").className = `status ${state?.status || ""}`;
+        $("history").innerHTML = (state?.history || HISTORY || []).map((item) => `<li>r${item.revision} — ${escapeHtml(item.status)} — ${escapeHtml(item.reviewer)} <a href="${item.export_url}">private reference export</a></li>`).join("");
+        drawWaveform();
+      }
+      function collectTurns(id) { return [...$(id).querySelectorAll("tr")].map((tr, index) => ({turn_id: tr.dataset.id || `${id}-${index}`, speaker_id: tr.querySelector(".speaker").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})); }
+      function collect() {
+        const words = [...$("words").querySelectorAll("tr")].map((tr) => ({word_id: tr.dataset.id, text: tr.querySelector(".text").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value), speaker_id: tr.querySelector(".speaker").value || null, overlap: tr.querySelector(".overlap").checked, unintelligible: tr.querySelector(".unintelligible").checked}));
+        return {episode_id: {{ episode_id|tojson }}, source_sha256: state?.source_sha256, duration_ms: state?.duration_ms, source_artifact_id: state?.source_artifact_id || null, words, standard_turns: collectTurns("standard-turns"), exclusive_turns: collectTurns("exclusive-turns"), overlap_intervals: [...$("overlaps").querySelectorAll("tr")].map((tr, index) => ({overlap_id: tr.dataset.id || `overlap-${index}`, speaker_ids: tr.querySelector(".speakers").value.split(",").map((item) => item.trim()).filter(Boolean), start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})), unintelligible_spans: [...$("unintelligible").querySelectorAll("tr")].map((tr) => ({start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})), reviewed_word_ids: words.map((word) => word.word_id), manual_timing_word_ids: words.filter((word, index) => $("words").querySelectorAll("tr")[index].querySelector(".manual").checked).map((word) => word.word_id), provenance: state?.provenance || {configuration: {source: "loopback-editor"}}};
+      }
+      async function save(reviewed) {
+        const enteredReviewer = $("reviewer").value.trim();
+        const machineDraft = !reviewed && state?.actor_type === "machine" && !enteredReviewer;
+        const actorType = machineDraft ? "machine" : "human";
+        const reviewer = machineDraft ? "machine" : enteredReviewer;
+        if (reviewed && !reviewer) { $("message").textContent = "An identified reviewer is required."; return; }
+        const payload = {...collect(), status: reviewed ? "reviewed" : "draft", actor_type: actorType, reviewer, expected_revision: state?.revision || 0};
+        const response = await fetch(API_URL, {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) { $("message").textContent = result.error?.message || "Save failed; local edits were kept in the form."; $("message").className = "danger"; return; }
+        state = result.data.annotation; state.history = result.data.history; $("message").textContent = `Saved immutable revision ${state.revision}.`; $("message").className = ""; draw();
+      }
+      $("save").onclick = () => save(false); $("review").onclick = () => save(true);
+      $("import").onclick = async () => { const file = $("draft-file").files[0]; if (!file) return; const imported = JSON.parse(await file.text()); state = imported.data || imported; state.status = "draft"; state.actor_type = "machine"; state.reviewer = "machine"; state.revision = 0; draw(); $("message").textContent = "Machine draft loaded locally; it cannot be marked reviewed by the machine."; };
+      $("seed").onclick = async () => { if (!state) { $("message").textContent = "Import a draft JSON before seeding."; return; } await save(false); };
+      document.addEventListener("click", (event) => { const button = event.target.closest(".play"); if (button) play(Number(button.dataset.ms)); });
+      document.querySelectorAll(".add-row").forEach((button) => button.onclick = () => { const target = $(button.dataset.target); const index = target.querySelectorAll("tr").length; if (button.dataset.target === "overlaps") target.insertAdjacentHTML("beforeend", `<tr data-id="overlap-${index}"><td>${input("SPEAKER_A, SPEAKER_B", "speakers")}</td><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else if (button.dataset.target === "unintelligible") target.insertAdjacentHTML("beforeend", `<tr><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else target.insertAdjacentHTML("beforeend", row({}, button.dataset.target, index)); });
+      function drawWaveform() { const canvas = $("waveform"), ctx = canvas.getContext("2d"), duration = state?.duration_ms || 1; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = "#68b7d1"; ctx.fillStyle = "#68b7d1"; for (let x = 0; x < canvas.width; x += 8) { const height = 8 + Math.abs(Math.sin(x * .13)) * 38 + Math.abs(Math.sin(x * .031)) * 22; ctx.fillRect(x, canvas.height / 2 - height / 2, 4, height); } (state?.words || []).forEach((word) => { const x = word.start_ms / duration * canvas.width; ctx.fillStyle = word.unintelligible ? "#e77979" : (word.overlap ? "#e7c779" : "#68b7d1"); ctx.fillRect(x, 0, Math.max(2, (word.end_ms - word.start_ms) / duration * canvas.width), 4); }); }
+      $("waveform").onclick = (event) => { const rect = event.currentTarget.getBoundingClientRect(); play((event.clientX - rect.left) / rect.width * (state?.duration_ms || 0)); };
+      draw();
+      if (!state) fetch(API_URL).then((response) => response.json()).then((result) => { if (result.data?.annotation) { state = result.data.annotation; state.history = result.data.history; draw(); } });
+    </script>
+  </body>
+</html>

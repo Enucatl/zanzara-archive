@@ -1393,6 +1393,155 @@ class SQLiteRepository:
                 (decision.decision_id, decision.revision, payload, _now()),
             )
 
+    def artifact_exists(self, artifact_id: str) -> bool:
+        """Return whether an artifact is registered in canonical SQLite state."""
+
+        return (
+            self.connection.execute(
+                "SELECT 1 FROM artifacts WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+            is not None
+        )
+
+    def append_annotation_revision(
+        self,
+        *,
+        episode_id: str,
+        source_artifact_id: str | None,
+        source_sha256: str,
+        reviewer: str,
+        status: str,
+        payload: dict[str, object],
+        expected_revision: int,
+        created_at: str | None = None,
+    ) -> dict[str, object]:
+        """Append one annotation revision without overwriting an earlier review."""
+
+        if status not in {"draft", "accepted"}:
+            raise ValueError("annotation status must be draft or accepted")
+        if expected_revision < 0:
+            raise ValueError("expected_revision must be non-negative")
+        if not reviewer:
+            raise ValueError("annotation reviewer must be non-empty")
+        stamp = created_at or _now()
+        with self.transaction() as connection:
+            current_row = connection.execute(
+                """SELECT COALESCE(MAX(revision), 0) AS revision
+                FROM annotation_revisions WHERE episode_id = ?""",
+                (episode_id,),
+            ).fetchone()
+            current_revision = int(current_row["revision"])
+            if current_revision != expected_revision:
+                raise StorageConflictError(
+                    f"annotation revision conflict: expected {expected_revision}, "
+                    f"current {current_revision}"
+                )
+            revision = current_revision + 1
+            persisted = dict(payload)
+            persisted.update(
+                {
+                    "episode_id": episode_id,
+                    "source_sha256": source_sha256,
+                    "reviewer": reviewer,
+                    "status": "reviewed" if status == "accepted" else "draft",
+                    "revision": revision,
+                    "created_at": stamp,
+                }
+            )
+            if status == "accepted":
+                persisted["reviewed_at"] = persisted.get("reviewed_at") or stamp
+            annotation_revision_id = str(
+                persisted.get("annotation_revision_id")
+                or "annotation-"
+                + hashlib.sha256(
+                    _json(
+                        {
+                            "episode_id": episode_id,
+                            "revision": revision,
+                            "payload": persisted,
+                        }
+                    ).encode("utf-8")
+                ).hexdigest()[:24]
+            )
+            persisted["annotation_revision_id"] = annotation_revision_id
+            connection.execute(
+                """INSERT INTO annotation_revisions (
+                    annotation_revision_id, episode_id, source_artifact_id, source_sha256,
+                    revision, reviewer, status, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    annotation_revision_id,
+                    episode_id,
+                    source_artifact_id,
+                    source_sha256,
+                    revision,
+                    reviewer,
+                    status,
+                    _json(persisted),
+                    stamp,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO review_records (
+                    review_id, annotation_revision_id, reviewer, target_type, target_id,
+                    decision, revision, state, payload_json, created_at
+                ) VALUES (?, ?, ?, 'annotation', ?, ?, ?, 'active', ?, ?)""",
+                (
+                    f"review-{annotation_revision_id}",
+                    annotation_revision_id,
+                    reviewer,
+                    episode_id,
+                    "reviewed" if status == "accepted" else "draft",
+                    revision,
+                    _json(persisted),
+                    stamp,
+                ),
+            )
+        return persisted
+
+    @staticmethod
+    def _annotation_from_row(row: sqlite3.Row) -> dict[str, object]:
+        payload = json.loads(row["payload_json"])
+        if not isinstance(payload, dict):
+            raise StorageError("annotation revision payload must be a JSON object")
+        payload.setdefault("annotation_revision_id", row["annotation_revision_id"])
+        payload.setdefault("episode_id", row["episode_id"])
+        payload.setdefault("source_sha256", row["source_sha256"])
+        payload.setdefault("revision", row["revision"])
+        payload.setdefault("reviewer", row["reviewer"])
+        payload.setdefault("status", "reviewed" if row["status"] == "accepted" else "draft")
+        payload.setdefault("created_at", row["created_at"])
+        return payload
+
+    def fetch_annotation_revision(
+        self, episode_id: str, revision: int | None = None
+    ) -> dict[str, object] | None:
+        """Read one immutable annotation revision or the latest revision."""
+
+        if revision is None:
+            row = self.connection.execute(
+                """SELECT * FROM annotation_revisions
+                WHERE episode_id = ? ORDER BY revision DESC LIMIT 1""",
+                (episode_id,),
+            ).fetchone()
+        else:
+            row = self.connection.execute(
+                """SELECT * FROM annotation_revisions
+                WHERE episode_id = ? AND revision = ?""",
+                (episode_id, revision),
+            ).fetchone()
+        return self._annotation_from_row(row) if row is not None else None
+
+    def list_annotation_revisions(self, episode_id: str) -> tuple[dict[str, object], ...]:
+        """Return append-only annotation history from newest to oldest."""
+
+        rows = self.connection.execute(
+            """SELECT * FROM annotation_revisions
+            WHERE episode_id = ? ORDER BY revision DESC""",
+            (episode_id,),
+        ).fetchall()
+        return tuple(self._annotation_from_row(row) for row in rows)
+
     def record_evaluation_report(self, report: EvaluationReport) -> None:
         """Persist one immutable aggregate report with its provenance hashes."""
 

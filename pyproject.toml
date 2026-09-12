@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Local-first tools for the Zanzara audio archive"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
-dependencies = []
+dependencies = [
+    "fastapi>=0.116,<1",
+    "jinja2>=3.1,<4",
+    "uvicorn>=0.35,<1",
+]
 
 [project.scripts]
 zanzara = "zanzara_archive.cli:main"
@@ -17,6 +21,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=8.3,<9",
     "ruff>=0.11,<0.14",
+    "httpx>=0.27,<1",
 ]
 
 [tool.uv]

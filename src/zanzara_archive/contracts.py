@@ -982,6 +982,10 @@ class EvaluationReport:
 
 
 API_V1_ROUTES: Mapping[str, str] = {
+    "annotations": "GET /api/v1/annotations/{episode_id}",
+    "annotation_save": "POST /api/v1/annotations/{episode_id}",
+    "annotation_seed": "POST /api/v1/annotations/{episode_id}/seed",
+    "annotation_export": "GET /api/v1/annotations/{episode_id}/exports/{revision}/{filename}",
     "episodes": "GET /api/v1/episodes",
     "episode": "GET /api/v1/episodes/{id}",
     "transcript": "GET /api/v1/episodes/{id}/transcript",

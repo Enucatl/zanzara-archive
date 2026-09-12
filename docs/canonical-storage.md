@@ -17,7 +17,10 @@ must have SQLite integer storage, must fit the referenced episode duration, and
 must agree with both the episode and artifact source/model provenance. Existing
 version-3 and version-4 data is preserved when upgrading.
 
-The repository keeps report persistence intentionally small until the owning
-transcript, annotation, upload, and evaluation stages define their write
-flows. Those stages must use the canonical tables rather than treating JSON
-artifacts or Qdrant as authoritative state.
+Annotation revisions use the existing `annotation_revisions` table as an
+append-only history and `review_records` as the per-revision audit record.
+Their JSON payload retains source-artifact, source checksum, model/configuration
+provenance, reviewer/review time, exact word/turn/overlap edits,
+unintelligible spans, and the deterministic E1 split. Filesystem exports are
+private immutable artifacts;
+SQLite remains authoritative for revision and optimistic-conflict state.

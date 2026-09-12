@@ -27,6 +27,7 @@ from zanzara_archive.corpus import (
     verify_corpus,
     write_report,
 )
+from zanzara_archive.evaluation import validate_reference
 from zanzara_archive.jobs import DurableWorker, synthetic_runner
 from zanzara_archive.model_locks import (
     ModelLockError,
@@ -59,6 +60,28 @@ def build_parser() -> argparse.ArgumentParser:
     model_commands = models.add_subparsers(dest="models_command", required=True)
     model_verify = model_commands.add_parser("verify", help="verify model artifacts and smoke lock")
     model_verify.add_argument("--lock", required=True, help="path to models.lock.json")
+    evaluation = commands.add_parser("evaluation", help="validate private evaluation inputs")
+    evaluation_commands = evaluation.add_subparsers(dest="evaluation_command", required=True)
+    reference = evaluation_commands.add_parser(
+        "validate-reference", help="validate the reviewed golden reference contract"
+    )
+    reference.add_argument("--corpus", required=True, help="path to the frozen corpus manifest")
+    reference.add_argument(
+        "--reference", required=True, help="reference.json or its private artifact directory"
+    )
+    web = commands.add_parser("web", help="run the loopback annotation UI")
+    web.add_argument("--database", required=True, help="local SQLite state path")
+    web.add_argument(
+        "--artifact-root",
+        default=os.environ.get("ZANZARA_ARTIFACT_ROOT", ".git/zanzara-artifacts"),
+    )
+    web.add_argument(
+        "--archive-root",
+        default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
+    )
+    web.add_argument("--manifest", default="planning/corpus-20.json")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8000)
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
@@ -126,6 +149,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the currently available application commands."""
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "evaluation":
+        if arguments.evaluation_command == "validate-reference":
+            report = validate_reference(arguments.corpus, arguments.reference)
+            print(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False))
+            return 0 if report["valid"] else 1
+    if arguments.command == "web":
+        if arguments.host not in {"127.0.0.1", "localhost", "::1"}:
+            parser.error("the annotation UI is loopback-only; choose 127.0.0.1, localhost, or ::1")
+        try:
+            import uvicorn
+
+            from zanzara_archive.web import create_app
+        except ImportError as exc:
+            parser.error(f"the web extras are unavailable: {exc}")
+        uvicorn.run(
+            create_app(
+                arguments.database,
+                artifact_root=arguments.artifact_root,
+                archive_root=arguments.archive_root,
+                manifest_path=arguments.manifest,
+            ),
+            host=arguments.host,
+            port=arguments.port,
+        )
+        return 0
     if arguments.command == "models":
         try:
             result = validate_model_lock(arguments.lock)

@@ -229,6 +229,10 @@
     "POST /v1/embeddings": {"response": {"$ref": "#/$defs/ApiEnvelope"}}
   },
   "routes": {
+    "GET /api/v1/annotations/{episode_id}": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /api/v1/annotations/{episode_id}": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "POST /api/v1/annotations/{episode_id}/seed": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
+    "GET /api/v1/annotations/{episode_id}/exports/{revision}/{filename}": {"response": {"$ref": "#/$defs/ApiEnvelope"}},
     "GET /api/v1/episodes/{id}/transcript": {"response": {"$ref": "#/$defs/ApiEnvelope"}, "missing_asr_status": "missing_asr"},
     "POST /api/v1/voice-search/jobs": {"response": {"$ref": "#/$defs/ApiEnvelope"}, "calibration_status": "uncalibrated_rank_fusion"},
     "GET /api/v1/jobs/{id}": {"response": {"$ref": "#/$defs/ApiEnvelope"}},

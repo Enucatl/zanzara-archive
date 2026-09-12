@@ -9,6 +9,8 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from .contracts import ModelFingerprint
+
 
 class ModelLockError(ValueError):
     """Raised when a model lock is incomplete or its local artifacts drift."""
@@ -163,3 +165,65 @@ def validate_model_lock(
         "hardware": hardware,
         "python": platform.python_version(),
     }
+
+
+def model_fingerprint_from_lock(
+    path: str | os.PathLike[str], model_id: str = "parakeet"
+) -> ModelFingerprint:
+    """Build a typed fingerprint from one model record in the immutable lock."""
+
+    lock_path = Path(path)
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ModelLockError(f"cannot read model lock {lock_path}: {exc}") from exc
+    models = lock.get("models") if isinstance(lock, dict) else None
+    record = next(
+        (
+            model
+            for model in models or ()
+            if isinstance(model, dict) and model.get("id") == model_id
+        ),
+        None,
+    )
+    if record is None:
+        raise ModelLockError(f"model lock does not contain {model_id!r}")
+    artifacts = record.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ModelLockError(f"model lock record {model_id!r} has no artifacts")
+    checkpoint_sha256 = tuple(
+        artifact.get("sha256")
+        for artifact in artifacts
+        if isinstance(artifact, dict) and isinstance(artifact.get("sha256"), str)
+    )
+    if len(checkpoint_sha256) != len(artifacts):
+        raise ModelLockError(f"model lock record {model_id!r} has an invalid artifact hash")
+    dimensions = record.get("dimensions")
+    output_dimension = None
+    if isinstance(dimensions, dict):
+        for key in ("embedding", "output"):
+            candidate = dimensions.get(key)
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                output_dimension = candidate
+                break
+    runtime = record.get("runtime")
+    if not isinstance(runtime, dict):
+        raise ModelLockError(f"model lock record {model_id!r} has invalid runtime metadata")
+    return ModelFingerprint(
+        name=str(record.get("id")),
+        repository=_require_text(record.get("repository"), f"models.{model_id}.repository"),
+        revision=_require_text(record.get("revision"), f"models.{model_id}.revision"),
+        checkpoint_sha256=checkpoint_sha256,
+        dimensions=output_dimension,
+        preprocessing={
+            "description": _require_text(
+                record.get("preprocessing"), f"models.{model_id}.preprocessing"
+            )
+        },
+        precision=_require_text(record.get("precision"), f"models.{model_id}.precision"),
+        runtime={
+            str(key): _require_text(value, f"models.{model_id}.runtime.{key}")
+            for key, value in runtime.items()
+        },
+        terms_evidence=_require_text(record.get("license"), f"models.{model_id}.license"),
+    )

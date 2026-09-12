@@ -3,13 +3,30 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import subprocess
 from collections.abc import Sequence
+from typing import Any
 
 from zanzara_archive import __version__
-from zanzara_archive.corpus import CorpusValidationError, load_manifest, verify_corpus, write_report
+from zanzara_archive.artifacts import ArtifactPublisher
+from zanzara_archive.asr import transcribe_windowed
+from zanzara_archive.contracts import AdapterFailure, AudioArtifact
+from zanzara_archive.corpus import (
+    CorpusValidationError,
+    load_manifest,
+    resolve_source,
+    verify_corpus,
+    write_report,
+)
 from zanzara_archive.jobs import DurableWorker, synthetic_runner
-from zanzara_archive.model_locks import ModelLockError, validate_model_lock
+from zanzara_archive.model_locks import (
+    ModelLockError,
+    model_fingerprint_from_lock,
+    validate_model_lock,
+)
 from zanzara_archive.storage import SQLiteRepository, StorageError
 
 
@@ -34,6 +51,28 @@ def build_parser() -> argparse.ArgumentParser:
     model_commands = models.add_subparsers(dest="models_command", required=True)
     model_verify = model_commands.add_parser("verify", help="verify model artifacts and smoke lock")
     model_verify.add_argument("--lock", required=True, help="path to models.lock.json")
+    process = commands.add_parser("process", help="run one local processing stage")
+    process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
+    process.add_argument("--episode", required=True, help="manifest relative filename")
+    process.add_argument("--stage", required=True, choices=("asr",))
+    process.add_argument(
+        "--archive-root",
+        default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
+        help="read-only archive root",
+    )
+    process.add_argument(
+        "--endpoint",
+        default=os.environ.get("PARAKEET_ENDPOINT", "http://127.0.0.1:18080"),
+        help="local Parakeet endpoint",
+    )
+    process.add_argument(
+        "--artifact-root",
+        default=os.environ.get("ZANZARA_ARTIFACT_ROOT", ".git/zanzara-artifacts"),
+        help="private immutable artifact root",
+    )
+    process.add_argument("--model-lock", default="models.lock.json")
+    process.add_argument("--ffmpeg", default="ffmpeg")
+    process.add_argument("--language")
     jobs = commands.add_parser("jobs", help="manage durable worker jobs")
     job_commands = jobs.add_subparsers(dest="jobs_command", required=True)
     enqueue = job_commands.add_parser("enqueue", help="enqueue one stage job")
@@ -72,6 +111,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ModelLockError as exc:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if arguments.command == "process":
+        try:
+            result = _process_stage(arguments)
+        except (AdapterFailure, CorpusValidationError, OSError, ValueError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
         return 0
     if arguments.command not in {"corpus", "jobs", "worker"}:
         parser.print_help()
@@ -138,3 +184,115 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
     print(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False))
     return 0 if report["valid"] else 1
+
+
+def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Process one episode through a bounded local stage and publish atomically."""
+
+    manifest = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in manifest.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise CorpusValidationError(f"episode is not present in manifest: {arguments.episode}")
+    source = resolve_source(arguments.archive_root, episode.relative_filename)
+    source_audio = AudioArtifact(
+        artifact_id=f"source-{episode.sha256[:16]}",
+        source_sha256=episode.sha256,
+        format=episode.codec,
+        duration_ms=episode.duration_ms,
+        sample_rate_hz=episode.sample_rate_hz,
+        channels=episode.channels,
+        preprocessing={"manifest": manifest.sha256, "relative_filename": episode.relative_filename},
+    )
+    model = model_fingerprint_from_lock(arguments.model_lock, "parakeet")
+    adapter_endpoint = arguments.endpoint
+    request_id = f"asr-{episode.sha256[:16]}"
+
+    def load_window(window: Any) -> bytes:
+        completed = subprocess.run(
+            [
+                arguments.ffmpeg,
+                "-v",
+                "error",
+                "-i",
+                str(source),
+                "-ss",
+                f"{window.decode_start_ms / 1000:.3f}",
+                "-t",
+                f"{window.decode_duration_ms / 1000:.3f}",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                "pipe:1",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0 or not completed.stdout:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise OSError(f"ffmpeg could not decode {episode.relative_filename}: {detail}")
+        return completed.stdout
+
+    from zanzara_archive.inference import ParakeetAdapter
+
+    transcript, windows, raw_responses = transcribe_windowed(
+        ParakeetAdapter(adapter_endpoint, model),
+        source_audio,
+        load_window,
+        request_id=request_id,
+        language=arguments.language,
+    )
+    transcript.require_production()
+    configuration = {
+        "stage": "asr",
+        "window_ms": 300_000,
+        "context_ms": 5_000,
+        "language": arguments.language,
+        "decoder": "ffmpeg",
+        "sample_rate_hz": 16_000,
+        "channels": 1,
+        "manifest_sha256": manifest.sha256,
+        "source_sha256": episode.sha256,
+        "model_fingerprint_sha256": model.fingerprint_sha256,
+    }
+    stage_key = hashlib.sha256(
+        json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    publisher = ArtifactPublisher(arguments.artifact_root)
+    artifact = publisher.publish(
+        source_sha256=episode.sha256,
+        stage="asr",
+        stage_key=stage_key,
+        files={
+            "transcript.json": json.dumps(
+                transcript.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+            "windows.json": json.dumps(
+                [window.to_dict() for window in windows], sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+            "raw_responses.json": json.dumps(
+                list(raw_responses), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+        },
+        pipeline_version="p1-02",
+        model_fingerprint_sha256=model.fingerprint_sha256,
+        artifact_id=f"asr-{stage_key[:24]}",
+        provenance={
+            "configuration": configuration,
+            "source": source_audio.to_dict(),
+            "model": model.to_dict(),
+            "endpoint": adapter_endpoint,
+            "window_count": len(windows),
+        },
+    )
+    return {
+        "stage": "asr",
+        "artifact": artifact.to_dict(),
+        "artifact_path": str(publisher.artifact_path(episode.sha256, "asr", stage_key)),
+        "word_count": len(transcript.words),
+        "duration_ms": transcript.duration_ms,
+    }

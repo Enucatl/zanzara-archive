@@ -27,6 +27,10 @@ services:
   parakeet:
     <<: *gpu
     image: zanzara-archive/parakeet:py314-shared
+    # Loopback-only access is for the local process-stage CLI; the service is
+    # not exposed beyond the host and remains internal to the Compose network.
+    ports:
+      - "127.0.0.1:${PARAKEET_PORT:-18080}:8080"
     depends_on: [shared-base]
     build:
       context: .

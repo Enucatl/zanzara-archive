@@ -9,9 +9,10 @@ import re
 import shutil
 import tempfile
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-from .contracts import ArtifactManifest, ContractValidationError
+from .contracts import ArtifactManifest, ContractValidationError, JobStatus
 from .storage import SQLiteRepository
 
 
@@ -103,6 +104,8 @@ class ArtifactPublisher:
         model_fingerprint_sha256: str | None = None,
         artifact_id: str | None = None,
         provenance: Mapping[str, object] | None = None,
+        job: JobStatus | None = None,
+        now: datetime | str | None = None,
     ) -> ArtifactManifest:
         """Write files and a completed manifest, then atomically publish the directory."""
 
@@ -119,12 +122,20 @@ class ArtifactPublisher:
             ).encode("utf-8")
         destination = self.artifact_path(source_sha256, stage, stage_key)
         artifact_id = artifact_id or f"{stage}:{stage_key}"
+        if job is not None:
+            if self.repository is None or job.owner is None:
+                raise ArtifactPublicationError(
+                    "fenced artifact publication requires a repository and claimed job"
+                )
+            self.repository.assert_job_fence(
+                job.job_id, owner=job.owner, fencing_token=job.fencing_token, now=now
+            )
         parent = destination.parent
         parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             manifest = self._read_complete(destination)
             if self.repository is not None:
-                self.repository.reconcile_artifact(manifest, destination)
+                self.repository.record_artifact(manifest, destination, job=job, now=now)
             return manifest
         temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
         checksums: dict[str, str] = {}
@@ -154,6 +165,10 @@ class ArtifactPublisher:
                 output.flush()
                 os.fsync(output.fileno())
             _fsync_directory(temporary)
+            if job is not None:
+                self.repository.assert_job_fence(
+                    job.job_id, owner=job.owner, fencing_token=job.fencing_token, now=now
+                )
             os.replace(temporary, destination)
             _fsync_directory(parent)
         except (OSError, ContractValidationError) as exc:
@@ -163,7 +178,7 @@ class ArtifactPublisher:
                 shutil.rmtree(temporary, ignore_errors=True)
         if self.repository is not None:
             # A database failure leaves a valid, discoverable orphan for reconciliation.
-            self.repository.record_artifact(manifest, destination)
+            self.repository.record_artifact(manifest, destination, job=job, now=now)
         return manifest
 
     def _read_complete(self, directory: Path) -> ArtifactManifest:

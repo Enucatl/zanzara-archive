@@ -17,8 +17,12 @@ returns a typed `lease_lost` failure and prevents stale completion/publication.
 Expired leases are requeued on recovery, transient failures back off for five
 then thirty seconds, and three attempts is the default limit. Deterministic
 failures become `blocked`; exhausted transient failures become `failed`;
-cancellation becomes `cancelled`. Completion and failure updates verify both
-owner and fencing token, so a stale worker cannot mark a job complete.
+cancellation becomes `cancelled`. Completion verifies the owner, fencing token,
+and unexpired lease. Job-driven artifact and generation publication receives the
+claimed `JobStatus` and checks that same live fence at the filesystem boundary
+and inside the canonical SQLite publication transaction. A lost lease therefore
+cannot expose stale output or move a generation pointer; completed orphan
+reconciliation remains an explicit restart operation outside a running job.
 
 Unknown paid requests use the `ambiguous` failure class and remain reserved in
 the cost ledger until an operator reconciles them. No network or paid calls are

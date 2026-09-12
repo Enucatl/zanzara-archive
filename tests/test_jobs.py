@@ -83,8 +83,28 @@ def test_claims_are_fenced_and_stale_workers_cannot_complete(tmp_path: Path) -> 
         repository.assert_job_fence("job-1", owner="worker-a", fencing_token=first.fencing_token)
     with pytest.raises(StorageConflictError, match="stale worker"):
         repository.complete_job("job-1", owner="worker-a", fencing_token=first.fencing_token)
-    repository.complete_job("job-1", owner="worker-b", fencing_token=second.fencing_token)
+    repository.complete_job(
+        "job-1",
+        owner="worker-b",
+        fencing_token=second.fencing_token,
+        now="2026-01-01T00:02:02+00:00",
+    )
     assert repository.fetch_job("job-1").status == "succeeded"
+    repository.close()
+
+
+def test_expired_owner_cannot_complete_without_reclaim(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.enqueue_job(job_id="expired", stage="decode", source_sha256="a" * 64)
+    claimed = repository.claim_job("expired", "worker-a", now="2026-01-01T00:00:00+00:00")
+    with pytest.raises(StorageConflictError, match="stale worker"):
+        repository.complete_job(
+            "expired",
+            owner="worker-a",
+            fencing_token=claimed.fencing_token,
+            now="2026-01-01T00:02:01+00:00",
+        )
+    assert repository.fetch_job("expired").status == "running"
     repository.close()
 
 

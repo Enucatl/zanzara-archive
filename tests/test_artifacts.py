@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
-from zanzara_archive.storage import SQLiteRepository
+from zanzara_archive.storage import SQLiteRepository, StorageConflictError
 
 
 def test_publish_uses_hashed_layout_and_complete_manifest(tmp_path: Path) -> None:
@@ -90,3 +90,50 @@ def test_corrupt_completed_manifest_is_reported(tmp_path: Path) -> None:
     recovered, errors = publisher.reconcile()
     assert recovered == ()
     assert len(errors) == 1
+
+
+def test_stale_worker_cannot_publish_artifact_or_generation(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.enqueue_job(job_id="publish", stage="decode", source_sha256="e" * 64)
+    stale = repository.claim_job("publish", "worker-a", now="2026-01-01T00:00:00+00:00")
+    current = repository.claim_job("publish", "worker-b", now="2026-01-01T00:02:01+00:00")
+    publisher = ArtifactPublisher(tmp_path / "artifacts", repository)
+
+    with pytest.raises(StorageConflictError, match="stale worker"):
+        publisher.publish(
+            source_sha256="e" * 64,
+            stage="decode",
+            stage_key="stale-key",
+            files={"output": b"stale"},
+            job=stale,
+            now="2026-01-01T00:02:02+00:00",
+        )
+    assert not publisher.artifact_path("e" * 64, "decode", "stale-key").exists()
+    assert repository.connection.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 0
+
+    with pytest.raises(StorageConflictError, match="stale worker"):
+        repository.publish_generation(
+            generation_id="stale-generation",
+            kind="speaker",
+            generation_key="stale-key",
+            pointer_name="active-speaker",
+            expected_points=1,
+            job=stale,
+            now="2026-01-01T00:02:02+00:00",
+        )
+    assert (
+        repository.connection.execute("SELECT COUNT(*) FROM index_generations").fetchone()[0] == 0
+    )
+    assert (
+        repository.connection.execute("SELECT COUNT(*) FROM committed_pointers").fetchone()[0] == 0
+    )
+
+    publisher.publish(
+        source_sha256="e" * 64,
+        stage="decode",
+        stage_key="current-key",
+        files={"output": b"current"},
+        job=current,
+        now="2026-01-01T00:02:02+00:00",
+    )
+    repository.close()

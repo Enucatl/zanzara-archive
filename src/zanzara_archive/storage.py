@@ -680,21 +680,30 @@ class SQLiteRepository:
             self.connection.commit()
         self.connection.execute("BEGIN IMMEDIATE")
 
-    def record_artifact(self, manifest: ArtifactManifest, artifact_path: Path) -> None:
+    def record_artifact(
+        self,
+        manifest: ArtifactManifest,
+        artifact_path: Path,
+        *,
+        job: JobStatus | None = None,
+        now: datetime | str | None = None,
+    ) -> None:
         """Record a complete artifact after its atomic filesystem publication."""
 
         manifest_payload = _json(manifest.to_dict())
         manifest_sha256 = hashlib.sha256(manifest_payload.encode()).hexdigest()
-        existing = self.connection.execute(
-            """SELECT manifest_sha256 FROM artifacts
-            WHERE artifact_id = ? OR (source_sha256 = ? AND stage = ? AND stage_key = ?)""",
-            (manifest.artifact_id, manifest.source_sha256, manifest.stage, manifest.stage_key),
-        ).fetchone()
-        if existing is not None:
-            if existing[0] == manifest_sha256:
-                return
-            raise StorageConflictError("artifact identity already refers to different content")
         with self.transaction() as connection:
+            if job is not None:
+                self._assert_job_fence(connection, job, now=now)
+            existing = connection.execute(
+                """SELECT manifest_sha256 FROM artifacts
+                WHERE artifact_id = ? OR (source_sha256 = ? AND stage = ? AND stage_key = ?)""",
+                (manifest.artifact_id, manifest.source_sha256, manifest.stage, manifest.stage_key),
+            ).fetchone()
+            if existing is not None:
+                if existing[0] == manifest_sha256:
+                    return
+                raise StorageConflictError("artifact identity already refers to different content")
             connection.execute(
                 """INSERT INTO artifacts (
                     artifact_id, source_sha256, stage, stage_key, artifact_path,
@@ -840,18 +849,42 @@ class SQLiteRepository:
     ) -> JobStatus:
         """Verify a worker still owns its lease before publishing stage output."""
 
-        job = self.fetch_job(job_id)
+        return self._assert_job_fence(
+            self.connection,
+            JobStatus(
+                job_id=job_id,
+                stage="fence",
+                status="running",
+                owner=owner,
+                fencing_token=fencing_token,
+            ),
+            now=now,
+        )
+
+    def _assert_job_fence(
+        self,
+        connection: sqlite3.Connection,
+        job: JobStatus,
+        *,
+        now: datetime | str | None = None,
+    ) -> JobStatus:
+        """Verify a claimed job fence using the publication transaction."""
+
+        current_row = connection.execute(
+            "SELECT * FROM jobs WHERE job_id = ?", (job.job_id,)
+        ).fetchone()
+        current = self._job_from_row(current_row) if current_row is not None else None
         stamp = self._timestamp(self._instant(now))
         if (
-            job is None
-            or job.status != "running"
-            or job.owner != owner
-            or job.fencing_token != fencing_token
-            or job.lease_expires_at is None
-            or job.lease_expires_at <= stamp
+            current is None
+            or current.status != "running"
+            or current.owner != job.owner
+            or current.fencing_token != job.fencing_token
+            or current.lease_expires_at is None
+            or current.lease_expires_at <= stamp
         ):
             raise StorageConflictError("stale worker cannot publish this job output")
-        return job
+        return current
 
     @staticmethod
     def _instant(value: datetime | str | None) -> datetime:
@@ -1030,8 +1063,8 @@ class SQLiteRepository:
             result = connection.execute(
                 """UPDATE jobs SET status='succeeded', owner=NULL, lease_expires_at=NULL,
                 recovery_action=NULL, updated_at=? WHERE job_id=? AND status='running'
-                AND owner=? AND fencing_token=?""",
-                (stamp, job_id, owner, fencing_token),
+                AND owner=? AND fencing_token=? AND lease_expires_at > ?""",
+                (stamp, job_id, owner, fencing_token, stamp),
             )
             if result.rowcount != 1:
                 raise StorageConflictError("stale worker cannot complete this job")
@@ -1230,25 +1263,29 @@ class SQLiteRepository:
         generation_key: str,
         pointer_name: str,
         expected_points: int,
+        job: JobStatus | None = None,
+        now: datetime | str | None = None,
     ) -> None:
         """Publish a validated index generation and its pointer atomically."""
 
         if expected_points < 0:
             raise ValueError("expected_points must be non-negative")
-        now = _now()
+        published_at = self._timestamp(self._instant(now))
         with self.transaction() as connection:
+            if job is not None:
+                self._assert_job_fence(connection, job, now=now)
             connection.execute(
                 """INSERT INTO index_generations
                 (generation_id, kind, generation_key, status, expected_points, published_at)
                 VALUES (?, ?, ?, 'complete', ?, ?)""",
-                (generation_id, kind, generation_key, expected_points, now),
+                (generation_id, kind, generation_key, expected_points, published_at),
             )
             connection.execute(
                 """INSERT INTO committed_pointers(pointer_name, generation_id, updated_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(pointer_name) DO UPDATE SET
                     generation_id = excluded.generation_id, updated_at = excluded.updated_at""",
-                (pointer_name, generation_id, now),
+                (pointer_name, generation_id, published_at),
             )
 
     def append_identity_decision(self, decision: IdentityDecision) -> None:

@@ -23,17 +23,23 @@ from .contracts import (
     AudioArtifact,
     CapabilityDeclaration,
     ContractValidationError,
+    DiarizationResult,
     ModelFingerprint,
+    Overlap,
     RequestTimeoutError,
     TimedWord,
     TranscriptResult,
+    Turn,
     UnsupportedCapabilityError,
 )
 from .model_locks import model_fingerprint_from_lock
 
 PARAKEET_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
+DIARIZATION_PATH = "/v1/diarize"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+DEFAULT_DIARIZATION_TIMEOUT_SECONDS = 600.0
 MAX_AUDIO_PAYLOAD_BYTES = 25_000_000
+MAX_DIARIZATION_PAYLOAD_BYTES = 50_000_000
 
 
 def _request_id(value: str | None) -> str:
@@ -96,7 +102,9 @@ def _word_offsets(item: Mapping[str, Any], index: int) -> tuple[int, int]:
     )
 
 
-def _unwrap_response(payload: Mapping[str, Any], request_id: str) -> Mapping[str, Any]:
+def _unwrap_response(
+    payload: Mapping[str, Any], request_id: str, *, service_name: str = "inference"
+) -> Mapping[str, Any]:
     """Accept the versioned envelope and the equivalent verbose JSON subset."""
 
     if payload.get("status") == "error":
@@ -108,18 +116,21 @@ def _unwrap_response(payload: Mapping[str, Any], request_id: str) -> Mapping[str
                 raise _failure(
                     AdapterFailure,
                     "invalid_response",
-                    f"Parakeet service returned an invalid error envelope: {exc}",
+                    f"{service_name} service returned an invalid error envelope: {exc}",
                     request_id,
                 ) from exc
         else:
             error = ApiError(
-                "service_error", "Parakeet service returned an invalid error", False, request_id
+                "service_error",
+                f"{service_name} service returned an invalid error",
+                False,
+                request_id,
             )
         if error.request_id != request_id:
             raise _failure(
                 AdapterFailure,
                 "invalid_response",
-                "Parakeet service error request_id does not match the request",
+                f"{service_name} service error request_id does not match the request",
                 request_id,
             )
         if error.code == "unsupported_capability":
@@ -131,7 +142,7 @@ def _unwrap_response(payload: Mapping[str, Any], request_id: str) -> Mapping[str
             raise _failure(
                 AdapterFailure,
                 "invalid_response",
-                "Parakeet service returned an invalid success envelope",
+                f"{service_name} service returned an invalid success envelope",
                 request_id,
             )
         return data
@@ -147,7 +158,7 @@ def parse_parakeet_response(
 ) -> TranscriptResult:
     """Validate one verbose JSON response without manufacturing timestamps."""
 
-    data = _unwrap_response(payload, request_id)
+    data = _unwrap_response(payload, request_id, service_name="Parakeet")
     raw_text = data.get("text")
     if not isinstance(raw_text, str):
         raise _failure(
@@ -261,6 +272,188 @@ class ParsedTranscription:
     """The typed transcript plus the exact service response for private evidence."""
 
     result: TranscriptResult
+    raw_response: Mapping[str, Any]
+
+
+def _turn_offsets(item: Mapping[str, Any], field_name: str) -> tuple[int, int]:
+    """Convert one service turn to integer milliseconds exactly once."""
+
+    if "start_ms" in item or "end_ms" in item:
+        start = item.get("start_ms")
+        end = item.get("end_ms")
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or isinstance(end, bool)
+            or not isinstance(end, int)
+        ):
+            raise ContractValidationError(f"{field_name} millisecond offsets must be integers")
+        return start, end
+    if "start" not in item or "end" not in item:
+        raise ContractValidationError(f"{field_name} is missing genuine start/end timestamps")
+    return (
+        _seconds_to_ms(item["start"], f"{field_name}.start"),
+        _seconds_to_ms(item["end"], f"{field_name}.end"),
+    )
+
+
+def _parse_turns(
+    data: Mapping[str, Any],
+    field_name: str,
+    *,
+    audio: AudioArtifact,
+    request_id: str,
+) -> tuple[Turn, ...]:
+    raw_turns = data.get(field_name)
+    if not isinstance(raw_turns, list):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"Community-1 response is missing {field_name}",
+            request_id,
+        )
+    turns: list[Turn] = []
+    for index, raw_turn in enumerate(raw_turns):
+        if not isinstance(raw_turn, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Community-1 response {field_name}[{index}] is not an object",
+                request_id,
+            )
+        speaker_id = raw_turn.get("speaker_id", raw_turn.get("speaker", raw_turn.get("label")))
+        if not isinstance(speaker_id, str) or not speaker_id.strip():
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Community-1 response {field_name}[{index}] is missing speaker ID",
+                request_id,
+            )
+        try:
+            start_ms, end_ms = _turn_offsets(raw_turn, f"{field_name}[{index}]")
+            if start_ms < 0 or end_ms > audio.duration_ms:
+                raise ContractValidationError(
+                    f"interval ({start_ms},{end_ms}) is outside audio duration {audio.duration_ms}"
+                )
+            confidence = raw_turn.get("confidence")
+            if confidence is not None and (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, (int, float))
+                or not 0 <= confidence <= 1
+            ):
+                raise ContractValidationError("confidence must be between 0 and 1")
+            turns.append(
+                Turn(
+                    speaker_id=speaker_id,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    confidence=float(confidence) if confidence is not None else None,
+                )
+            )
+        except ContractValidationError as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Community-1 response {field_name}[{index}] is invalid: {exc}",
+                request_id,
+            ) from exc
+    return tuple(turns)
+
+
+def derive_overlap_intervals(turns: Sequence[Turn]) -> tuple[Overlap, ...]:
+    """Derive merged half-open overlap intervals from standard turns."""
+
+    boundaries = sorted({point for turn in turns for point in (turn.start_ms, turn.end_ms)})
+    overlaps: list[Overlap] = []
+    for start_ms, end_ms in zip(boundaries, boundaries[1:], strict=False):
+        active = tuple(
+            sorted(
+                {
+                    turn.speaker_id
+                    for turn in turns
+                    if turn.start_ms < end_ms and turn.end_ms > start_ms
+                }
+            )
+        )
+        if len(active) < 2:
+            continue
+        current = Overlap(active, start_ms, end_ms)
+        if overlaps and overlaps[-1].end_ms == start_ms and overlaps[-1].speaker_ids == active:
+            overlaps[-1] = Overlap(active, overlaps[-1].start_ms, end_ms)
+        else:
+            overlaps.append(current)
+    return tuple(overlaps)
+
+
+def _rttm_seconds(milliseconds: int) -> str:
+    return f"{milliseconds // 1000}.{milliseconds % 1000:03d}"
+
+
+def render_rttm(turns: Sequence[Turn], *, file_id: str = "episode") -> str:
+    """Render an evaluation-only RTTM view without changing canonical offsets."""
+
+    if (
+        not isinstance(file_id, str)
+        or not file_id.strip()
+        or any(character.isspace() for character in file_id)
+    ):
+        raise ValueError("RTTM file_id must be non-empty and contain no whitespace")
+    lines = []
+    for turn in sorted(turns, key=lambda item: (item.start_ms, item.end_ms, item.speaker_id)):
+        duration_ms = turn.end_ms - turn.start_ms
+        lines.append(
+            "SPEAKER "
+            f"{file_id} 1 {_rttm_seconds(turn.start_ms)} {_rttm_seconds(duration_ms)} "
+            f"<NA> <NA> {turn.speaker_id} <NA> <NA>"
+        )
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def parse_diarization_response(
+    payload: Mapping[str, Any],
+    *,
+    audio: AudioArtifact,
+    model: ModelFingerprint,
+    request_id: str,
+) -> DiarizationResult:
+    """Validate Community-1 standard/exclusive output and derive overlaps."""
+
+    data = _unwrap_response(payload, request_id, service_name="Community-1")
+    reported_model = data.get("model")
+    if reported_model is not None and reported_model != model.repository:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Community-1 response model does not match the locked model",
+            request_id,
+        )
+    reported_revision = data.get("model_revision")
+    if reported_revision is not None and reported_revision != model.revision:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Community-1 response revision does not match the locked model",
+            request_id,
+        )
+    standard_turns = _parse_turns(data, "standard_turns", audio=audio, request_id=request_id)
+    exclusive_turns = _parse_turns(data, "exclusive_turns", audio=audio, request_id=request_id)
+    return DiarizationResult(
+        artifact_id=audio.artifact_id,
+        source_sha256=audio.source_sha256,
+        duration_ms=audio.duration_ms,
+        model=model,
+        standard_turns=standard_turns,
+        exclusive_turns=exclusive_turns,
+        overlaps=derive_overlap_intervals(standard_turns),
+        request_id=request_id,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedDiarization:
+    """The typed diarization plus the exact service response for private evidence."""
+
+    result: DiarizationResult
     raw_response: Mapping[str, Any]
 
 
@@ -423,14 +616,151 @@ class ParakeetAdapter:
         ).result
 
 
+class DiarizerAdapter:
+    """Application-side adapter for the local Community-1 JSON endpoint."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioArtifact], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_DIARIZATION_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = (
+            model_fingerprint_from_lock(model, "diarization") if isinstance(model, str) else model
+        )
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        return CapabilityDeclaration(
+            model=self.model,
+            supports_timestamps=True,
+            timestamp_granularities=("segment",),
+            max_payload_bytes=MAX_DIARIZATION_PAYLOAD_BYTES,
+        )
+
+    def diarize_bytes(
+        self,
+        audio: AudioArtifact,
+        audio_bytes: bytes,
+        *,
+        request_id: str | None = None,
+    ) -> ParsedDiarization:
+        request_id = request_id or f"diarization-{uuid.uuid4().hex}"
+        if not isinstance(audio_bytes, bytes) or not audio_bytes:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio payload must contain bytes",
+                request_id,
+            )
+        if len(audio_bytes) > MAX_DIARIZATION_PAYLOAD_BYTES:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"audio payload exceeds {MAX_DIARIZATION_PAYLOAD_BYTES} bytes",
+                request_id,
+            )
+        payload = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "input_audio": {
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": audio.audio_format,
+            },
+            "output": {"standard": True, "exclusive": True, "overlaps": True},
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{DIARIZATION_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "Community-1 diarization request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"Community-1 endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Community-1 endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Community-1 endpoint returned a non-object JSON response",
+                request_id,
+            )
+        result = parse_diarization_response(
+            response,
+            audio=audio,
+            model=self.model,
+            request_id=request_id,
+        )
+        return ParsedDiarization(result=result, raw_response=response)
+
+    def diarize(self, audio: AudioArtifact, *, request_id: str) -> DiarizationResult:
+        if self.audio_loader is None:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "DiarizerAdapter requires an audio_loader for a registered artifact",
+                request_id,
+            )
+        return self.diarize_bytes(
+            audio,
+            self.audio_loader(audio),
+            request_id=request_id,
+        ).result
+
+
+Community1Adapter = DiarizerAdapter
+LocalDiarizerAdapter = DiarizerAdapter
 LocalParakeetAdapter = ParakeetAdapter
 
 __all__ = [
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
+    "DEFAULT_DIARIZATION_TIMEOUT_SECONDS",
+    "DIARIZATION_PATH",
+    "DiarizerAdapter",
+    "Community1Adapter",
     "LocalParakeetAdapter",
+    "LocalDiarizerAdapter",
     "MAX_AUDIO_PAYLOAD_BYTES",
+    "MAX_DIARIZATION_PAYLOAD_BYTES",
     "PARAKEET_TRANSCRIPTION_PATH",
     "ParakeetAdapter",
+    "ParsedDiarization",
     "ParsedTranscription",
+    "derive_overlap_intervals",
+    "parse_diarization_response",
     "parse_parakeet_response",
+    "render_rttm",
 ]

@@ -54,16 +54,17 @@ def build_parser() -> argparse.ArgumentParser:
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
-    process.add_argument("--stage", required=True, choices=("asr",))
+    process.add_argument("--stage", required=True, choices=("asr", "diarization"))
     process.add_argument(
         "--archive-root",
         default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
         help="read-only archive root",
     )
+    process.add_argument("--endpoint", help="override the local inference endpoint")
     process.add_argument(
-        "--endpoint",
-        default=os.environ.get("PARAKEET_ENDPOINT", "http://127.0.0.1:18080"),
-        help="local Parakeet endpoint",
+        "--diarization-endpoint",
+        default=os.environ.get("DIARIZATION_ENDPOINT", "http://127.0.0.1:18081"),
+        help="local Community-1 endpoint",
     )
     process.add_argument(
         "--artifact-root",
@@ -189,6 +190,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
     """Process one episode through a bounded local stage and publish atomically."""
 
+    if arguments.stage == "diarization":
+        return _process_diarization_stage(arguments)
+    return _process_asr_stage(arguments)
+
+
+def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Process one episode through the bounded Parakeet stage."""
+
     manifest = load_manifest(arguments.manifest)
     episode = next(
         (item for item in manifest.episodes if item.relative_filename == arguments.episode), None
@@ -206,7 +215,9 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         preprocessing={"manifest": manifest.sha256, "relative_filename": episode.relative_filename},
     )
     model = model_fingerprint_from_lock(arguments.model_lock, "parakeet")
-    adapter_endpoint = arguments.endpoint
+    adapter_endpoint = arguments.endpoint or os.environ.get(
+        "PARAKEET_ENDPOINT", "http://127.0.0.1:18080"
+    )
     request_id = f"asr-{episode.sha256[:16]}"
 
     def load_window(window: Any) -> bytes:
@@ -295,4 +306,103 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         "artifact_path": str(publisher.artifact_path(episode.sha256, "asr", stage_key)),
         "word_count": len(transcript.words),
         "duration_ms": transcript.duration_ms,
+    }
+
+
+def _process_diarization_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Diarize one complete episode once and publish both views."""
+
+    manifest = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in manifest.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise CorpusValidationError(f"episode is not present in manifest: {arguments.episode}")
+    source = resolve_source(arguments.archive_root, episode.relative_filename)
+    source_audio = AudioArtifact(
+        artifact_id=f"source-{episode.sha256[:16]}",
+        source_sha256=episode.sha256,
+        format=episode.codec,
+        duration_ms=episode.duration_ms,
+        sample_rate_hz=episode.sample_rate_hz,
+        channels=episode.channels,
+        preprocessing={"manifest": manifest.sha256, "relative_filename": episode.relative_filename},
+    )
+    model = model_fingerprint_from_lock(arguments.model_lock, "diarization")
+    from zanzara_archive.inference import DiarizerAdapter, render_rttm
+
+    request_id = f"diarization-{episode.sha256[:16]}"
+    endpoint = arguments.endpoint or arguments.diarization_endpoint
+    source_bytes = source.read_bytes()
+    parsed = DiarizerAdapter(endpoint, model).diarize_bytes(
+        source_audio,
+        source_bytes,
+        request_id=request_id,
+    )
+    result = parsed.result
+    configuration = {
+        "stage": "diarization",
+        "clustering": "episode-wide",
+        "decoder": "ffmpeg in Community-1 service",
+        "sample_rate_hz": 16_000,
+        "channels": 1,
+        "manifest_sha256": manifest.sha256,
+        "source_sha256": episode.sha256,
+        "model_fingerprint_sha256": model.fingerprint_sha256,
+        "rttm_boundary_precision_ms": 1,
+    }
+    stage_key = hashlib.sha256(
+        json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    publisher = ArtifactPublisher(arguments.artifact_root)
+    artifact = publisher.publish(
+        source_sha256=episode.sha256,
+        stage="diarization",
+        stage_key=stage_key,
+        files={
+            "diarization.json": json.dumps(
+                result.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+            "standard.rttm": render_rttm(
+                result.standard_turns, file_id=episode.relative_filename
+            ).encode("utf-8"),
+            "exclusive.rttm": render_rttm(
+                result.exclusive_turns, file_id=episode.relative_filename
+            ).encode("utf-8"),
+            "raw_response.json": json.dumps(
+                parsed.raw_response, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+        },
+        pipeline_version="p1-03",
+        model_fingerprint_sha256=model.fingerprint_sha256,
+        artifact_id=f"diarization-{stage_key[:24]}",
+        provenance={
+            "configuration": configuration,
+            "source": source_audio.to_dict(),
+            "decoded_input": {
+                "decoder": "ffmpeg in Community-1 service",
+                "target_sample_rate_hz": 16_000,
+                "target_channels": 1,
+                "time_origin": "original episode",
+            },
+            "model": model.to_dict(),
+            "endpoint": endpoint,
+            "episode_wide": True,
+            "standard_turn_count": len(result.standard_turns),
+            "exclusive_turn_count": len(result.exclusive_turns),
+            "overlap_count": len(result.overlaps),
+        },
+    )
+    return {
+        "stage": "diarization",
+        "artifact": artifact.to_dict(),
+        "artifact_path": str(publisher.artifact_path(episode.sha256, "diarization", stage_key)),
+        "standard_turn_count": len(result.standard_turns),
+        "exclusive_turn_count": len(result.exclusive_turns),
+        "overlap_count": len(result.overlaps),
+        "speaker_ids": sorted(
+            {turn.speaker_id for turn in result.standard_turns}
+            | {turn.speaker_id for turn in result.exclusive_turns}
+        ),
+        "duration_ms": result.duration_ms,
     }

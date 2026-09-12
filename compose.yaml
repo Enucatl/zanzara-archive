@@ -45,6 +45,10 @@ services:
   diarization:
     <<: *gpu
     image: zanzara-archive/diarization:py314-shared
+    # The application sends only to this host loopback port for the local
+    # full-episode processing command.
+    ports:
+      - "127.0.0.1:${DIARIZATION_PORT:-18081}:8080"
     depends_on: [shared-base]
     build:
       context: .

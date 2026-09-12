@@ -26,8 +26,14 @@ def run_service(
     model_id: str,
     infer: Callable[[Path], dict[str, Any]],
     post_infer: PostInference | None = None,
+    *,
+    post_path: str = "/v1/audio/transcriptions",
+    max_request_bytes: int = 40_000_000,
 ) -> None:
     """Run one real model inference, persist aggregate evidence, then serve readiness."""
+
+    if max_request_bytes <= 0:
+        raise ValueError("max_request_bytes must be positive")
 
     audio_path = Path(os.environ.get("SMOKE_AUDIO", "/smoke/audio.wav"))
     evidence_path = Path(os.environ.get("EVIDENCE_PATH", f"/evidence/{model_id}.json"))
@@ -69,12 +75,14 @@ def run_service(
     }
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
     evidence_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _serve(payload, post_infer)
+    _serve(payload, post_infer, post_path=post_path, max_request_bytes=max_request_bytes)
 
 
 class _Handler(BaseHTTPRequestHandler):
     payload: dict[str, Any] = {}
     post_infer: PostInference | None = None
+    post_path = "/v1/audio/transcriptions"
+    max_request_bytes = 40_000_000
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path not in {"/health", "/ready", "/v1/smoke"}:
@@ -88,14 +96,14 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/v1/audio/transcriptions" or self.post_infer is None:
+        if self.path != type(self).post_path or self.post_infer is None:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
             content_length = int(self.headers.get("Content-Length", "-1"))
         except ValueError:
             content_length = -1
-        if content_length < 0 or content_length > 40_000_000:
+        if content_length < 0 or content_length > type(self).max_request_bytes:
             self.send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return
         try:
@@ -142,9 +150,17 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
 
-def _serve(payload: dict[str, Any], post_infer: PostInference | None = None) -> None:
+def _serve(
+    payload: dict[str, Any],
+    post_infer: PostInference | None = None,
+    *,
+    post_path: str = "/v1/audio/transcriptions",
+    max_request_bytes: int = 40_000_000,
+) -> None:
     _Handler.payload = payload
     _Handler.post_infer = post_infer
+    _Handler.post_path = post_path
+    _Handler.max_request_bytes = max_request_bytes
     server = socketserver.ThreadingTCPServer(("0.0.0.0", 8080), _Handler)
     Thread(target=server.serve_forever, daemon=True).start()
     while True:

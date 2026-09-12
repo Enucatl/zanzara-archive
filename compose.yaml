@@ -1,0 +1,125 @@
+name: zanzara-archive
+
+x-gpu: &gpu
+  gpus: all
+  restart: "no"
+  profiles: [processing]
+  volumes:
+    - ${HF_HOME:-/home/user/.cache/huggingface}:/models/hf:ro
+    - ${ZANZARA_MODEL_CACHE:-/home/user/.cache/zanzara-archive/models}:/models/zanzara:ro
+    - ${SMOKE_AUDIO_HOST:-/home/user/.cache/zanzara-archive/models/eres2net/v1.0.3/examples/speaker1_a_en_16k.wav}:/smoke/audio.wav:ro
+    - ${EVIDENCE_DIR:-.git/zanzara-evidence}/P1-01:/evidence
+  healthcheck:
+    test: [CMD, python, -c, "import json,urllib.request; json.load(urllib.request.urlopen('http://127.0.0.1:8080/ready', timeout=2))"]
+    interval: 5s
+    timeout: 3s
+    retries: 60
+
+services:
+  shared-base:
+    image: zanzara-archive/shared-base:py314-cu130
+    build:
+      context: .
+      dockerfile: services/shared-base/Dockerfile
+    profiles: [processing]
+    command: ["true"]
+
+  parakeet:
+    <<: *gpu
+    image: zanzara-archive/parakeet:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/parakeet/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b
+      MODEL_REVISION: 541d1f99c6b0c3cd0b11a95167540bb8edefd82b
+      MODEL_SOURCE: nvidia/parakeet-tdt-0.6b-v3
+      IMAGE_REF: zanzara-archive/parakeet:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/parakeet.json
+  diarization:
+    <<: *gpu
+    image: zanzara-archive/diarization:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/diarization/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+      MODEL_REVISION: 3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+      MODEL_SOURCE: pyannote/speaker-diarization-community-1
+      IMAGE_REF: zanzara-archive/diarization:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/diarization.json
+  resnet293:
+    <<: *gpu
+    image: zanzara-archive/resnet293:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/resnet293/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--Wespeaker--wespeaker-voxceleb-resnet293-LM/snapshots/6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83
+      MODEL_REVISION: 6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83
+      MODEL_SOURCE: Wespeaker/wespeaker-voxceleb-resnet293-LM
+      IMAGE_REF: zanzara-archive/resnet293:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/resnet293.json
+  eres2net:
+    <<: *gpu
+    image: zanzara-archive/eres2net:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/eres2net/Dockerfile
+    environment:
+      MODEL_PATH: /models/zanzara/eres2net/v1.0.3
+      MODEL_REVISION: v1.0.3
+      MODEL_SOURCE: iic/speech_eres2net_sv_en_voxceleb_16k
+      IMAGE_REF: zanzara-archive/eres2net:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/eres2net.json
+  wavlm:
+    <<: *gpu
+    image: zanzara-archive/wavlm:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/wavlm/Dockerfile
+    environment:
+      MODEL_PATH: /models/zanzara/wavlm-large-verification/wavlm_large_finetune.pth
+      MODEL_REVISION: 51f07e3b94d9e0262a6a675ef5a087be3dd09e8c62e9d886827f44f82fe7f94b
+      MODEL_SOURCE: Microsoft UniSpeech released fine-tuned WavLM Large verification checkpoint and head
+      IMAGE_REF: zanzara-archive/wavlm:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/wavlm.json
+  text_embeddings:
+    <<: *gpu
+    image: zanzara-archive/text-embeddings:py314-shared
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/text-embeddings/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181
+      MODEL_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
+      MODEL_SOURCE: BAAI/bge-m3
+      IMAGE_REF: zanzara-archive/text-embeddings:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/text_embeddings.json
+  model-smoke:
+    image: zanzara-archive/model-smoke:py314-shared
+    build:
+      context: .
+      dockerfile: services/model-smoke/Dockerfile
+    profiles: [processing]
+    depends_on:
+      parakeet: {condition: service_healthy}
+      diarization: {condition: service_healthy}
+      resnet293: {condition: service_healthy}
+      eres2net: {condition: service_healthy}
+      wavlm: {condition: service_healthy}
+      text_embeddings: {condition: service_healthy}
+    environment:
+      SMOKE_TIMEOUT_SECONDS: 180

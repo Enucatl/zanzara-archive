@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "locked_at": "2026-09-12",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "driver": "590.48.01",
+    "cuda": "13.1",
+    "compute_capability": "12.0",
+    "vram_total_mib": 32607
+  },
+  "shared_base": {
+    "image": "zanzara-archive/shared-base:py314-cu130",
+    "image_digest": "df7c3a4308f76785dd17d7f7ddf74e5471dcf2d1cafba679b7b1a75beceecca4",
+    "python": "3.14.7",
+    "torch": "2.14.0+cu130",
+    "torchaudio": "2.11.0+cu130",
+    "transformers": "5.17.0",
+    "uv": "0.12.13",
+    "uv_build": "0.12.13"
+  },
+  "models": [
+    {
+      "id": "parakeet",
+      "role": "timestamped multilingual ASR",
+      "repository": "nvidia/parakeet-tdt-0.6b-v3",
+      "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+      "license": "CC-BY-4.0",
+      "preprocessing": "mono 16 kHz audio through the model processor",
+      "dimensions": {"output": "decoded text and word/segment timestamps"},
+      "precision": "bfloat16 model inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/parakeet",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "public Hugging Face repository",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/config.json", "size_bytes": 1153, "sha256": "e747b85e1bdfd300c8b8ac63bac8dd5221f8fe9bc275b48d06c735fcd6971b6e"},
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/generation_config.json", "size_bytes": 289, "sha256": "b141de6ec6d7f982ece13f98f604e3fe1807ea9c0e839185d0ab7064604209d0"},
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/model.safetensors", "size_bytes": 2508311120, "sha256": "3a2026366188c8c68598edbbff92f8d11590a08e0ae2e6775544e7b07d6a5e11"},
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/processor_config.json", "size_bytes": 392, "sha256": "8346a93a3b987fa1dec57a78f045cd0817d21786589a5a096b41a57a446fd1d7"},
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/tokenizer.json", "size_bytes": 1159960, "sha256": "bd321b096832a3f270bd3b2a88823957920f1a5c5ada71114a26ea729d0cbe91"},
+        {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/tokenizer_config.json", "size_bytes": 290, "sha256": "0b2fe0037599ee335f0b972fa682bf0ece74e4ccfec755cb7daa3405d3d3e874"}
+      ],
+      "smoke": {"status": "passed", "shape": [1, 55], "elapsed_ms": 3449.462, "peak_vram_mib": 1269.702, "evidence_sha256": "7f1ff499fbfc365ae10de6dfdd87d59af713033839f777741eb9b77204723ca1"}
+    },
+    {
+      "id": "diarization",
+      "role": "speaker diarization",
+      "repository": "pyannote/speaker-diarization-community-1",
+      "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "license": "CC-BY-4.0",
+      "preprocessing": "mono waveform with the pipeline's 16 kHz resampling",
+      "dimensions": {"output": "standard and exclusive turns; overlap-capable annotation"},
+      "precision": "float32 pipeline inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/diarization",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "public Hugging Face repository; gated terms accepted separately",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/config.yaml", "size_bytes": 444, "sha256": "5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be"},
+        {"cache": "huggingface", "path": "models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/embedding/pytorch_model.bin", "size_bytes": 26646242, "sha256": "6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929"},
+        {"cache": "huggingface", "path": "models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/plda/plda.npz", "size_bytes": 133852, "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"},
+        {"cache": "huggingface", "path": "models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/plda/xvec_transform.npz", "size_bytes": 134376, "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"},
+        {"cache": "huggingface", "path": "models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/segmentation/pytorch_model.bin", "size_bytes": 5906507, "sha256": "7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e"}
+      ],
+      "smoke": {"status": "passed", "shape": [3, 3], "elapsed_ms": 1130.119, "peak_vram_mib": 212.476, "evidence_sha256": "f5e80ea0458d479196bc8f1bdbd17076a6fd8ef0b9bd42671e5cb249a9b47425"}
+    },
+    {
+      "id": "resnet293",
+      "role": "speaker verification embedding",
+      "repository": "Wespeaker/wespeaker-voxceleb-resnet293-LM",
+      "revision": "6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83",
+      "license": "CC-BY-4.0",
+      "preprocessing": "mono 16 kHz audio, 80-bin Kaldi fbank and cepstral mean normalization",
+      "dimensions": {"embedding": 256},
+      "precision": "float32 inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/resnet293",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "public Hugging Face repository",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--Wespeaker--wespeaker-voxceleb-resnet293-LM/snapshots/6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83/avg_model.pt", "size_bytes": 133998630, "sha256": "e7b8447ea84345e26432461b4dda224d1af34a3985a438268e0dfbbde059b1ce"},
+        {"cache": "huggingface", "path": "models--Wespeaker--wespeaker-voxceleb-resnet293-LM/snapshots/6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83/config.yaml", "size_bytes": 1538, "sha256": "c277d3d91c9a7b9dd61068800ac6a72d308e07ab0b8d30fb37eec3beda6553f3"}
+      ],
+      "smoke": {"status": "passed", "shape": [256], "elapsed_ms": 2269.874, "peak_vram_mib": 8478.26, "evidence_sha256": "4a7653702736c77984da6b267b11f000e1fb76803f6efb10de665faff03129a6"}
+    },
+    {
+      "id": "eres2net",
+      "role": "speaker verification embedding",
+      "repository": "iic/speech_eres2net_sv_en_voxceleb_16k",
+      "revision": "v1.0.3",
+      "license": "Apache-2.0",
+      "preprocessing": "mono 16 kHz audio and 80-bin mean-normalized FBank",
+      "dimensions": {"embedding": 192},
+      "precision": "float32 inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/eres2net",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "ModelScope registry",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "zanzara", "path": "eres2net/v1.0.3/pretrained_eres2net.ckpt", "size_bytes": 26725867, "sha256": "d8941f5952e31820173c8854562cb6d7897aaa58cd65c18f30d5a2e52d30847d"}
+      ],
+      "smoke": {"status": "passed", "shape": [192], "elapsed_ms": 5459.951, "peak_vram_mib": 123.957, "evidence_sha256": "64d81fcb5a0203cee3d32c795ab7e26c831a08329b80ceefa7eceaff0cb45c04"}
+    },
+    {
+      "id": "wavlm",
+      "role": "fine-tuned speaker verification embedding",
+      "repository": "Microsoft UniSpeech WavLM Large verification release",
+      "revision": "51f07e3b94d9e0262a6a675ef5a087be3dd09e8c62e9d886827f44f82fe7f94b",
+      "license": "Microsoft UniSpeech/WavLM release terms; human-approved",
+      "preprocessing": "mono 16 kHz waveform through the released WavLM Large encoder and trained ECAPA verification head",
+      "dimensions": {"embedding": 256, "checkpoint": "fine-tuned verification head; Fix pre-train=No"},
+      "precision": "float32 inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/wavlm",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "Microsoft UniSpeech release",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "zanzara", "path": "wavlm-large-verification/wavlm_large_finetune.pth", "size_bytes": 1301926579, "sha256": "51f07e3b94d9e0262a6a675ef5a087be3dd09e8c62e9d886827f44f82fe7f94b"}
+      ],
+      "smoke": {"status": "passed", "shape": [256], "elapsed_ms": 583.32, "peak_vram_mib": 1410.507, "evidence_sha256": "fb5e1b82271edd7829820b9b0c77a48206bc50628d1cf0360ae8fdf05a08216c"}
+    },
+    {
+      "id": "text_embeddings",
+      "role": "dense text embedding",
+      "repository": "BAAI/bge-m3",
+      "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+      "license": "MIT",
+      "preprocessing": "tokenized text, mean pooling over attention-masked hidden states, L2 normalization",
+      "dimensions": {"embedding": 1024, "max_tokens": 8192},
+      "precision": "bfloat16 model inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/text-embeddings",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-12",
+        "source": "public Hugging Face repository",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/config.json", "size_bytes": 687, "sha256": "26159e7ad065073448460117eb24b7a4572f6f4e78eadff65dc0a11c052449fa"},
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/pytorch_model.bin", "size_bytes": 2271145830, "sha256": "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"},
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/sentencepiece.bpe.model", "size_bytes": 5069051, "sha256": "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"},
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/special_tokens_map.json", "size_bytes": 964, "sha256": "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835"},
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/tokenizer.json", "size_bytes": 17098108, "sha256": "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"},
+        {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/tokenizer_config.json", "size_bytes": 444, "sha256": "a62b2b6784f990259fddef5f16388693a8043be4f69179e6a5257eeb3f9abac4"}
+      ],
+      "smoke": {"status": "passed", "shape": [1024], "elapsed_ms": 861.712, "peak_vram_mib": 1115.291, "evidence_sha256": "dac0a464fba9693a03d396e0165b01f1203f2e897597e024150467fd6e8cbbbf"}
+    }
+  ],
+  "services": [
+    {"id": "parakeet", "directory": "services/parakeet", "image": "zanzara-archive/parakeet:py314-shared", "image_digest": "177e59002ee9c3b3625a2dfc7025e56b422e860b7deb757b9fda50593869449b", "python": "3.14.7", "uv_lock_sha256": "1576b48fac157ab7dc89e4c07660624b4be4beb337a6b95d2489af250259a5a1"},
+    {"id": "diarization", "directory": "services/diarization", "image": "zanzara-archive/diarization:py314-shared", "image_digest": "fd5e73a197fde8ecf860dd538940662693b6e7d5bc0f97d722351ea11cb814e3", "python": "3.14.7", "uv_lock_sha256": "935c26b2d7ad7d11f428467b48f47130187c7f0d6ba80a0eb7a8403900cc2760"},
+    {"id": "resnet293", "directory": "services/resnet293", "image": "zanzara-archive/resnet293:py314-shared", "image_digest": "452257b5031214e4384dd9bb251194025201ec2ff50feccb1107bbc2f62ffb80", "python": "3.14.7", "uv_lock_sha256": "7b810071ec07525445b08d0f640fcf9bded04678165b3365bf3b3c107fd31090"},
+    {"id": "eres2net", "directory": "services/eres2net", "image": "zanzara-archive/eres2net:py314-shared", "image_digest": "41620735648df7410649035e8d406ec61f8357aa9eacf837f650d2f6b4971641", "python": "3.14.7", "uv_lock_sha256": "00ba8bb7be58304a7797fdb6afa0795447a545bb6f42430fe737cf76125c8828"},
+    {"id": "wavlm", "directory": "services/wavlm", "image": "zanzara-archive/wavlm:py314-shared", "image_digest": "5b06edf4885614dd869c3b41220f9730cc4cc4f4012f07370723c7a59d67b406", "python": "3.14.7", "uv_lock_sha256": "b4a5c1557da02e5792b230cc6416638ebc5a63e8ea468bcbe0ab63a768fcc621"},
+    {"id": "text_embeddings", "directory": "services/text-embeddings", "image": "zanzara-archive/text-embeddings:py314-shared", "image_digest": "05556d5a69d48c827123ae48a8c6f11c69eba961a2b053dbfa860ab08780952d", "python": "3.14.7", "uv_lock_sha256": "7562066e31c83045bd874fd625aa06a7d895bfea65931a37868e5779ce71e75f"}
+  ]
+}

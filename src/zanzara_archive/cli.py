@@ -8,12 +8,18 @@ import json
 import os
 import subprocess
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from zanzara_archive import __version__
-from zanzara_archive.artifacts import ArtifactPublisher
+from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
 from zanzara_archive.asr import transcribe_windowed
-from zanzara_archive.contracts import AdapterFailure, AudioArtifact
+from zanzara_archive.contracts import (
+    AdapterFailure,
+    AudioArtifact,
+    DiarizationResult,
+    TranscriptResult,
+)
 from zanzara_archive.corpus import (
     CorpusValidationError,
     load_manifest,
@@ -27,7 +33,9 @@ from zanzara_archive.model_locks import (
     model_fingerprint_from_lock,
     validate_model_lock,
 )
+from zanzara_archive.stages import stage_fingerprint
 from zanzara_archive.storage import SQLiteRepository, StorageError
+from zanzara_archive.transcripts import build_attributed_transcript, render_exports
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
-    process.add_argument("--stage", required=True, choices=("asr", "diarization"))
+    process.add_argument("--stage", required=True, choices=("asr", "diarization", "attribution"))
     process.add_argument(
         "--archive-root",
         default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
@@ -72,6 +80,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="private immutable artifact root",
     )
     process.add_argument("--model-lock", default="models.lock.json")
+    process.add_argument(
+        "--asr-artifact",
+        help=(
+            "explicit P1-02 artifact directory for attribution (defaults to its locked generation)"
+        ),
+    )
+    process.add_argument(
+        "--diarization-artifact",
+        help=(
+            "explicit P1-03 artifact directory for attribution (defaults to its locked generation)"
+        ),
+    )
     process.add_argument("--ffmpeg", default="ffmpeg")
     process.add_argument("--language")
     jobs = commands.add_parser("jobs", help="manage durable worker jobs")
@@ -116,7 +136,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "process":
         try:
             result = _process_stage(arguments)
-        except (AdapterFailure, CorpusValidationError, OSError, ValueError) as exc:
+        except (
+            AdapterFailure,
+            ArtifactPublicationError,
+            CorpusValidationError,
+            OSError,
+            ValueError,
+        ) as exc:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
         return 0
@@ -192,7 +218,273 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
 
     if arguments.stage == "diarization":
         return _process_diarization_stage(arguments)
+    if arguments.stage == "attribution":
+        return _process_attribution_stage(arguments)
     return _process_asr_stage(arguments)
+
+
+def _configuration_key(configuration: dict[str, Any]) -> str:
+    """Match the immutable keys used by the existing ASR/diarization commands."""
+
+    return hashlib.sha256(
+        json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _manifest_digest(manifest: Any) -> str:
+    """Hash the canonical manifest representation used as an upstream input."""
+
+    payload = json.dumps(
+        manifest.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _default_attribution_input_path(
+    arguments: argparse.Namespace,
+    episode: Any,
+    manifest: Any,
+    *,
+    stage: str,
+) -> Path:
+    """Resolve a prerequisite's deterministic generation without scanning directories."""
+
+    if stage == "asr":
+        model = model_fingerprint_from_lock(arguments.model_lock, "parakeet")
+        configuration = {
+            "stage": "asr",
+            "window_ms": 300_000,
+            "context_ms": 5_000,
+            "language": arguments.language,
+            "decoder": "ffmpeg",
+            "sample_rate_hz": 16_000,
+            "channels": 1,
+            "manifest_sha256": manifest.sha256,
+            "source_sha256": episode.sha256,
+            "model_fingerprint_sha256": model.fingerprint_sha256,
+        }
+    else:
+        model = model_fingerprint_from_lock(arguments.model_lock, "diarization")
+        configuration = {
+            "stage": "diarization",
+            "clustering": "episode-wide",
+            "decoder": "ffmpeg in Community-1 service",
+            "sample_rate_hz": 16_000,
+            "channels": 1,
+            "manifest_sha256": manifest.sha256,
+            "source_sha256": episode.sha256,
+            "model_fingerprint_sha256": model.fingerprint_sha256,
+            "rttm_boundary_precision_ms": 1,
+        }
+    return (
+        Path(arguments.artifact_root).expanduser()
+        / episode.sha256
+        / stage
+        / _configuration_key(configuration)
+    )
+
+
+def _load_stage_payload(
+    artifact_root: str | os.PathLike[str],
+    artifact_path: str | os.PathLike[str] | None,
+    *,
+    expected_stage: str,
+    payload_name: str,
+) -> tuple[Any, dict[str, Any], dict[str, Any], Path]:
+    """Read and checksum one complete prerequisite artifact."""
+
+    publisher = ArtifactPublisher(artifact_root)
+    root = publisher.root
+    candidate = Path(artifact_path).expanduser() if artifact_path is not None else None
+    if candidate is None:
+        raise ValueError(f"no {expected_stage} artifact was resolved")
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    if candidate.is_symlink():
+        raise ValueError(f"{expected_stage} artifact must not be a symlink")
+    candidate = candidate.resolve()
+    if root not in candidate.parents:
+        raise ValueError(f"{expected_stage} artifact must be inside the artifact root")
+    manifest = publisher._read_complete(candidate)
+    if manifest.stage != expected_stage:
+        raise ValueError(f"expected a {expected_stage} artifact, found stage {manifest.stage!r}")
+    payload_path = candidate / payload_name
+    try:
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        provenance_path = candidate / "provenance.json"
+        provenance = (
+            json.loads(provenance_path.read_text(encoding="utf-8"))
+            if provenance_path.is_file()
+            else {}
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise ArtifactPublicationError(
+            f"cannot read complete {expected_stage} artifact {candidate}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(provenance, dict):
+        raise ArtifactPublicationError(f"{expected_stage} artifact payloads must be JSON objects")
+    return manifest, payload, provenance, candidate
+
+
+def _validate_stage_provenance(
+    manifest: Any,
+    result: TranscriptResult | DiarizationResult,
+    *,
+    expected_source_sha256: str,
+    stage: str,
+) -> None:
+    """Reject an input whose payload disagrees with its immutable manifest."""
+
+    if (
+        manifest.source_sha256 != expected_source_sha256
+        or result.source_sha256 != expected_source_sha256
+    ):
+        raise ValueError(f"{stage} artifact source provenance does not match the episode")
+    if manifest.model_fingerprint_sha256 != result.model.fingerprint_sha256:
+        raise ValueError(f"{stage} artifact model provenance does not match its payload")
+
+
+def _process_attribution_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Attribute validated prerequisite artifacts and publish derived exports."""
+
+    manifest = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in manifest.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise CorpusValidationError(f"episode is not present in manifest: {arguments.episode}")
+
+    asr_path = arguments.asr_artifact or _default_attribution_input_path(
+        arguments, episode, manifest, stage="asr"
+    )
+    diarization_path = arguments.diarization_artifact or _default_attribution_input_path(
+        arguments, episode, manifest, stage="diarization"
+    )
+    asr_manifest, asr_payload, asr_provenance, asr_directory = _load_stage_payload(
+        arguments.artifact_root,
+        asr_path,
+        expected_stage="asr",
+        payload_name="transcript.json",
+    )
+    diarization_manifest, diarization_payload, diarization_provenance, diarization_directory = (
+        _load_stage_payload(
+            arguments.artifact_root,
+            diarization_path,
+            expected_stage="diarization",
+            payload_name="diarization.json",
+        )
+    )
+    try:
+        transcript = TranscriptResult.from_dict(asr_payload)
+        diarization = DiarizationResult.from_dict(diarization_payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ArtifactPublicationError(f"invalid attribution input payload: {exc}") from exc
+    _validate_stage_provenance(
+        asr_manifest, transcript, expected_source_sha256=episode.sha256, stage="ASR"
+    )
+    _validate_stage_provenance(
+        diarization_manifest,
+        diarization,
+        expected_source_sha256=episode.sha256,
+        stage="diarization",
+    )
+    if transcript.duration_ms != diarization.duration_ms:
+        raise ValueError("ASR and diarization duration provenance does not match")
+
+    asr_digest = _manifest_digest(asr_manifest)
+    diarization_digest = _manifest_digest(diarization_manifest)
+    configuration = {
+        "stage": "attribution",
+        "tie_policy": "greatest_exclusive_intersection_then_midpoint_then_stable_speaker_id",
+        "no_intersection_policy": "speaker_id_null",
+        "overlap_policy": "standard_turns_intersection",
+        "export_cue_policy": "one_word_per_cue",
+        "manifest_sha256": manifest.sha256,
+        "source_sha256": episode.sha256,
+        "asr_artifact_manifest_sha256": asr_digest,
+        "diarization_artifact_manifest_sha256": diarization_digest,
+        "transcript_model_fingerprint_sha256": transcript.model.fingerprint_sha256,
+        "diarization_model_fingerprint_sha256": diarization.model.fingerprint_sha256,
+    }
+    upstream = (asr_digest, diarization_digest)
+    stage_key = stage_fingerprint(
+        "attribution",
+        source_sha256=episode.sha256,
+        upstream_artifact_hashes=upstream,
+        configuration=configuration,
+        pipeline_version="p1-04",
+    )
+    artifact_id = f"attribution-{stage_key[:24]}"
+    provenance = {
+        "configuration": configuration,
+        "source": {
+            "episode_id": episode.relative_filename,
+            "source_sha256": episode.sha256,
+            "duration_ms": episode.duration_ms,
+            "time_origin_ms": 0,
+        },
+        "inputs": {
+            "asr": {
+                "artifact_id": asr_manifest.artifact_id,
+                "stage_key": asr_manifest.stage_key,
+                "manifest_sha256": asr_digest,
+                "model_fingerprint_sha256": asr_manifest.model_fingerprint_sha256,
+                "directory": str(asr_directory),
+                "upstream_provenance": asr_provenance.get("configuration", {}),
+            },
+            "diarization": {
+                "artifact_id": diarization_manifest.artifact_id,
+                "stage_key": diarization_manifest.stage_key,
+                "manifest_sha256": diarization_digest,
+                "model_fingerprint_sha256": diarization_manifest.model_fingerprint_sha256,
+                "directory": str(diarization_directory),
+                "upstream_provenance": diarization_provenance.get("configuration", {}),
+            },
+        },
+        "models": {
+            "transcript": transcript.model.to_dict(),
+            "diarization": diarization.model.to_dict(),
+        },
+    }
+    attributed = build_attributed_transcript(
+        transcript,
+        diarization,
+        artifact_id=artifact_id,
+        episode_id=episode.relative_filename,
+        provenance=provenance,
+    )
+    files = {
+        "attributed.json": json.dumps(
+            attributed.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8"),
+    }
+    files.update(
+        {name: content.encode("utf-8") for name, content in render_exports(attributed).items()}
+    )
+    artifact = ArtifactPublisher(arguments.artifact_root).publish(
+        source_sha256=episode.sha256,
+        stage="attribution",
+        stage_key=stage_key,
+        files=files,
+        upstream_artifact_hashes=upstream,
+        pipeline_version="p1-04",
+        artifact_id=artifact_id,
+        provenance=provenance,
+    )
+    return {
+        "stage": "attribution",
+        "artifact": artifact.to_dict(),
+        "artifact_path": str(
+            ArtifactPublisher(arguments.artifact_root).artifact_path(
+                episode.sha256, "attribution", stage_key
+            )
+        ),
+        "word_count": len(attributed.words),
+        "unassigned_word_count": attributed.unassigned_word_count,
+        "overlap_word_count": attributed.overlap_word_count,
+        "duration_ms": attributed.duration_ms,
+        "source_sha256": attributed.source_sha256,
+    }
 
 
 def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:

@@ -21,6 +21,15 @@ Index generation pointers, identity decisions and audit revisions, and cost
 reservations are relational tables. Qdrant remains a rebuildable projection;
 it is never the canonical identity store.
 
+The paid-call ledger stores integer micro-USD amounts. `reserve_cost()` starts
+an immediate SQLite transaction, then accounts for exposure as settled
+`spent_microusd` plus `reserved_microusd` for `reserved` and `ambiguous` rows.
+Released rows contribute zero. Settlement replaces an upper bound with the
+actual charge whether it is below, equal to, or above the reservation; an
+ambiguous attempt keeps its upper bound until an explicit reconciliation
+settles or releases it. This makes the non-resetting budget cap cover both
+finalized spend and in-flight/unknown charges, including competing connections.
+
 CPU checks:
 
 ```bash

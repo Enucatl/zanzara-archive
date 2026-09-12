@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -173,6 +175,118 @@ def test_generation_pointer_identity_audit_and_budget_are_relational(tmp_path: P
             request_id="request-2",
             amount_microusd=5_000_001,
         )
+    repository.close()
+
+
+def test_cost_ledger_accounts_for_settled_spend_and_state_transitions(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+
+    repository.reserve_cost(
+        reservation_id="reservation-1", request_id="request-1", amount_microusd=6_000_000
+    )
+    repository.settle_cost("request-1", spent_microusd=4_000_000)
+    assert tuple(
+        repository.connection.execute(
+            "SELECT reserved_microusd, spent_microusd, status "
+            "FROM cost_reservations WHERE request_id='request-1'"
+        ).fetchone()
+    ) == (6_000_000, 4_000_000, "settled")
+
+    with pytest.raises(StorageConflictError):
+        repository.reserve_cost(
+            reservation_id="reservation-2",
+            request_id="request-2",
+            amount_microusd=7_000_000,
+        )
+
+    repository.reserve_cost(
+        reservation_id="reservation-2", request_id="request-2", amount_microusd=6_000_000
+    )
+    repository.release_cost("request-2")
+    repository.reserve_cost(
+        reservation_id="reservation-3", request_id="request-3", amount_microusd=5_000_000
+    )
+    repository.mark_cost_ambiguous("request-3")
+    with pytest.raises(StorageConflictError):
+        repository.reserve_cost(
+            reservation_id="reservation-4",
+            request_id="request-4",
+            amount_microusd=2_000_000,
+        )
+
+    repository.settle_cost("request-3", spent_microusd=3_000_000)
+    repository.reserve_cost(
+        reservation_id="reservation-4", request_id="request-4", amount_microusd=3_000_000
+    )
+    rows = repository.connection.execute(
+        "SELECT request_id, reserved_microusd, spent_microusd, status "
+        "FROM cost_reservations ORDER BY request_id"
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("request-1", 6_000_000, 4_000_000, "settled"),
+        ("request-2", 6_000_000, 0, "released"),
+        ("request-3", 5_000_000, 3_000_000, "settled"),
+        ("request-4", 3_000_000, 0, "reserved"),
+    ]
+    repository.close()
+
+
+@pytest.mark.parametrize("spent_microusd", [6_000_000, 8_000_000])
+def test_cost_ledger_uses_actual_settled_spend_above_or_at_reservation(
+    tmp_path: Path, spent_microusd: int
+) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    repository.reserve_cost(
+        reservation_id="reservation-1", request_id="request-1", amount_microusd=6_000_000
+    )
+    repository.settle_cost("request-1", spent_microusd=spent_microusd)
+
+    with pytest.raises(StorageConflictError):
+        repository.reserve_cost(
+            reservation_id="reservation-2",
+            request_id="request-2",
+            amount_microusd=10_000_000 - spent_microusd + 1,
+        )
+    assert (
+        repository.connection.execute(
+            "SELECT spent_microusd FROM cost_reservations WHERE request_id='request-1'"
+        ).fetchone()[0]
+        == spent_microusd
+    )
+    repository.close()
+
+
+def test_cost_reservations_are_atomic_across_competing_connections(tmp_path: Path) -> None:
+    path = tmp_path / "state.db"
+    SQLiteRepository.open(path).close()
+    start = Barrier(2)
+
+    def reserve(request_id: str) -> str:
+        repository = SQLiteRepository.open(path)
+        try:
+            start.wait()
+            repository.reserve_cost(
+                reservation_id=f"reservation-{request_id}",
+                request_id=request_id,
+                amount_microusd=6_000_000,
+            )
+            return "reserved"
+        except StorageConflictError:
+            return "blocked"
+        finally:
+            repository.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(reserve, ("request-1", "request-2")))
+
+    assert sorted(results) == ["blocked", "reserved"]
+    repository = SQLiteRepository.open(path)
+    assert tuple(
+        repository.connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(reserved_microusd), 0) "
+            "FROM cost_reservations WHERE status='reserved'"
+        ).fetchone()
+    ) == (1, 6_000_000)
     repository.close()
 
 

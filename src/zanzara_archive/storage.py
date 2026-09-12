@@ -1217,14 +1217,22 @@ class SQLiteRepository:
         if amount_microusd < 0 or budget_microusd < 0:
             raise ValueError("cost amounts must be non-negative")
         now = _now()
-        with self.transaction() as connection:
-            total = connection.execute(
-                """SELECT COALESCE(SUM(reserved_microusd), 0)
-                FROM cost_reservations WHERE status IN ('reserved', 'ambiguous')"""
+        with self.connection:
+            self._begin_immediate()
+            total = self.connection.execute(
+                """SELECT COALESCE(SUM(
+                    CASE status
+                        WHEN 'settled' THEN spent_microusd
+                        WHEN 'reserved' THEN reserved_microusd
+                        WHEN 'ambiguous' THEN reserved_microusd
+                        ELSE 0
+                    END
+                ), 0)
+                FROM cost_reservations"""
             ).fetchone()[0]
             if total + amount_microusd > budget_microusd:
                 raise StorageConflictError("cost reservation exceeds the configured budget")
-            connection.execute(
+            self.connection.execute(
                 """INSERT INTO cost_reservations
                 (reservation_id, request_id, reserved_microusd, status, created_at, updated_at)
                 VALUES (?, ?, ?, 'reserved', ?, ?)""",

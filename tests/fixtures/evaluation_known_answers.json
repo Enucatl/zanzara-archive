@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic CPU fixture; no archive audio, model, identity, or paid-provider data",
+  "cases": [
+    {
+      "id": "substitution",
+      "reference": ["uno", "due"],
+      "hypothesis": ["uno", "tre"],
+      "expected": {"substitutions": 1, "deletions": 0, "insertions": 0}
+    },
+    {
+      "id": "deletion",
+      "reference": ["uno", "due"],
+      "hypothesis": ["uno"],
+      "expected": {"substitutions": 0, "deletions": 1, "insertions": 0}
+    },
+    {
+      "id": "insertion",
+      "reference": ["uno"],
+      "hypothesis": ["uno", "due"],
+      "expected": {"substitutions": 0, "deletions": 0, "insertions": 1}
+    },
+    {
+      "id": "normalization",
+      "reference": ["Città,"],
+      "hypothesis": ["città"],
+      "expected": {"raw_wer": 1.0, "normalized_wer": 0.0, "normalized_cer": 0.0}
+    },
+    {
+      "id": "unintelligible_mask",
+      "reference": ["ciao", "[mumble]", "mondo"],
+      "hypothesis": ["ciao", "sbagliato", "mondo"],
+      "mask_index": 1,
+      "expected": {"raw_wer": 0.0, "normalized_wer": 0.0}
+    }
+  ]
+}

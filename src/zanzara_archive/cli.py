@@ -27,7 +27,13 @@ from zanzara_archive.corpus import (
     verify_corpus,
     write_report,
 )
-from zanzara_archive.evaluation import validate_reference
+from zanzara_archive.evaluation import (
+    EvaluationValidationError,
+    current_git_commit,
+    evaluate_files,
+    validate_reference,
+    write_evaluation_artifacts,
+)
 from zanzara_archive.jobs import DurableWorker, synthetic_runner
 from zanzara_archive.model_locks import (
     ModelLockError,
@@ -68,6 +74,20 @@ def build_parser() -> argparse.ArgumentParser:
     reference.add_argument("--corpus", required=True, help="path to the frozen corpus manifest")
     reference.add_argument(
         "--reference", required=True, help="reference.json or its private artifact directory"
+    )
+    score = evaluation_commands.add_parser(
+        "score", help="score a reference and hypothesis and write a private evaluation run"
+    )
+    score.add_argument(
+        "--reference", required=True, help="reference.json or private artifact directory"
+    )
+    score.add_argument(
+        "--hypothesis", required=True, help="hypothesis.json or private artifact directory"
+    )
+    score.add_argument("--output", required=True, help="new private E6 evaluation run directory")
+    score.add_argument(
+        "--reviewed-commit",
+        help="code commit to record; defaults to the current Git HEAD when available",
     )
     web = commands.add_parser("web", help="run the loopback annotation UI")
     web.add_argument("--database", required=True, help="local SQLite state path")
@@ -154,6 +174,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             report = validate_reference(arguments.corpus, arguments.reference)
             print(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False))
             return 0 if report["valid"] else 1
+        if arguments.evaluation_command == "score":
+            try:
+                report = evaluate_files(
+                    arguments.reference,
+                    arguments.hypothesis,
+                    reviewed_commit=arguments.reviewed_commit or current_git_commit(),
+                )
+                artifacts = write_evaluation_artifacts(report, arguments.output)
+            except (EvaluationValidationError, OSError) as exc:
+                parser.error(str(exc))
+            print(
+                json.dumps(
+                    {**artifacts, "pass_block": report["pass_block"]}, indent=2, sort_keys=True
+                )
+            )
+            return 0 if report["verdict"] == "pass" else 1
     if arguments.command == "web":
         if arguments.host not in {"127.0.0.1", "localhost", "::1"}:
             parser.error("the annotation UI is loopback-only; choose 127.0.0.1, localhost, or ::1")

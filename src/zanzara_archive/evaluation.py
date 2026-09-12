@@ -13,6 +13,22 @@ from .annotations import (
     validate_annotation_payload,
 )
 from .corpus import CorpusValidationError, load_manifest
+from .evaluation_metrics import (
+    CANONICAL_TIME_UNIT,
+    DEFAULT_THRESHOLDS,
+    EVALUATION_SCHEMA_VERSION,
+    METRIC_DEFINITIONS_VERSION,
+    NORMALIZATION_VERSION,
+    QUANTILE_VERSION,
+    EvaluationDocument,
+    EvaluationValidationError,
+    current_git_commit,
+    evaluate_documents,
+    evaluate_files,
+    normalize_italian,
+    parse_evaluation_document,
+    write_evaluation_artifacts,
+)
 
 
 class ReferenceValidationError(ValueError):
@@ -157,4 +173,21 @@ def validate_reference(corpus_path: str | Path, reference_path: str | Path) -> d
     }
 
 
-__all__ = ["ReferenceValidationError", "validate_reference"]
+__all__ = [
+    "CANONICAL_TIME_UNIT",
+    "DEFAULT_THRESHOLDS",
+    "EVALUATION_SCHEMA_VERSION",
+    "EvaluationDocument",
+    "EvaluationValidationError",
+    "METRIC_DEFINITIONS_VERSION",
+    "NORMALIZATION_VERSION",
+    "QUANTILE_VERSION",
+    "ReferenceValidationError",
+    "current_git_commit",
+    "evaluate_documents",
+    "evaluate_files",
+    "normalize_italian",
+    "parse_evaluation_document",
+    "validate_reference",
+    "write_evaluation_artifacts",
+]

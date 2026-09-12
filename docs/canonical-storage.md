@@ -11,8 +11,11 @@ evaluation reports additionally retain split, model, configuration, and
 reviewed-commit hashes. Interval and lifecycle checks are enforced by SQLite,
 and all references to episodes, artifacts, jobs, speakers, and annotation
 revisions use foreign keys. Migrations are forward-only and applied one
-version at a time inside the connection transaction. Existing version-3 data
-is preserved when upgrading to version 4.
+version at a time inside an explicit transaction. Schema version 5 adds
+insert/update guards for timed ASR and diarization records: millisecond values
+must have SQLite integer storage, must fit the referenced episode duration, and
+must agree with both the episode and artifact source/model provenance. Existing
+version-3 and version-4 data is preserved when upgrading.
 
 The repository keeps report persistence intentionally small until the owning
 transcript, annotation, upload, and evaluation stages define their write

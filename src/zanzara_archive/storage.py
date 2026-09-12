@@ -28,7 +28,7 @@ from .contracts import (
 )
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -451,6 +451,123 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_evaluation_reports_verdict
       ON evaluation_reports(verdict, generated_at);
     """,
+    5: """
+    CREATE TRIGGER transcript_words_provenance_insert
+    BEFORE INSERT ON transcript_words BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.transcript_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.transcript_artifact_id)
+      THEN RAISE(ABORT, 'invalid transcript word interval or provenance') END;
+    END;
+    CREATE TRIGGER transcript_words_provenance_update
+    BEFORE UPDATE ON transcript_words BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.transcript_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.transcript_artifact_id)
+      THEN RAISE(ABORT, 'invalid transcript word interval or provenance') END;
+    END;
+
+    CREATE TRIGGER standard_turns_provenance_insert
+    BEFORE INSERT ON standard_turns BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid standard turn interval or provenance') END;
+    END;
+    CREATE TRIGGER standard_turns_provenance_update
+    BEFORE UPDATE ON standard_turns BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid standard turn interval or provenance') END;
+    END;
+
+    CREATE TRIGGER exclusive_turns_provenance_insert
+    BEFORE INSERT ON exclusive_turns BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid exclusive turn interval or provenance') END;
+    END;
+    CREATE TRIGGER exclusive_turns_provenance_update
+    BEFORE UPDATE ON exclusive_turns BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid exclusive turn interval or provenance') END;
+    END;
+
+    CREATE TRIGGER overlap_intervals_provenance_insert
+    BEFORE INSERT ON overlap_intervals BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid overlap interval or provenance') END;
+    END;
+    CREATE TRIGGER overlap_intervals_provenance_update
+    BEFORE UPDATE ON overlap_intervals BEGIN
+      SELECT CASE WHEN
+        typeof(NEW.start_ms) <> 'integer' OR typeof(NEW.end_ms) <> 'integer'
+        OR NEW.end_ms > (SELECT duration_ms FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM episodes WHERE episode_id = NEW.episode_id)
+        OR NEW.source_sha256 IS NOT
+           (SELECT source_sha256 FROM artifacts WHERE artifact_id = NEW.diarization_artifact_id)
+        OR NEW.model_fingerprint_sha256 IS NOT
+           (SELECT model_fingerprint_sha256 FROM artifacts
+            WHERE artifact_id = NEW.diarization_artifact_id)
+      THEN RAISE(ABORT, 'invalid overlap interval or provenance') END;
+    END;
+    """,
 }
 
 
@@ -480,7 +597,8 @@ def migrate(connection: sqlite3.Connection) -> int:
     current = int(connection.execute("PRAGMA user_version").fetchone()[0])
     if current > SCHEMA_VERSION:
         raise StorageError(f"database schema {current} is newer than supported {SCHEMA_VERSION}")
-    with connection:
+    connection.execute("BEGIN IMMEDIATE")
+    try:
         for version in range(current + 1, SCHEMA_VERSION + 1):
             # ``executescript`` commits any active transaction before running,
             # which would expose a partially applied migration on failure.
@@ -494,6 +612,10 @@ def migrate(connection: sqlite3.Connection) -> int:
             if statement.strip():
                 raise StorageError(f"migration {version} has an incomplete SQL statement")
             connection.execute(f"PRAGMA user_version = {version}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     return SCHEMA_VERSION
 
 

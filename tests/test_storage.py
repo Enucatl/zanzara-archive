@@ -17,6 +17,7 @@ from zanzara_archive.storage import (
     StorageConflictError,
     StoragePathError,
     ensure_local_state_path,
+    migrate,
     open_database,
 )
 
@@ -93,8 +94,9 @@ def test_upgrade_preserves_fixture_data_and_enforces_fk(tmp_path: Path) -> None:
 def test_upgrade_from_v3_adds_tables_without_losing_existing_rows(tmp_path: Path) -> None:
     path = tmp_path / "state.db"
     connection = sqlite3.connect(path)
-    connection.executescript(MIGRATIONS[1])
-    connection.execute("PRAGMA user_version = 1")
+    for version in range(1, 4):
+        connection.executescript(MIGRATIONS[version])
+    connection.execute("PRAGMA user_version = 3")
     connection.execute(
         "INSERT INTO corpus_manifests VALUES (?, ?, ?, ?, ?, ?)",
         ("manifest-1", "b" * 64, "fixture", "golden.opus", "{}", "now"),
@@ -109,6 +111,32 @@ def test_upgrade_from_v3_adds_tables_without_losing_existing_rows(tmp_path: Path
     )
     assert upgraded.execute("SELECT COUNT(*) FROM transcript_words").fetchone()[0] == 0
     upgraded.close()
+
+
+def test_migration_failure_rolls_back_schema_and_version(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "state.db"
+    connection = sqlite3.connect(path)
+    for version in range(1, 5):
+        connection.executescript(MIGRATIONS[version])
+    connection.execute("PRAGMA user_version = 4")
+    connection.commit()
+    monkeypatch.setitem(
+        MIGRATIONS,
+        5,
+        "CREATE TABLE migration_must_rollback (id INTEGER);\nINVALID SQL;\n",
+    )
+
+    with pytest.raises(sqlite3.OperationalError):
+        migrate(connection)
+
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'migration_must_rollback'"
+        ).fetchone()[0]
+        == 0
+    )
+    connection.close()
 
 
 def test_evaluation_report_round_trip_preserves_provenance(tmp_path: Path) -> None:
@@ -150,6 +178,80 @@ def test_canonical_interval_and_status_constraints_are_enforced(tmp_path: Path) 
             ("a" * 64,),
         )
     repository.close()
+
+
+@pytest.mark.parametrize("start_ms,end_ms", [(0.5, 500), (0, 1001)])
+def test_transcript_word_rejects_non_integer_or_episode_overrun(
+    tmp_path: Path, start_ms: float, end_ms: int
+) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    _insert_interval_provenance(repository.connection)
+    with pytest.raises(sqlite3.IntegrityError, match="interval or provenance"):
+        repository.connection.execute(
+            """INSERT INTO transcript_words (
+                word_id, transcript_artifact_id, episode_id, source_sha256,
+                model_fingerprint_sha256, ordinal, text, start_ms, end_ms
+            ) VALUES ('word-1', 'artifact-1', 'episode-1', ?, ?, 0, 'word', ?, ?)""",
+            ("a" * 64, "b" * 64, start_ms, end_ms),
+        )
+    repository.close()
+
+
+def test_transcript_word_rejects_cross_record_provenance(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    _insert_interval_provenance(repository.connection)
+    with pytest.raises(sqlite3.IntegrityError, match="interval or provenance"):
+        repository.connection.execute(
+            """INSERT INTO transcript_words (
+                word_id, transcript_artifact_id, episode_id, source_sha256,
+                model_fingerprint_sha256, ordinal, text, start_ms, end_ms
+            ) VALUES ('word-1', 'artifact-1', 'episode-1', ?, ?, 0, 'word', 0, 500)""",
+            ("c" * 64, "b" * 64),
+        )
+    repository.close()
+
+
+def _insert_interval_provenance(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "INSERT INTO corpus_manifests VALUES (?, ?, ?, ?, ?, ?)",
+        ("manifest-1", "d" * 64, "fixture", "golden.opus", "{}", "now"),
+    )
+    connection.execute(
+        """INSERT INTO episodes (
+            episode_id, manifest_id, relative_filename, episode_date, source_sha256,
+            size_bytes, duration_ms, codec, channels, sample_rate_hz
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "episode-1",
+            "manifest-1",
+            "episode.opus",
+            "2026-09-10",
+            "a" * 64,
+            100,
+            1000,
+            "opus",
+            1,
+            48000,
+        ),
+    )
+    connection.execute(
+        """INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "artifact-1",
+            "a" * 64,
+            "asr",
+            "key",
+            "/artifact",
+            "e" * 64,
+            "[]",
+            "b" * 64,
+            "{}",
+            "test",
+            1,
+            "{}",
+            "now",
+        ),
+    )
 
 
 def test_generation_pointer_identity_audit_and_budget_are_relational(tmp_path: Path) -> None:

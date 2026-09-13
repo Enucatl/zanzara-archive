@@ -10,7 +10,7 @@ promoted `zanzara-archive/shared-base:py314-cu130` image and use `uv sync --inex
 with the shared packages excluded from installation. Model weights are never copied into this
 repository: Compose mounts the operator-provisioned read-only caches.
 
-The six services load the fixed checkpoints and expose only internal `/health`,
+The six P1 services load the fixed checkpoints and expose only internal `/health`,
 `/ready`, and `/v1/smoke` endpoints. `model-smoke` starts them through Compose,
 waits for readiness, and reports the six real inference results. The smoke input is
 the public ERes2Net ModelScope example, not archive audio; the result is a runtime
@@ -42,6 +42,20 @@ docker buildx prune --force --filter 'until=24h'
 Do not add `--all` or remove the external model-cache directories as part of this
 runbook. Superseded image tags must be named explicitly and checked with
 `docker image inspect` before `docker image rm`.
+
+P1R adds a separate `whisper` service for text-first benchmark hypotheses. It
+uses the frozen `openai/whisper-large-v3` checkpoint, forced Italian
+transcription and beam-search decoding, and writes private startup smoke
+evidence under `.git/zanzara-evidence/P1R-05/`:
+
+```bash
+docker compose --profile processing build whisper
+docker compose --profile processing up whisper
+```
+
+The service accepts the same constrained `/v1/audio/transcriptions` JSON
+shape, but deliberately returns no word timestamps. Its output is comparable
+to Parakeet only on the shared chunk interval and text hypothesis fields.
 
 Set
 `HF_HOME`, `ZANZARA_MODEL_CACHE`, `SMOKE_AUDIO_HOST`, and `EVIDENCE_DIR` only when

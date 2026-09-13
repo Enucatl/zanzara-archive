@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "locked_at": "2026-09-12",
+  "locked_at": "2026-09-13",
   "hardware": {
     "gpu": "NVIDIA GeForce RTX 5090",
     "driver": "590.48.01",
@@ -50,6 +50,41 @@
         {"cache": "huggingface", "path": "models--nvidia--parakeet-tdt-0.6b-v3/snapshots/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/tokenizer_config.json", "size_bytes": 290, "sha256": "0b2fe0037599ee335f0b972fa682bf0ece74e4ccfec755cb7daa3405d3d3e874"}
       ],
       "smoke": {"status": "passed", "shape": [1, 55], "elapsed_ms": 3449.462, "peak_vram_mib": 1269.702, "evidence_sha256": "7f1ff499fbfc365ae10de6dfdd87d59af713033839f777741eb9b77204723ca1"}
+    },
+    {
+      "id": "whisper",
+      "role": "text-first Italian ASR benchmark hypothesis",
+      "repository": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "license": "OpenAI Whisper MIT release terms; model card metadata has no structured license field",
+      "preprocessing": "mono 16 kHz audio, source-relative chunk time origin",
+      "dimensions": {"output": "text-only hypothesis; no timestamps"},
+      "precision": "float16 model inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/whisper",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-13",
+        "source": "public Hugging Face repository; OpenAI Whisper release terms",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/config.json", "size_bytes": 1272, "sha256": "ad0e8d1e46f4d01f7861a21509e5d0f977d6cc1f367a370603c92541d819807b"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/generation_config.json", "size_bytes": 3903, "sha256": "fbdfa70135de9b1d31553393f14e80aaeb1936ea36576b2ba864055943c09d23"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/model.safetensors", "size_bytes": 3087130976, "sha256": "a8e94b85976e5864ba3e9525c7e6c83b2a1eca42d4b797a0c7c24d778e40fd95"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/preprocessor_config.json", "size_bytes": 340, "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/special_tokens_map.json", "size_bytes": 2072, "sha256": "1c70773c078cb2ca96e0fcff113102f1d3e2b1504272c3bb63b035d4a6700d87"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/tokenizer.json", "size_bytes": 2480617, "sha256": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/tokenizer_config.json", "size_bytes": 282843, "sha256": "844b642c73a91359722f47b35705f7174686df33d252695d8572cf9ac03a6389"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/vocab.json", "size_bytes": 1036558, "sha256": "e2aa043ef015641d363d8288e7c241c85e36a5c761fb303598e0710233344387"},
+        {"cache": "huggingface", "path": "models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1/merges.txt", "size_bytes": 493869, "sha256": "2df2990a395e35e8dfbc7511e08c12d56018d8d04691e0133e5d63b21e154dc6"}
+      ],
+      "smoke": {"status": "passed", "shape": [65], "elapsed_ms": 798.84, "peak_vram_mib": 4421.246, "evidence_sha256": "a720be643641c449a126aa4f6eed7eb9324c81beb0b7bbf3a53ea7d8d3976e55"}
     },
     {
       "id": "diarization",
@@ -199,6 +234,7 @@
   ],
   "services": [
     {"id": "parakeet", "directory": "services/parakeet", "image": "zanzara-archive/parakeet:py314-shared", "image_digest": "177e59002ee9c3b3625a2dfc7025e56b422e860b7deb757b9fda50593869449b", "python": "3.14.7", "uv_lock_sha256": "1576b48fac157ab7dc89e4c07660624b4be4beb337a6b95d2489af250259a5a1"},
+    {"id": "whisper", "directory": "services/whisper", "image": "zanzara-archive/whisper:py314-shared", "image_digest": "b7a5fa8a510fecae3195151c9126c62e04f5ecdc253fe5188758e96a8f711ae1", "python": "3.14.7", "uv_lock_sha256": "6d74ee75cd258237ff9c7308afbc62640dfa4be8d03ef4732fff0e9cb5eecf38"},
     {"id": "diarization", "directory": "services/diarization", "image": "zanzara-archive/diarization:py314-shared", "image_digest": "fd5e73a197fde8ecf860dd538940662693b6e7d5bc0f97d722351ea11cb814e3", "python": "3.14.7", "uv_lock_sha256": "935c26b2d7ad7d11f428467b48f47130187c7f0d6ba80a0eb7a8403900cc2760"},
     {"id": "resnet293", "directory": "services/resnet293", "image": "zanzara-archive/resnet293:py314-shared", "image_digest": "452257b5031214e4384dd9bb251194025201ec2ff50feccb1107bbc2f62ffb80", "python": "3.14.7", "uv_lock_sha256": "7b810071ec07525445b08d0f640fcf9bded04678165b3365bf3b3c107fd31090"},
     {"id": "eres2net", "directory": "services/eres2net", "image": "zanzara-archive/eres2net:py314-shared", "image_digest": "41620735648df7410649035e8d406ec61f8357aa9eacf837f650d2f6b4971641", "python": "3.14.7", "uv_lock_sha256": "00ba8bb7be58304a7797fdb6afa0795447a545bb6f42430fe737cf76125c8828"},

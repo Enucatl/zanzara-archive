@@ -42,6 +42,30 @@ services:
       IMAGE_REF: zanzara-archive/parakeet:py314-shared
       BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
       EVIDENCE_PATH: /evidence/parakeet.json
+  whisper:
+    <<: *gpu
+    image: zanzara-archive/whisper:py314-shared
+    # P1R keeps its model smoke evidence separate from P1 service evidence.
+    volumes:
+      - ${HF_HOME:-/home/user/.cache/huggingface}:/models/hf:ro
+      - ${ZANZARA_MODEL_CACHE:-/home/user/.cache/zanzara-archive/models}:/models/zanzara:ro
+      - ${SMOKE_AUDIO_HOST:-/home/user/.cache/zanzara-archive/models/eres2net/v1.0.3/examples/speaker1_a_en_16k.wav}:/smoke/audio.wav:ro
+      - ${EVIDENCE_DIR:-.git/zanzara-evidence}/P1R-05:/evidence
+    ports:
+      - "127.0.0.1:${WHISPER_PORT:-18082}:8080"
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/whisper/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--openai--whisper-large-v3/snapshots/06f233fe06e710322aca913c1bc4249a0d71fce1
+      MODEL_REVISION: 06f233fe06e710322aca913c1bc4249a0d71fce1
+      MODEL_SOURCE: openai/whisper-large-v3
+      IMAGE_REF: zanzara-archive/whisper:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/whisper.json
+      SMOKE_AUDIO_LABEL: "260910-lazanzara.opus [0,10000) ms frozen Italian chunk"
+      SMOKE_AUDIO_PROVENANCE: "real frozen corpus audio; private local excerpt; no synthesis"
   diarization:
     <<: *gpu
     image: zanzara-archive/diarization:py314-shared

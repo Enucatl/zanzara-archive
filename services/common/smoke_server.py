@@ -68,19 +68,26 @@ def run_service(
             "transformers": transformers.__version__,
         },
         "audio": {
-            "path": "public ModelScope ERes2Net example",
-            "provenance": "real public example audio; no archive content",
+            "path": os.environ.get("SMOKE_AUDIO_LABEL", "configured smoke audio"),
+            "provenance": os.environ.get("SMOKE_AUDIO_PROVENANCE", "real configured smoke audio"),
         },
         **result,
     }
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
     evidence_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _serve(payload, post_infer, post_path=post_path, max_request_bytes=max_request_bytes)
+    _serve(
+        payload,
+        post_infer,
+        model_id=model_id,
+        post_path=post_path,
+        max_request_bytes=max_request_bytes,
+    )
 
 
 class _Handler(BaseHTTPRequestHandler):
     payload: dict[str, Any] = {}
     post_infer: PostInference | None = None
+    model_id = "inference"
     post_path = "/v1/audio/transcriptions"
     max_request_bytes = 40_000_000
 
@@ -113,7 +120,7 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ValueError("request must be a JSON object")
             request_id = request.get("request_id")
             if not isinstance(request_id, str) or not request_id:
-                request_id = f"parakeet-{uuid4().hex}"
+                request_id = f"{type(self).model_id}-{uuid4().hex}"
             response = {
                 "request_id": request_id,
                 "status": "ok",
@@ -124,10 +131,10 @@ class _Handler(BaseHTTPRequestHandler):
             request_id = (
                 request.get("request_id")
                 if "request" in locals() and isinstance(request, Mapping)
-                else f"parakeet-{uuid4().hex}"
+                else f"{type(self).model_id}-{uuid4().hex}"
             )
             if not isinstance(request_id, str) or not request_id:
-                request_id = f"parakeet-{uuid4().hex}"
+                request_id = f"{type(self).model_id}-{uuid4().hex}"
             response = {
                 "request_id": request_id,
                 "status": "error",
@@ -154,11 +161,13 @@ def _serve(
     payload: dict[str, Any],
     post_infer: PostInference | None = None,
     *,
+    model_id: str = "inference",
     post_path: str = "/v1/audio/transcriptions",
     max_request_bytes: int = 40_000_000,
 ) -> None:
     _Handler.payload = payload
     _Handler.post_infer = post_infer
+    _Handler.model_id = model_id
     _Handler.post_path = post_path
     _Handler.max_request_bytes = max_request_bytes
     server = socketserver.ThreadingTCPServer(("0.0.0.0", 8080), _Handler)

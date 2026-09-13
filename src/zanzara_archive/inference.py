@@ -22,6 +22,7 @@ from .contracts import (
     AdapterFailure,
     ApiError,
     AudioArtifact,
+    AudioChunk,
     CapabilityDeclaration,
     ContractValidationError,
     DiarizationResult,
@@ -29,6 +30,7 @@ from .contracts import (
     Overlap,
     RequestTimeoutError,
     TimedWord,
+    TranscriptionHypothesis,
     TranscriptResult,
     Turn,
     UnsupportedCapabilityError,
@@ -36,15 +38,31 @@ from .contracts import (
 from .model_locks import model_fingerprint_from_lock
 
 PARAKEET_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
+WHISPER_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 DIARIZATION_PATH = "/v1/diarize"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_DIARIZATION_TIMEOUT_SECONDS = 600.0
 MAX_AUDIO_PAYLOAD_BYTES = 25_000_000
 MAX_DIARIZATION_PAYLOAD_BYTES = 50_000_000
+MAX_WHISPER_AUDIO_MS = 30_000
+WHISPER_LANGUAGE = "it"
+WHISPER_TASK = "transcribe"
+WHISPER_DECODING_SETTINGS: Mapping[str, Any] = {
+    "condition_on_prev_tokens": False,
+    "compression_ratio_threshold": 1.35,
+    "do_sample": False,
+    "logprob_threshold": -1.0,
+    "max_new_tokens": 444,
+    "no_speech_threshold": 0.6,
+    "num_beams": 5,
+    "return_timestamps": False,
+    "temperature": 0.0,
+}
 
 
-def _request_id(value: str | None) -> str:
-    return value or f"parakeet-{uuid.uuid4().hex}"
+def _request_id(value: str | None, prefix: str = "parakeet") -> str:
+    return value or f"{prefix}-{uuid.uuid4().hex}"
 
 
 def _failure(
@@ -265,6 +283,95 @@ def parse_parakeet_response(
         timestamp_granularities=tuple(granularities),
         request_id=request_id,
         duration_ms=audio.duration_ms,
+    )
+
+
+def parse_whisper_response(
+    payload: Mapping[str, Any],
+    *,
+    chunk: AudioChunk,
+    model: ModelFingerprint,
+    request_id: str,
+) -> TranscriptionHypothesis:
+    """Validate one text-first Whisper response without inventing timing."""
+
+    data = _unwrap_response(payload, request_id, service_name="Whisper")
+    reported_model = data.get("model")
+    if reported_model is not None and reported_model != model.repository:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response model does not match the locked model",
+            request_id,
+        )
+    reported_revision = data.get("model_revision")
+    if reported_revision is not None and reported_revision != model.revision:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response revision does not match the locked model",
+            request_id,
+        )
+    language = data.get("language", WHISPER_LANGUAGE)
+    if language != WHISPER_LANGUAGE:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response language is not the locked Italian setting",
+            request_id,
+        )
+    task = data.get("task", WHISPER_TASK)
+    if task != WHISPER_TASK:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response task is not the locked transcription setting",
+            request_id,
+        )
+    raw_text = data.get("text")
+    if not isinstance(raw_text, str):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response is missing transcript text",
+            request_id,
+        )
+    raw_segments = data.get("segments", [])
+    if not isinstance(raw_segments, list) or any(
+        not isinstance(segment, Mapping) for segment in raw_segments
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Whisper response segments must be an array of objects",
+            request_id,
+        )
+    raw_metadata = {
+        "model": data.get("model", model.repository),
+        "model_revision": data.get("model_revision", model.revision),
+        "language": language,
+        "task": task,
+        "preprocessing": data.get("preprocessing", {}),
+        "decoding": data.get("decoding", dict(WHISPER_DECODING_SETTINGS)),
+        "capabilities": data.get("capabilities", {"supports_timestamps": False}),
+        "request_id": request_id,
+    }
+    try:
+        json.dumps(raw_metadata, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"Whisper response provenance is not JSON serializable: {exc}",
+            request_id,
+        ) from exc
+    return TranscriptionHypothesis(
+        chunk_id=chunk.chunk_id,
+        model_fingerprint=model,
+        text=raw_text,
+        segments=tuple(dict(segment) for segment in raw_segments),
+        raw_metadata=raw_metadata,
+        source_sha256=chunk.source_sha256,
     )
 
 
@@ -634,6 +741,158 @@ class ParakeetAdapter:
         ).result
 
 
+@dataclass(frozen=True, slots=True)
+class ParsedHypothesis:
+    """The text-first chunk hypothesis plus the exact service response."""
+
+    result: TranscriptionHypothesis
+    raw_response: Mapping[str, Any]
+
+
+class WhisperAdapter:
+    """Application-side adapter for the local Whisper Large v3 service."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioChunk], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = (
+            model_fingerprint_from_lock(model, "whisper") if isinstance(model, str) else model
+        )
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        return CapabilityDeclaration(
+            model=self.model,
+            supports_timestamps=False,
+            max_audio_ms=MAX_WHISPER_AUDIO_MS,
+            max_payload_bytes=MAX_AUDIO_PAYLOAD_BYTES,
+        )
+
+    def transcribe_bytes(
+        self,
+        chunk: AudioChunk,
+        audio_bytes: bytes,
+        *,
+        request_id: str | None = None,
+        language: str = WHISPER_LANGUAGE,
+    ) -> ParsedHypothesis:
+        request_id = _request_id(request_id, "whisper")
+        if language != WHISPER_LANGUAGE:
+            raise _failure(
+                AdapterFailure,
+                "invalid_configuration",
+                "Whisper language is fixed to Italian ('it')",
+                request_id,
+            )
+        if chunk.end_ms - chunk.start_ms > MAX_WHISPER_AUDIO_MS:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"Whisper chunks cannot exceed {MAX_WHISPER_AUDIO_MS} ms",
+                request_id,
+            )
+        if not isinstance(audio_bytes, bytes) or not audio_bytes:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio payload must contain bytes",
+                request_id,
+            )
+        if len(audio_bytes) > MAX_AUDIO_PAYLOAD_BYTES:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"audio payload exceeds {MAX_AUDIO_PAYLOAD_BYTES} bytes",
+                request_id,
+            )
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "chunk_id": chunk.chunk_id,
+            "input_audio": {
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": "wav",
+            },
+            "response_format": "json",
+            "language": WHISPER_LANGUAGE,
+            "task": WHISPER_TASK,
+            "decoding": dict(WHISPER_DECODING_SETTINGS),
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{WHISPER_TRANSCRIPTION_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "Whisper transcription request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"Whisper endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Whisper endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Whisper endpoint returned a non-object JSON response",
+                request_id,
+            )
+        result = parse_whisper_response(
+            response,
+            chunk=chunk,
+            model=self.model,
+            request_id=request_id,
+        )
+        return ParsedHypothesis(result=result, raw_response=response)
+
+    def transcribe(self, chunk: AudioChunk, *, request_id: str) -> TranscriptionHypothesis:
+        if self.audio_loader is None:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "WhisperAdapter requires an audio_loader for a validated chunk",
+                request_id,
+            )
+        return self.transcribe_bytes(
+            chunk,
+            self.audio_loader(chunk),
+            request_id=request_id,
+        ).result
+
+
 class DiarizerAdapter:
     """Application-side adapter for the local Community-1 JSON endpoint."""
 
@@ -765,6 +1024,7 @@ LocalParakeetAdapter = ParakeetAdapter
 
 __all__ = [
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
+    "DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_DIARIZATION_TIMEOUT_SECONDS",
     "DIARIZATION_PATH",
     "DiarizerAdapter",
@@ -773,12 +1033,20 @@ __all__ = [
     "LocalDiarizerAdapter",
     "MAX_AUDIO_PAYLOAD_BYTES",
     "MAX_DIARIZATION_PAYLOAD_BYTES",
+    "MAX_WHISPER_AUDIO_MS",
     "PARAKEET_TRANSCRIPTION_PATH",
     "ParakeetAdapter",
+    "ParsedHypothesis",
     "ParsedDiarization",
     "ParsedTranscription",
+    "WHISPER_DECODING_SETTINGS",
+    "WHISPER_LANGUAGE",
+    "WHISPER_TASK",
+    "WHISPER_TRANSCRIPTION_PATH",
+    "WhisperAdapter",
     "derive_overlap_intervals",
     "parse_diarization_response",
     "parse_parakeet_response",
+    "parse_whisper_response",
     "render_rttm",
 ]

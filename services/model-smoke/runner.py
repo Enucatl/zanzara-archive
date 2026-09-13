@@ -1,4 +1,4 @@
-"""Aggregate readiness check for the six independent model services."""
+"""Aggregate readiness check for the six independent P1 model services."""
 
 from __future__ import annotations
 

@@ -17,6 +17,13 @@ must have SQLite integer storage, must fit the referenced episode duration, and
 must agree with both the episode and artifact source/model provenance. Existing
 version-3 and version-4 data is preserved when upgrading.
 
+Schema version 6 adds `chunk_benchmark_manifests`, `audio_chunks`,
+`transcription_hypotheses`, `transcript_references` and
+`reference_revisions`. These tables are additive: the legacy
+`transcript_words`, turn and overlap artifacts remain readable. Hypotheses are
+immutable after publication, while reference revisions are append-only and
+retain their reviewer, source hash, predecessor and review status.
+
 Annotation revisions use the existing `annotation_revisions` table as an
 append-only history and `review_records` as the per-revision audit record.
 Their JSON payload retains source-artifact, source checksum, model/configuration

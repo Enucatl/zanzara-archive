@@ -20,6 +20,15 @@ and model provenance. `CandidateScore.calibration_status` is
 `uncalibrated_rank_fusion` until a frozen calibration artifact exists; that
 label is never a probability.
 
+P1R benchmark contracts are separate from production transcript timing:
+`AudioChunk` uses a deterministic source interval and segmentation fingerprint,
+`TranscriptionHypothesis` permits text-only, word-timed or segment-timed model
+artifacts, and `ChunkCondition` retains speaker streams and genuine overlap
+without requiring word timing. `TranscriptReference` and `ReferenceRevision`
+are append-only records; only a reviewed `human_truth` revision is reference
+truth. `ChunkBenchmarkManifest` ties the versioned chunks, references,
+hypotheses, episode partitions and source hashes together.
+
 The JSON representation is [schemas/contracts.json](../schemas/contracts.json)
 and synthetic, non-private examples live in
 [tests/fixtures/contracts.json](../tests/fixtures/contracts.json). The public

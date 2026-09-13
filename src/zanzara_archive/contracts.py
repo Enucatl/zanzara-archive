@@ -17,6 +17,8 @@ from typing import Any, Literal, Protocol
 
 ContractStatus = Literal["timed", "text_only", "no_words", "missing_asr"]
 TimestampGranularity = Literal["word", "segment"]
+ReferenceReviewStatus = Literal["draft", "human_truth", "superseded", "rejected"]
+ChunkPartition = Literal["development", "held_out"]
 JobState = Literal["queued", "running", "retry_wait", "succeeded", "failed", "cancelled", "blocked"]
 IdentityAction = Literal["same_person", "different_person", "uncertain"]
 IdentityState = Literal["active", "superseded"]
@@ -486,6 +488,667 @@ class Overlap:
         """Build an overlap interval from JSON-compatible data."""
         payload = dict(value)
         payload["speaker_ids"] = tuple(payload["speaker_ids"])
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerStream:
+    """One speaker's interval stream inside a benchmark chunk."""
+
+    speaker_id: str
+    turns: tuple[Turn, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_id(self.speaker_id, "speaker_id")
+        previous_start = -1
+        for turn in self.turns:
+            if turn.speaker_id != self.speaker_id:
+                raise ContractValidationError("speaker stream turn IDs must match speaker_id")
+            if turn.start_ms < previous_start:
+                raise ContractValidationError("speaker stream turns must be monotonic")
+            previous_start = turn.start_ms
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize interval evidence without introducing word timing."""
+
+        return {
+            "speaker_id": self.speaker_id,
+            "turns": [turn.to_dict() for turn in self.turns],
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> SpeakerStream:
+        """Build a speaker stream from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["turns"] = tuple(Turn.from_dict(turn) for turn in payload.get("turns", ()))
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkCondition:
+    """Condition metadata for turn taking, overlap and acoustic slices."""
+
+    speaker_streams: tuple[SpeakerStream, ...] = ()
+    overlaps: tuple[Overlap, ...] = ()
+    acoustic_labels: tuple[str, ...] = ()
+    rapid_turn_taking: bool = False
+    music: bool = False
+    degraded: bool = False
+
+    def __post_init__(self) -> None:
+        speaker_ids = tuple(stream.speaker_id for stream in self.speaker_streams)
+        if len(set(speaker_ids)) != len(speaker_ids):
+            raise ContractValidationError("chunk condition speaker IDs must be unique")
+        _tuple_text(self.acoustic_labels, "acoustic_labels")
+        if len(set(self.acoustic_labels)) != len(self.acoustic_labels):
+            raise ContractValidationError("chunk condition acoustic labels must be unique")
+        for overlap in self.overlaps:
+            unknown = set(overlap.speaker_ids) - set(speaker_ids)
+            if unknown:
+                raise ContractValidationError(
+                    "chunk condition overlap references an unknown speaker stream"
+                )
+
+    def validate_bounds(self, start_ms: int, end_ms: int) -> None:
+        """Require all condition intervals to remain inside the chunk."""
+
+        for stream in self.speaker_streams:
+            for turn in stream.turns:
+                _interval(turn.start_ms, turn.end_ms, "speaker stream turn")
+                if turn.start_ms < start_ms or turn.end_ms > end_ms:
+                    raise ContractValidationError("speaker stream turn exceeds chunk interval")
+        for overlap in self.overlaps:
+            if overlap.start_ms < start_ms or overlap.end_ms > end_ms:
+                raise ContractValidationError("overlap interval exceeds chunk interval")
+
+    @property
+    def speaker_count(self) -> int:
+        """Return the number of distinct speaker streams in the condition."""
+
+        return len(self.speaker_streams)
+
+    @property
+    def has_overlap(self) -> bool:
+        """Return whether genuine simultaneous speaker activity is recorded."""
+
+        return bool(self.overlaps)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize condition metadata, including all active overlap speakers."""
+
+        return {
+            "speaker_streams": [stream.to_dict() for stream in self.speaker_streams],
+            "overlaps": [overlap.to_dict() for overlap in self.overlaps],
+            "acoustic_labels": list(self.acoustic_labels),
+            "rapid_turn_taking": self.rapid_turn_taking,
+            "music": self.music,
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> ChunkCondition:
+        """Build condition metadata from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["speaker_streams"] = tuple(
+            SpeakerStream.from_dict(stream) for stream in payload.get("speaker_streams", ())
+        )
+        payload["overlaps"] = tuple(
+            Overlap.from_dict(overlap) for overlap in payload.get("overlaps", ())
+        )
+        payload["acoustic_labels"] = tuple(payload.get("acoustic_labels", ()))
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class AudioChunk:
+    """A deterministic, source-relative half-open benchmark interval."""
+
+    chunk_id: str
+    episode_id: str
+    source_sha256: str
+    start_ms: int
+    end_ms: int
+    segmentation_fingerprint: str
+    duration_ms: int | None = None
+    condition: ChunkCondition | None = None
+    partition: ChunkPartition | None = None
+
+    def __post_init__(self) -> None:
+        _require_id(self.chunk_id, "chunk_id")
+        _require_id(self.episode_id, "episode_id")
+        _require_sha256(self.source_sha256, "source_sha256")
+        _require_sha256(self.segmentation_fingerprint, "segmentation_fingerprint")
+        if self.duration_ms is not None:
+            _require_positive_int(self.duration_ms, "duration_ms")
+        _interval(self.start_ms, self.end_ms, "chunk", self.duration_ms)
+        if self.partition is not None:
+            _one_of(self.partition, {"development", "held_out"}, "partition")
+        if self.condition is not None:
+            self.condition.validate_bounds(self.start_ms, self.end_ms)
+
+    @staticmethod
+    def deterministic_id(
+        episode_id: str,
+        source_sha256: str,
+        start_ms: int,
+        end_ms: int,
+        segmentation_fingerprint: str,
+    ) -> str:
+        """Return the stable ID for one source interval and segmentation config."""
+
+        payload = {
+            "episode_id": episode_id,
+            "source_sha256": source_sha256,
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "segmentation_fingerprint": segmentation_fingerprint,
+        }
+        return "chunk-" + _canonical_hash(payload)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        episode_id: str,
+        source_sha256: str,
+        start_ms: int,
+        end_ms: int,
+        segmentation_fingerprint: str,
+        duration_ms: int | None = None,
+        condition: ChunkCondition | None = None,
+        partition: ChunkPartition | None = None,
+    ) -> AudioChunk:
+        """Create a chunk with its deterministic ID derived from immutable inputs."""
+
+        return cls(
+            chunk_id=cls.deterministic_id(
+                episode_id, source_sha256, start_ms, end_ms, segmentation_fingerprint
+            ),
+            episode_id=episode_id,
+            source_sha256=source_sha256,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            segmentation_fingerprint=segmentation_fingerprint,
+            duration_ms=duration_ms,
+            condition=condition,
+            partition=partition,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize chunk identity, interval and optional condition metadata."""
+
+        return {
+            "chunk_id": self.chunk_id,
+            "episode_id": self.episode_id,
+            "source_sha256": self.source_sha256,
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "segmentation_fingerprint": self.segmentation_fingerprint,
+            "duration_ms": self.duration_ms,
+            "condition": self.condition.to_dict() if self.condition is not None else None,
+            "partition": self.partition,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AudioChunk:
+        """Build a chunk from JSON-compatible data."""
+
+        payload = dict(value)
+        condition = payload.get("condition")
+        payload["condition"] = (
+            ChunkCondition.from_dict(condition) if isinstance(condition, Mapping) else None
+        )
+        return cls(**payload)
+
+
+def _model_fingerprint_sha256(
+    model_fingerprint: ModelFingerprint | str | None,
+    explicit_sha256: str | None,
+) -> str:
+    """Normalize a full model record or its immutable fingerprint hash."""
+
+    if isinstance(model_fingerprint, ModelFingerprint):
+        derived = model_fingerprint.fingerprint_sha256
+    elif isinstance(model_fingerprint, str):
+        derived = _require_sha256(model_fingerprint, "model_fingerprint")
+    elif model_fingerprint is None:
+        derived = None
+    else:
+        raise ContractValidationError("model_fingerprint must be a ModelFingerprint or SHA-256")
+    if explicit_sha256 is not None:
+        explicit_sha256 = _require_sha256(explicit_sha256, "model_fingerprint_sha256")
+        if derived is not None and derived != explicit_sha256:
+            raise ContractValidationError("model fingerprint hash does not match model metadata")
+        derived = explicit_sha256
+    if derived is None:
+        raise ContractValidationError("model_fingerprint is required")
+    return derived
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptionHypothesis:
+    """An immutable model candidate for one chunk; timing metadata is optional."""
+
+    chunk_id: str
+    model_fingerprint: ModelFingerprint | str | None = None
+    text: str = ""
+    words: tuple[TimedWord, ...] = ()
+    segments: tuple[Mapping[str, Any], ...] = ()
+    raw_metadata: Mapping[str, Any] = field(default_factory=dict)
+    timestamp_granularities: tuple[TimestampGranularity, ...] | None = None
+    source_sha256: str | None = None
+    artifact_id: str | None = None
+    hypothesis_id: str | None = None
+    model_fingerprint_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_id(self.chunk_id, "chunk_id")
+        if not isinstance(self.text, str):
+            raise ContractValidationError("hypothesis text must be text")
+        object.__setattr__(
+            self,
+            "model_fingerprint_sha256",
+            _model_fingerprint_sha256(self.model_fingerprint, self.model_fingerprint_sha256),
+        )
+        if self.source_sha256 is not None:
+            _require_sha256(self.source_sha256, "source_sha256")
+        if self.artifact_id is not None:
+            _require_id(self.artifact_id, "artifact_id")
+        word_ids = [word.word_id for word in self.words]
+        if len(set(word_ids)) != len(word_ids):
+            raise ContractValidationError("hypothesis word IDs must be unique")
+        for previous, current in zip(self.words, self.words[1:], strict=False):
+            if current.start_ms < previous.start_ms:
+                raise ContractValidationError("hypothesis words must be monotonic")
+        for segment in self.segments:
+            if not isinstance(segment, Mapping):
+                raise ContractValidationError("hypothesis segments must be JSON objects")
+            try:
+                json.dumps(segment, ensure_ascii=False, sort_keys=True)
+            except (TypeError, ValueError) as exc:
+                raise ContractValidationError(
+                    "hypothesis segment is not JSON serializable"
+                ) from exc
+        try:
+            json.dumps(self.raw_metadata, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            raise ContractValidationError("hypothesis metadata is not JSON serializable") from exc
+        granularities = self.timestamp_granularities
+        if granularities is None:
+            granularities = tuple(
+                granularity
+                for granularity, present in (
+                    ("word", bool(self.words)),
+                    ("segment", bool(self.segments)),
+                )
+                if present
+            )
+            object.__setattr__(self, "timestamp_granularities", granularities)
+        if len(set(granularities)) != len(granularities) or any(
+            value not in {"word", "segment"} for value in granularities
+        ):
+            raise ContractValidationError("hypothesis timestamp granularities are invalid")
+        if self.words and "word" not in granularities:
+            raise ContractValidationError("word artifacts require word timestamp granularity")
+        if self.segments and "segment" not in granularities:
+            raise ContractValidationError("segment artifacts require segment timestamp granularity")
+        if self.hypothesis_id is None:
+            object.__setattr__(self, "hypothesis_id", self.deterministic_id(self))
+        else:
+            _require_id(self.hypothesis_id, "hypothesis_id")
+
+    @property
+    def model_fingerprint_hash(self) -> str:
+        """Return the stable model hash regardless of the input representation."""
+
+        return _model_fingerprint_sha256(self.model_fingerprint, self.model_fingerprint_sha256)
+
+    @staticmethod
+    def deterministic_id(hypothesis: TranscriptionHypothesis) -> str:
+        """Return the stable identity of a candidate payload."""
+
+        payload = {
+            "chunk_id": hypothesis.chunk_id,
+            "model_fingerprint_sha256": hypothesis.model_fingerprint_hash,
+            "text": hypothesis.text,
+            "words": [word.to_dict() for word in hypothesis.words],
+            "segments": [dict(segment) for segment in hypothesis.segments],
+            "raw_metadata": dict(hypothesis.raw_metadata),
+        }
+        return "hypothesis-" + _canonical_hash(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize text and optional immutable timing/model artifacts."""
+
+        model = (
+            self.model_fingerprint.to_dict()
+            if isinstance(self.model_fingerprint, ModelFingerprint)
+            else self.model_fingerprint
+        )
+        return {
+            "hypothesis_id": self.hypothesis_id,
+            "chunk_id": self.chunk_id,
+            "model_fingerprint": model,
+            "model_fingerprint_sha256": self.model_fingerprint_hash,
+            "text": self.text,
+            "words": [word.to_dict() for word in self.words],
+            "segments": [dict(segment) for segment in self.segments],
+            "raw_metadata": dict(self.raw_metadata),
+            "timestamp_granularities": list(self.timestamp_granularities),
+            "source_sha256": self.source_sha256,
+            "artifact_id": self.artifact_id,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> TranscriptionHypothesis:
+        """Build a hypothesis from JSON-compatible data."""
+
+        payload = dict(value)
+        model = payload.get("model_fingerprint") or payload.get("model")
+        payload["model_fingerprint"] = (
+            ModelFingerprint.from_dict(model) if isinstance(model, Mapping) else model
+        )
+        payload["words"] = tuple(TimedWord.from_dict(word) for word in payload.get("words", ()))
+        payload["segments"] = tuple(payload.get("segments", ()))
+        payload["timestamp_granularities"] = tuple(payload.get("timestamp_granularities", ()))
+        payload.setdefault("raw_metadata", {})
+        payload.pop("model", None)
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptReference:
+    """The current immutable view of one chunk's append-only human reference."""
+
+    reference_id: str
+    chunk_id: str
+    source_sha256: str | None = None
+    text: str = ""
+    speaker_streams: tuple[SpeakerStream, ...] = ()
+    review_status: ReferenceReviewStatus = "draft"
+    revision: int = 1
+    reviewer: str | None = None
+    created_at: str | None = None
+    source_hash: str | None = None
+    status: ReferenceReviewStatus | None = None
+
+    def __post_init__(self) -> None:
+        _require_id(self.reference_id, "reference_id")
+        _require_id(self.chunk_id, "chunk_id")
+        source_sha256 = self.source_sha256 or self.source_hash
+        if source_sha256 is None:
+            raise ContractValidationError("reference source_sha256 is required")
+        _require_sha256(source_sha256, "source_sha256")
+        if self.source_sha256 is not None and self.source_hash is not None:
+            if self.source_sha256 != self.source_hash:
+                raise ContractValidationError("reference source hashes do not match")
+        object.__setattr__(self, "source_sha256", source_sha256)
+        object.__setattr__(self, "source_hash", source_sha256)
+        if self.status is not None:
+            _one_of(self.status, {"draft", "human_truth", "superseded", "rejected"}, "status")
+            if self.review_status != "draft" and self.review_status != self.status:
+                raise ContractValidationError("reference review statuses do not match")
+            object.__setattr__(self, "review_status", self.status)
+        _one_of(
+            self.review_status,
+            {"draft", "human_truth", "superseded", "rejected"},
+            "review_status",
+        )
+        object.__setattr__(self, "status", self.review_status)
+        _require_positive_int(self.revision, "revision")
+        if self.reviewer is not None:
+            _require_text(self.reviewer, "reviewer")
+        if self.review_status == "human_truth" and self.reviewer is None:
+            raise ContractValidationError("human truth references require a reviewer")
+        if self.created_at is not None:
+            _require_text(self.created_at, "created_at")
+        speaker_ids = [stream.speaker_id for stream in self.speaker_streams]
+        if len(set(speaker_ids)) != len(speaker_ids):
+            raise ContractValidationError("reference speaker IDs must be unique")
+
+    @property
+    def source_hash_value(self) -> str:
+        """Compatibility alias for callers that call the checksum a source hash."""
+
+        return self.source_sha256  # type: ignore[return-value]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the reference without flattening speaker overlap streams."""
+
+        return {
+            "reference_id": self.reference_id,
+            "chunk_id": self.chunk_id,
+            "source_sha256": self.source_sha256,
+            "text": self.text,
+            "speaker_streams": [stream.to_dict() for stream in self.speaker_streams],
+            "review_status": self.review_status,
+            "revision": self.revision,
+            "reviewer": self.reviewer,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> TranscriptReference:
+        """Build a reference from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["speaker_streams"] = tuple(
+            SpeakerStream.from_dict(stream) for stream in payload.get("speaker_streams", ())
+        )
+        if "source_sha256" not in payload and "source_hash" in payload:
+            payload["source_sha256"] = payload["source_hash"]
+        if "review_status" not in payload and "status" in payload:
+            payload["review_status"] = payload["status"]
+        payload.pop("status", None)
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceRevision:
+    """One append-only revision retaining provenance and review history."""
+
+    revision_id: str
+    reference_id: str
+    chunk_id: str
+    revision: int
+    reviewer: str
+    source_sha256: str | None = None
+    prior_revision_id: str | None = None
+    review_status: ReferenceReviewStatus = "draft"
+    text: str = ""
+    speaker_streams: tuple[SpeakerStream, ...] = ()
+    created_at: str | None = None
+    source_hash: str | None = None
+    prior_revision: str | None = None
+    status: ReferenceReviewStatus | None = None
+
+    def __post_init__(self) -> None:
+        _require_id(self.revision_id, "revision_id")
+        _require_id(self.reference_id, "reference_id")
+        _require_id(self.chunk_id, "chunk_id")
+        _require_positive_int(self.revision, "revision")
+        _require_text(self.reviewer, "reviewer")
+        source_sha256 = self.source_sha256 or self.source_hash
+        if source_sha256 is None:
+            raise ContractValidationError("reference revision source_sha256 is required")
+        _require_sha256(source_sha256, "source_sha256")
+        if self.source_sha256 is not None and self.source_hash is not None:
+            if self.source_sha256 != self.source_hash:
+                raise ContractValidationError("reference revision source hashes do not match")
+        object.__setattr__(self, "source_sha256", source_sha256)
+        object.__setattr__(self, "source_hash", source_sha256)
+        prior = self.prior_revision_id or self.prior_revision
+        if self.prior_revision_id is not None and self.prior_revision is not None:
+            if self.prior_revision_id != self.prior_revision:
+                raise ContractValidationError("reference revision predecessors do not match")
+        if prior == self.revision_id:
+            raise ContractValidationError("reference revision cannot point to itself")
+        object.__setattr__(self, "prior_revision_id", prior)
+        object.__setattr__(self, "prior_revision", prior)
+        if self.status is not None:
+            _one_of(self.status, {"draft", "human_truth", "superseded", "rejected"}, "status")
+            if self.review_status != "draft" and self.review_status != self.status:
+                raise ContractValidationError("reference revision review statuses do not match")
+            object.__setattr__(self, "review_status", self.status)
+        _one_of(
+            self.review_status,
+            {"draft", "human_truth", "superseded", "rejected"},
+            "review_status",
+        )
+        object.__setattr__(self, "status", self.review_status)
+        if self.created_at is not None:
+            _require_text(self.created_at, "created_at")
+
+    @property
+    def source_hash_value(self) -> str:
+        """Compatibility alias for source_sha256."""
+
+        return self.source_sha256  # type: ignore[return-value]
+
+    @property
+    def prior_revision_value(self) -> str | None:
+        """Compatibility alias for prior_revision_id."""
+
+        return self.prior_revision_id
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize one immutable review revision."""
+
+        return {
+            "revision_id": self.revision_id,
+            "reference_id": self.reference_id,
+            "chunk_id": self.chunk_id,
+            "revision": self.revision,
+            "reviewer": self.reviewer,
+            "source_sha256": self.source_sha256,
+            "prior_revision_id": self.prior_revision_id,
+            "review_status": self.review_status,
+            "text": self.text,
+            "speaker_streams": [stream.to_dict() for stream in self.speaker_streams],
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> ReferenceRevision:
+        """Build a reference revision from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["speaker_streams"] = tuple(
+            SpeakerStream.from_dict(stream) for stream in payload.get("speaker_streams", ())
+        )
+        if "source_sha256" not in payload and "source_hash" in payload:
+            payload["source_sha256"] = payload["source_hash"]
+        if "prior_revision_id" not in payload and "prior_revision" in payload:
+            payload["prior_revision_id"] = payload["prior_revision"]
+        if "review_status" not in payload and "status" in payload:
+            payload["review_status"] = payload["status"]
+        payload.pop("status", None)
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkBenchmarkManifest:
+    """Versioned manifest tying chunks, references and hypotheses together."""
+
+    manifest_id: str
+    schema_version: int = 1
+    chunks: tuple[AudioChunk, ...] = ()
+    source_manifest_sha256: str | None = None
+    references: tuple[TranscriptReference, ...] = ()
+    hypotheses: tuple[TranscriptionHypothesis, ...] = ()
+    partitions: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    source_hashes: tuple[str, ...] = ()
+    source_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_id(self.manifest_id, "manifest_id")
+        _require_positive_int(self.schema_version, "schema_version")
+        if not self.chunks:
+            raise ContractValidationError("benchmark manifest requires at least one chunk")
+        chunk_ids = [chunk.chunk_id for chunk in self.chunks]
+        if len(set(chunk_ids)) != len(chunk_ids):
+            raise ContractValidationError("benchmark manifest chunk IDs must be unique")
+        sources = tuple(sorted({chunk.source_sha256 for chunk in self.chunks}))
+        if self.source_hashes:
+            normalized_sources = tuple(self.source_hashes)
+            for source_sha256 in normalized_sources:
+                _require_sha256(source_sha256, "source_hashes")
+            if set(normalized_sources) != set(sources):
+                raise ContractValidationError("manifest source hashes do not match chunks")
+        object.__setattr__(self, "source_hashes", sources)
+        manifest_hash = self.source_manifest_sha256 or self.source_sha256
+        if manifest_hash is not None:
+            _require_sha256(manifest_hash, "source_manifest_sha256")
+            if self.source_manifest_sha256 is not None and self.source_sha256 is not None:
+                if self.source_manifest_sha256 != self.source_sha256:
+                    raise ContractValidationError("manifest source hashes do not match")
+        object.__setattr__(self, "source_manifest_sha256", manifest_hash)
+        object.__setattr__(self, "source_sha256", manifest_hash)
+        chunk_by_id = {chunk.chunk_id: chunk for chunk in self.chunks}
+        for reference in self.references:
+            chunk = chunk_by_id.get(reference.chunk_id)
+            if chunk is None:
+                raise ContractValidationError("reference points to an unknown chunk")
+            if reference.source_sha256 != chunk.source_sha256:
+                raise ContractValidationError("reference source hash does not match its chunk")
+        for hypothesis in self.hypotheses:
+            if hypothesis.chunk_id not in chunk_by_id:
+                raise ContractValidationError("hypothesis points to an unknown chunk")
+        seen_partition_ids: set[str] = set()
+        for partition, ids in self.partitions.items():
+            _one_of(partition, {"development", "held_out"}, "partition")
+            for chunk_id in ids:
+                if chunk_id not in chunk_by_id:
+                    raise ContractValidationError("partition points to an unknown chunk")
+                if chunk_id in seen_partition_ids:
+                    raise ContractValidationError("chunk occurs in multiple partitions")
+                seen_partition_ids.add(chunk_id)
+
+    @property
+    def content_sha256(self) -> str:
+        """Return a deterministic hash of the versioned manifest contents."""
+
+        payload = self.to_dict()
+        payload.pop("manifest_id", None)
+        return _canonical_hash(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the complete benchmark manifest and its provenance."""
+
+        return {
+            "manifest_id": self.manifest_id,
+            "schema_version": self.schema_version,
+            "source_manifest_sha256": self.source_manifest_sha256,
+            "source_hashes": list(self.source_hashes),
+            "chunks": [chunk.to_dict() for chunk in self.chunks],
+            "references": [reference.to_dict() for reference in self.references],
+            "hypotheses": [hypothesis.to_dict() for hypothesis in self.hypotheses],
+            "partitions": {key: list(value) for key, value in self.partitions.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> ChunkBenchmarkManifest:
+        """Build a benchmark manifest from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["chunks"] = tuple(
+            AudioChunk.from_dict(chunk) for chunk in payload.get("chunks", ())
+        )
+        payload["references"] = tuple(
+            TranscriptReference.from_dict(reference) for reference in payload.get("references", ())
+        )
+        payload["hypotheses"] = tuple(
+            TranscriptionHypothesis.from_dict(hypothesis)
+            for hypothesis in payload.get("hypotheses", ())
+        )
+        payload["partitions"] = {
+            key: tuple(value) for key, value in payload.get("partitions", {}).items()
+        }
+        payload["source_hashes"] = tuple(payload.get("source_hashes", ()))
+        if "source_manifest_sha256" not in payload and "source_sha256" in payload:
+            payload["source_manifest_sha256"] = payload["source_sha256"]
         return cls(**payload)
 
 

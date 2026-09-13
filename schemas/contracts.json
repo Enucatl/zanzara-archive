@@ -94,6 +94,111 @@
       },
       "additionalProperties": false
     },
+    "SpeakerStream": {
+      "type": "object",
+      "required": ["speaker_id", "turns"],
+      "properties": {
+        "speaker_id": {"type": "string"},
+        "turns": {"type": "array", "items": {"$ref": "#/$defs/Turn"}}
+      },
+      "additionalProperties": false
+    },
+    "ChunkCondition": {
+      "type": "object",
+      "required": ["speaker_streams", "overlaps", "acoustic_labels", "rapid_turn_taking", "music", "degraded"],
+      "properties": {
+        "speaker_streams": {"type": "array", "items": {"$ref": "#/$defs/SpeakerStream"}},
+        "overlaps": {"type": "array", "items": {"$ref": "#/$defs/Overlap"}},
+        "acoustic_labels": {"type": "array", "items": {"type": "string"}},
+        "rapid_turn_taking": {"type": "boolean"},
+        "music": {"type": "boolean"},
+        "degraded": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "AudioChunk": {
+      "type": "object",
+      "required": ["chunk_id", "episode_id", "source_sha256", "start_ms", "end_ms", "segmentation_fingerprint", "duration_ms", "condition", "partition"],
+      "properties": {
+        "chunk_id": {"type": "string"},
+        "episode_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "start_ms": {"type": "integer", "minimum": 0},
+        "end_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "segmentation_fingerprint": {"$ref": "#/$defs/Sha256"},
+        "duration_ms": {"anyOf": [{"type": "integer", "exclusiveMinimum": 0}, {"type": "null"}]},
+        "condition": {"anyOf": [{"$ref": "#/$defs/ChunkCondition"}, {"type": "null"}]},
+        "partition": {"anyOf": [{"enum": ["development", "held_out"]}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "TranscriptionHypothesis": {
+      "type": "object",
+      "required": ["hypothesis_id", "chunk_id", "model_fingerprint_sha256", "text", "words", "segments", "raw_metadata", "timestamp_granularities", "source_sha256", "artifact_id"],
+      "properties": {
+        "hypothesis_id": {"type": "string"},
+        "chunk_id": {"type": "string"},
+        "model_fingerprint": {"anyOf": [{"$ref": "#/$defs/ModelFingerprint"}, {"type": "string"}, {"type": "null"}]},
+        "model_fingerprint_sha256": {"$ref": "#/$defs/Sha256"},
+        "text": {"type": "string"},
+        "words": {"type": "array", "items": {"$ref": "#/$defs/TimedWord"}},
+        "segments": {"type": "array", "items": {"type": "object"}},
+        "raw_metadata": {"type": "object"},
+        "timestamp_granularities": {"type": "array", "items": {"enum": ["word", "segment"]}},
+        "source_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "artifact_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "TranscriptReference": {
+      "type": "object",
+      "required": ["reference_id", "chunk_id", "source_sha256", "text", "speaker_streams", "review_status", "revision", "reviewer", "created_at"],
+      "properties": {
+        "reference_id": {"type": "string"},
+        "chunk_id": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "text": {"type": "string"},
+        "speaker_streams": {"type": "array", "items": {"$ref": "#/$defs/SpeakerStream"}},
+        "review_status": {"enum": ["draft", "human_truth", "superseded", "rejected"]},
+        "revision": {"type": "integer", "exclusiveMinimum": 0},
+        "reviewer": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "created_at": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "ReferenceRevision": {
+      "type": "object",
+      "required": ["revision_id", "reference_id", "chunk_id", "revision", "reviewer", "source_sha256", "prior_revision_id", "review_status", "text", "speaker_streams", "created_at"],
+      "properties": {
+        "revision_id": {"type": "string"},
+        "reference_id": {"type": "string"},
+        "chunk_id": {"type": "string"},
+        "revision": {"type": "integer", "exclusiveMinimum": 0},
+        "reviewer": {"type": "string"},
+        "source_sha256": {"$ref": "#/$defs/Sha256"},
+        "prior_revision_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "review_status": {"enum": ["draft", "human_truth", "superseded", "rejected"]},
+        "text": {"type": "string"},
+        "speaker_streams": {"type": "array", "items": {"$ref": "#/$defs/SpeakerStream"}},
+        "created_at": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "ChunkBenchmarkManifest": {
+      "type": "object",
+      "required": ["manifest_id", "schema_version", "source_manifest_sha256", "source_hashes", "chunks", "references", "hypotheses", "partitions"],
+      "properties": {
+        "manifest_id": {"type": "string"},
+        "schema_version": {"type": "integer", "exclusiveMinimum": 0},
+        "source_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "source_hashes": {"type": "array", "items": {"$ref": "#/$defs/Sha256"}},
+        "chunks": {"type": "array", "items": {"$ref": "#/$defs/AudioChunk"}, "minItems": 1},
+        "references": {"type": "array", "items": {"$ref": "#/$defs/TranscriptReference"}},
+        "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/TranscriptionHypothesis"}},
+        "partitions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+      },
+      "additionalProperties": false
+    },
     "TranscriptResult": {
       "type": "object",
       "required": ["artifact_id", "source_sha256", "model", "text", "words", "segments", "status", "timestamp_granularities", "request_id", "duration_ms"],

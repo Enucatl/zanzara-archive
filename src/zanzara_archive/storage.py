@@ -22,14 +22,19 @@ from threading import get_ident
 from .contracts import (
     ApiError,
     ArtifactManifest,
+    AudioChunk,
+    ChunkBenchmarkManifest,
     EvaluationReport,
     IdentityDecision,
     JobStatus,
+    ReferenceRevision,
+    TranscriptionHypothesis,
+    TranscriptReference,
 )
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -573,6 +578,112 @@ MIGRATIONS: dict[int, str] = {
       THEN RAISE(ABORT, 'invalid overlap interval or provenance') END;
     END;
     """,
+    6: """
+    CREATE TABLE IF NOT EXISTS chunk_benchmark_manifests (
+        manifest_id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+        source_manifest_sha256 TEXT,
+        content_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS audio_chunks (
+        chunk_id TEXT PRIMARY KEY,
+        manifest_id TEXT REFERENCES chunk_benchmark_manifests(manifest_id) ON DELETE RESTRICT,
+        episode_id TEXT NOT NULL REFERENCES episodes(episode_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms > 0),
+        segmentation_fingerprint TEXT NOT NULL,
+        partition TEXT CHECK (partition IS NULL OR partition IN ('development','held_out')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audio_chunks_episode_time
+      ON audio_chunks(episode_id, start_ms, end_ms);
+
+    CREATE TABLE IF NOT EXISTS transcription_hypotheses (
+        hypothesis_id TEXT PRIMARY KEY,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        model_fingerprint_sha256 TEXT NOT NULL,
+        text TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (chunk_id, model_fingerprint_sha256)
+    );
+
+    CREATE TABLE IF NOT EXISTS transcript_references (
+        reference_id TEXT PRIMARY KEY,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        review_status TEXT NOT NULL CHECK (
+            review_status IN ('draft','human_truth','superseded','rejected')
+        ),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS reference_revisions (
+        revision_id TEXT PRIMARY KEY,
+        reference_id TEXT NOT NULL REFERENCES transcript_references(reference_id)
+            ON DELETE RESTRICT,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        reviewer TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL,
+        prior_revision_id TEXT REFERENCES reference_revisions(revision_id) ON DELETE RESTRICT,
+        review_status TEXT NOT NULL CHECK (
+            review_status IN ('draft','human_truth','superseded','rejected')
+        ),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (reference_id, revision)
+    );
+
+    CREATE TRIGGER transcription_hypotheses_immutable_update
+    BEFORE UPDATE ON transcription_hypotheses BEGIN
+      SELECT RAISE(ABORT, 'transcription hypotheses are immutable');
+    END;
+    CREATE TRIGGER transcription_hypotheses_immutable_delete
+    BEFORE DELETE ON transcription_hypotheses BEGIN
+      SELECT RAISE(ABORT, 'transcription hypotheses are immutable');
+    END;
+    CREATE TRIGGER audio_chunks_immutable_update
+    BEFORE UPDATE ON audio_chunks BEGIN
+      SELECT RAISE(ABORT, 'audio chunks are immutable');
+    END;
+    CREATE TRIGGER audio_chunks_immutable_delete
+    BEFORE DELETE ON audio_chunks BEGIN
+      SELECT RAISE(ABORT, 'audio chunks are immutable');
+    END;
+    CREATE TRIGGER chunk_benchmark_manifests_immutable_update
+    BEFORE UPDATE ON chunk_benchmark_manifests BEGIN
+      SELECT RAISE(ABORT, 'benchmark manifests are immutable');
+    END;
+    CREATE TRIGGER chunk_benchmark_manifests_immutable_delete
+    BEFORE DELETE ON chunk_benchmark_manifests BEGIN
+      SELECT RAISE(ABORT, 'benchmark manifests are immutable');
+    END;
+    CREATE TRIGGER transcript_references_immutable_update
+    BEFORE UPDATE ON transcript_references BEGIN
+      SELECT RAISE(ABORT, 'transcript references are append-only');
+    END;
+    CREATE TRIGGER transcript_references_immutable_delete
+    BEFORE DELETE ON transcript_references BEGIN
+      SELECT RAISE(ABORT, 'transcript references are append-only');
+    END;
+    CREATE TRIGGER reference_revisions_immutable_update
+    BEFORE UPDATE ON reference_revisions BEGIN
+      SELECT RAISE(ABORT, 'reference revisions are append-only');
+    END;
+    CREATE TRIGGER reference_revisions_immutable_delete
+    BEFORE DELETE ON reference_revisions BEGIN
+      SELECT RAISE(ABORT, 'reference revisions are append-only');
+    END;
+    """,
 }
 
 
@@ -823,6 +934,301 @@ class SQLiteRepository:
                     _now(),
                 ),
             )
+
+    @staticmethod
+    def _chunk_episode_check(connection: sqlite3.Connection, chunk: AudioChunk) -> None:
+        """Check a chunk against registered episode provenance before publication."""
+
+        episode = connection.execute(
+            "SELECT source_sha256, duration_ms FROM episodes WHERE episode_id = ?",
+            (chunk.episode_id,),
+        ).fetchone()
+        if episode is None:
+            raise StorageConflictError(f"chunk episode is not registered: {chunk.episode_id}")
+        if episode["source_sha256"] != chunk.source_sha256:
+            raise StorageConflictError("chunk source hash does not match its episode")
+        if chunk.end_ms > episode["duration_ms"]:
+            raise StorageConflictError("chunk interval exceeds its episode duration")
+        if chunk.duration_ms is not None and chunk.duration_ms != episode["duration_ms"]:
+            raise StorageConflictError("chunk duration does not match its episode")
+
+    @staticmethod
+    def _record_audio_chunk(
+        connection: sqlite3.Connection, chunk: AudioChunk, manifest_id: str | None = None
+    ) -> None:
+        SQLiteRepository._chunk_episode_check(connection, chunk)
+        payload = _json(chunk.to_dict())
+        existing = connection.execute(
+            "SELECT payload_json, manifest_id FROM audio_chunks WHERE chunk_id = ?",
+            (chunk.chunk_id,),
+        ).fetchone()
+        if existing is not None:
+            if existing["payload_json"] == payload and (
+                manifest_id is None or existing["manifest_id"] == manifest_id
+            ):
+                return
+            raise StorageConflictError("chunk identity already refers to different content")
+        connection.execute(
+            """INSERT INTO audio_chunks (
+                chunk_id, manifest_id, episode_id, source_sha256, start_ms, end_ms,
+                duration_ms, segmentation_fingerprint, partition, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                chunk.chunk_id,
+                manifest_id,
+                chunk.episode_id,
+                chunk.source_sha256,
+                chunk.start_ms,
+                chunk.end_ms,
+                chunk.duration_ms,
+                chunk.segmentation_fingerprint,
+                chunk.partition,
+                payload,
+                _now(),
+            ),
+        )
+
+    def record_audio_chunk(self, chunk: AudioChunk, *, manifest_id: str | None = None) -> None:
+        """Publish one immutable chunk after checking registered source provenance."""
+
+        with self.transaction() as connection:
+            self._record_audio_chunk(connection, chunk, manifest_id)
+
+    def fetch_audio_chunk(self, chunk_id: str) -> AudioChunk | None:
+        """Restore one canonical chunk contract."""
+
+        row = self.connection.execute(
+            "SELECT payload_json FROM audio_chunks WHERE chunk_id = ?", (chunk_id,)
+        ).fetchone()
+        return AudioChunk.from_dict(json.loads(row["payload_json"])) if row is not None else None
+
+    @staticmethod
+    def _record_transcription_hypothesis(
+        connection: sqlite3.Connection, hypothesis: TranscriptionHypothesis
+    ) -> None:
+        if (
+            connection.execute(
+                "SELECT 1 FROM audio_chunks WHERE chunk_id = ?", (hypothesis.chunk_id,)
+            ).fetchone()
+            is None
+        ):
+            raise StorageConflictError(f"hypothesis chunk is not registered: {hypothesis.chunk_id}")
+        payload = _json(hypothesis.to_dict())
+        existing = connection.execute(
+            """SELECT payload_json FROM transcription_hypotheses
+            WHERE hypothesis_id = ? OR (chunk_id = ? AND model_fingerprint_sha256 = ?)""",
+            (hypothesis.hypothesis_id, hypothesis.chunk_id, hypothesis.model_fingerprint_hash),
+        ).fetchone()
+        if existing is not None:
+            if existing["payload_json"] == payload:
+                return
+            raise StorageConflictError("hypothesis identity already refers to different content")
+        connection.execute(
+            """INSERT INTO transcription_hypotheses (
+                hypothesis_id, chunk_id, model_fingerprint_sha256, text,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                hypothesis.hypothesis_id,
+                hypothesis.chunk_id,
+                hypothesis.model_fingerprint_hash,
+                hypothesis.text,
+                payload,
+                _now(),
+            ),
+        )
+
+    def record_transcription_hypothesis(self, hypothesis: TranscriptionHypothesis) -> None:
+        """Publish a hypothesis once; later writes cannot mutate the candidate."""
+
+        with self.transaction() as connection:
+            self._record_transcription_hypothesis(connection, hypothesis)
+
+    def record_hypothesis(self, hypothesis: TranscriptionHypothesis) -> None:
+        """Compatibility alias for the canonical hypothesis publisher."""
+
+        self.record_transcription_hypothesis(hypothesis)
+
+    def fetch_transcription_hypothesis(self, hypothesis_id: str) -> TranscriptionHypothesis | None:
+        """Restore one immutable hypothesis contract."""
+
+        row = self.connection.execute(
+            "SELECT payload_json FROM transcription_hypotheses WHERE hypothesis_id = ?",
+            (hypothesis_id,),
+        ).fetchone()
+        return (
+            TranscriptionHypothesis.from_dict(json.loads(row["payload_json"]))
+            if row is not None
+            else None
+        )
+
+    @staticmethod
+    def _record_transcript_reference(
+        connection: sqlite3.Connection, reference: TranscriptReference
+    ) -> None:
+        chunk = connection.execute(
+            "SELECT source_sha256 FROM audio_chunks WHERE chunk_id = ?", (reference.chunk_id,)
+        ).fetchone()
+        if chunk is None:
+            raise StorageConflictError(f"reference chunk is not registered: {reference.chunk_id}")
+        if chunk["source_sha256"] != reference.source_sha256:
+            raise StorageConflictError("reference source hash does not match its chunk")
+        payload = _json(reference.to_dict())
+        existing = connection.execute(
+            "SELECT payload_json FROM transcript_references WHERE reference_id = ?",
+            (reference.reference_id,),
+        ).fetchone()
+        if existing is not None:
+            if existing["payload_json"] == payload:
+                return
+            raise StorageConflictError("reference identity already refers to different content")
+        connection.execute(
+            """INSERT INTO transcript_references (
+                reference_id, chunk_id, source_sha256, revision, review_status,
+                payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                reference.reference_id,
+                reference.chunk_id,
+                reference.source_sha256,
+                reference.revision,
+                reference.review_status,
+                payload,
+                reference.created_at or _now(),
+            ),
+        )
+
+    def record_transcript_reference(self, reference: TranscriptReference) -> None:
+        """Publish the immutable logical reference record."""
+
+        with self.transaction() as connection:
+            self._record_transcript_reference(connection, reference)
+
+    @staticmethod
+    def _record_reference_revision(
+        connection: sqlite3.Connection, revision: ReferenceRevision
+    ) -> None:
+        reference = connection.execute(
+            """SELECT chunk_id FROM transcript_references WHERE reference_id = ?""",
+            (revision.reference_id,),
+        ).fetchone()
+        if reference is None:
+            raise StorageConflictError(f"reference is not registered: {revision.reference_id}")
+        if reference["chunk_id"] != revision.chunk_id:
+            raise StorageConflictError("reference revision chunk does not match reference")
+        chunk = connection.execute(
+            "SELECT source_sha256 FROM audio_chunks WHERE chunk_id = ?", (revision.chunk_id,)
+        ).fetchone()
+        if chunk is None or chunk["source_sha256"] != revision.source_sha256:
+            raise StorageConflictError("reference revision source hash does not match its chunk")
+        latest = connection.execute(
+            """SELECT revision, revision_id FROM reference_revisions
+            WHERE reference_id = ? ORDER BY revision DESC LIMIT 1""",
+            (revision.reference_id,),
+        ).fetchone()
+        expected_revision = 1 if latest is None else latest["revision"] + 1
+        if revision.revision != expected_revision:
+            raise StorageConflictError(
+                "reference revision conflict: "
+                f"expected {expected_revision}, got {revision.revision}"
+            )
+        expected_prior = None if latest is None else latest["revision_id"]
+        if revision.prior_revision_id != expected_prior:
+            raise StorageConflictError("reference revision predecessor does not match history")
+        payload = _json(revision.to_dict())
+        existing = connection.execute(
+            "SELECT payload_json FROM reference_revisions WHERE revision_id = ?",
+            (revision.revision_id,),
+        ).fetchone()
+        if existing is not None:
+            if existing["payload_json"] == payload:
+                return
+            raise StorageConflictError(
+                "reference revision identity already refers to different content"
+            )
+        connection.execute(
+            """INSERT INTO reference_revisions (
+                revision_id, reference_id, chunk_id, revision, reviewer, source_sha256,
+                prior_revision_id, review_status, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                revision.revision_id,
+                revision.reference_id,
+                revision.chunk_id,
+                revision.revision,
+                revision.reviewer,
+                revision.source_sha256,
+                revision.prior_revision_id,
+                revision.review_status,
+                payload,
+                revision.created_at or _now(),
+            ),
+        )
+
+    def append_reference_revision(self, revision: ReferenceRevision) -> None:
+        """Append a reference revision without updating or deleting history."""
+
+        with self.transaction() as connection:
+            self._record_reference_revision(connection, revision)
+
+    def fetch_reference_revision(self, revision_id: str) -> ReferenceRevision | None:
+        """Restore one append-only reference revision."""
+
+        row = self.connection.execute(
+            "SELECT payload_json FROM reference_revisions WHERE revision_id = ?",
+            (revision_id,),
+        ).fetchone()
+        return ReferenceRevision.from_dict(json.loads(row["payload_json"])) if row else None
+
+    def record_chunk_benchmark_manifest(self, manifest: ChunkBenchmarkManifest) -> None:
+        """Publish a manifest and its immutable chunk/hypothesis/reference records."""
+
+        payload = _json(manifest.to_dict())
+        content_sha256 = manifest.content_sha256
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT payload_json FROM chunk_benchmark_manifests WHERE manifest_id = ?",
+                (manifest.manifest_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_json"] != payload:
+                    raise StorageConflictError(
+                        "benchmark manifest identity already refers to different content"
+                    )
+            else:
+                connection.execute(
+                    """INSERT INTO chunk_benchmark_manifests (
+                        manifest_id, schema_version, source_manifest_sha256,
+                        content_sha256, payload_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        manifest.manifest_id,
+                        manifest.schema_version,
+                        manifest.source_manifest_sha256,
+                        content_sha256,
+                        payload,
+                        _now(),
+                    ),
+                )
+            for chunk in manifest.chunks:
+                self._record_audio_chunk(connection, chunk, manifest.manifest_id)
+            for reference in manifest.references:
+                self._record_transcript_reference(connection, reference)
+            for hypothesis in manifest.hypotheses:
+                self._record_transcription_hypothesis(connection, hypothesis)
+
+    def fetch_chunk_benchmark_manifest(self, manifest_id: str) -> ChunkBenchmarkManifest | None:
+        """Restore one versioned benchmark manifest."""
+
+        row = self.connection.execute(
+            "SELECT payload_json FROM chunk_benchmark_manifests WHERE manifest_id = ?",
+            (manifest_id,),
+        ).fetchone()
+        return (
+            ChunkBenchmarkManifest.from_dict(json.loads(row["payload_json"]))
+            if row is not None
+            else None
+        )
 
     def enqueue_job(
         self,

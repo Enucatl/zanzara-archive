@@ -164,6 +164,32 @@ services:
       IMAGE_REF: zanzara-archive/text-embeddings:py314-shared
       BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
       EVIDENCE_PATH: /evidence/text_embeddings.json
+  audioset_ast:
+    <<: *gpu
+    image: zanzara-archive/audioset-ast:py314-shared
+    volumes:
+      - ${HF_HOME:-/home/user/.cache/huggingface}:/models/hf:ro
+      - ${ZANZARA_MODEL_CACHE:-/home/user/.cache/zanzara-archive/models}:/models/zanzara:ro
+      - ${SMOKE_AST_AUDIO_HOST:-/export/scratch/archive/zanzara/260910-lazanzara.opus}:/smoke/audio.opus:ro
+      - ${EVIDENCE_DIR:-.git/zanzara-evidence}/P1R-08A:/evidence
+    ports:
+      - "127.0.0.1:${AUDIOSET_AST_PORT:-18084}:8080"
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/audioset-ast/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902
+      MODEL_REVISION: f826b80d28226b62986cc218e5cec390b1096902
+      MODEL_SOURCE: MIT/ast-finetuned-audioset-10-10-0.4593
+      LABEL_MAP_SHA256: a93d525511d77e8ecc933d09674b85099815bbbb417c228a4edd655e252fb9ff
+      PREPROCESSING_SHA256: 286c62bc52da40ecd842fe10127b47eb4254ee126855bce6fc61c830344822bd
+      IMAGE_REF: zanzara-archive/audioset-ast:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/audioset_ast.json
+      SMOKE_AUDIO: /smoke/audio.opus
+      SMOKE_AUDIO_LABEL: "260910-lazanzara.opus frozen real corpus audio"
+      SMOKE_AUDIO_PROVENANCE: "real frozen corpus audio; private local excerpt; no synthesis"
   model-smoke:
     image: zanzara-archive/model-smoke:py314-shared
     build:
@@ -177,5 +203,6 @@ services:
       eres2net: {condition: service_healthy}
       wavlm: {condition: service_healthy}
       text_embeddings: {condition: service_healthy}
+      audioset_ast: {condition: service_healthy}
     environment:
       SMOKE_TIMEOUT_SECONDS: 180

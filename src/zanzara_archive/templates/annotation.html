@@ -40,8 +40,29 @@
         <button id="save" type="button">Save draft</button>
         <button id="review" type="button">Mark human-reviewed</button>
       </div>
-      <p id="message" role="status">Import a P1-04 attributed JSON draft or seed one through the API.</p>
+    <p id="message" role="status">Import a P1-04 attributed JSON draft or seed one through the API.</p>
       <canvas id="waveform" width="1200" height="130" aria-label="timestamp waveform"></canvas>
+    </section>
+    <section class="panel" id="acoustic-condition-panel">
+      <h2>AST acoustic condition seed</h2>
+      <p>AudioSet music/activity and deterministic signal measurements are machine seeds. They never replace speaker metadata and remain separately correctable by an identified reviewer.</p>
+      <div class="toolbar">
+        <label>Chunk ID <input id="condition-chunk-id" type="text" placeholder="frozen chunk ID"></label>
+        <button id="load-condition" type="button">Load condition</button>
+      </div>
+      <pre id="condition-machine-seed" aria-live="polite">No chunk loaded.</pre>
+      <div class="toolbar">
+        <label>music_level
+          <select id="condition-music-level"><option>none</option><option>background</option><option>dominant</option><option>uncertain</option></select>
+        </label>
+        <label>audio_quality
+          <select id="condition-audio-quality"><option>clean</option><option>degraded</option><option>uncertain</option></select>
+        </label>
+        <label>Reviewer <input id="condition-reviewer" type="text" autocomplete="off"></label>
+        <label>Reason <input id="condition-reason" type="text" autocomplete="off"></label>
+        <button id="save-condition" type="button">Save condition correction</button>
+      </div>
+      <p id="condition-message" role="status"></p>
     </section>
     <form id="annotation-form">
       <section class="panel"><h2>Words</h2><div class="pager" id="words-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Play</th><th>Text</th><th>Start ms</th><th>End ms</th><th>Speaker</th><th>Overlap</th><th>Unintelligible</th><th>Manual timing</th></tr></thead><tbody id="words"></tbody></table></div></section>
@@ -202,6 +223,25 @@
       const pageKindForTarget = {"standard-turns": "standard_turns", "exclusive-turns": "exclusive_turns", "overlaps": "overlap_intervals", "unintelligible": "unintelligible_spans"};
       document.querySelectorAll(".add-row").forEach((button) => button.onclick = () => { const target = $(button.dataset.target); const kind = pageKindForTarget[button.dataset.target]; const index = pageNumbers[kind] * PAGE_SIZE + target.querySelectorAll("tr").length; if (button.dataset.target === "overlaps") target.insertAdjacentHTML("beforeend", `<tr data-id="overlap-${index}" data-index="${index}"><td>${input("SPEAKER_A, SPEAKER_B", "speakers")}</td><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else if (button.dataset.target === "unintelligible") target.insertAdjacentHTML("beforeend", `<tr data-index="${index}"><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else target.insertAdjacentHTML("beforeend", row({}, button.dataset.target, index)); });
       function drawWaveform() { const canvas = $("waveform"), ctx = canvas.getContext("2d"), duration = state?.duration_ms || 1; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = "#68b7d1"; ctx.fillStyle = "#68b7d1"; for (let x = 0; x < canvas.width; x += 8) { const height = 8 + Math.abs(Math.sin(x * .13)) * 38 + Math.abs(Math.sin(x * .031)) * 22; ctx.fillRect(x, canvas.height / 2 - height / 2, 4, height); } (state?.words || []).forEach((word) => { const x = word.start_ms / duration * canvas.width; ctx.fillStyle = word.unintelligible ? "#e77979" : (word.overlap ? "#e7c779" : "#68b7d1"); ctx.fillRect(x, 0, Math.max(2, (word.end_ms - word.start_ms) / duration * canvas.width), 4); }); }
+      let conditionState = null;
+      const conditionURL = () => `/api/v1/chunks/${encodeURIComponent($("condition-chunk-id").value.trim())}/condition`;
+      const drawConditionSeed = () => { $("condition-machine-seed").textContent = conditionState?.machine_seed ? JSON.stringify(conditionState.machine_seed, null, 2) : "No chunk loaded."; };
+      $("load-condition").onclick = async () => {
+        const chunkId = $("condition-chunk-id").value.trim();
+        if (!chunkId) { $("condition-message").textContent = "Enter a frozen chunk ID."; return; }
+        const response = await fetch(conditionURL()); const result = await response.json();
+        if (!response.ok) { $("condition-message").textContent = result.error?.message || "Condition load failed."; return; }
+        conditionState = result.data; drawConditionSeed();
+        if (conditionState.human_correction) { $("condition-music-level").value = conditionState.human_correction.music_level; $("condition-audio-quality").value = conditionState.human_correction.audio_quality; }
+        $("condition-message").textContent = "Machine seed loaded; corrections remain append-only.";
+      };
+      $("save-condition").onclick = async () => {
+        if (!conditionState) { $("condition-message").textContent = "Load a chunk before saving a correction."; return; }
+        const response = await fetch(conditionURL(), {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({music_level: $("condition-music-level").value, audio_quality: $("condition-audio-quality").value, reviewer: $("condition-reviewer").value.trim(), reason: $("condition-reason").value.trim(), seed_version: conditionState.machine_seed.version})});
+        const result = await response.json();
+        if (!response.ok) { $("condition-message").textContent = result.error?.message || "Condition correction failed."; return; }
+        conditionState.machine_seed = result.data.machine_seed; conditionState.human_correction = result.data.human_correction; drawConditionSeed(); $("condition-message").textContent = "Condition correction saved as an append-only revision.";
+      };
       $("waveform").onclick = (event) => { const rect = event.currentTarget.getBoundingClientRect(); play((event.clientX - rect.left) / rect.width * (state?.duration_ms || 0)); };
       draw();
       if (!state) fetch(API_URL).then((response) => response.json()).then((result) => { if (result.data?.annotation) { state = result.data.annotation; state.history = result.data.history; draw(); } });

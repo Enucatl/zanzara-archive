@@ -12,6 +12,7 @@ import mimetypes
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -27,7 +28,7 @@ from .annotations import (
     save_annotation_revision,
 )
 from .artifacts import ArtifactPublicationError
-from .contracts import ApiEnvelope, ApiError
+from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError
 from .corpus import CorpusValidationError, load_manifest, resolve_source
 from .storage import SQLiteRepository, StorageConflictError, StorageError
 
@@ -162,6 +163,74 @@ def create_app(
                 current.close()
         except StorageError as exc:
             return _error(request_id, "storage_unavailable", str(exc), 503)
+        return JSONResponse(content=ApiEnvelope(request_id, "ok", data=data).to_dict())
+
+    @app.get("/api/v1/chunks/{chunk_id:path}/condition")
+    def get_chunk_condition(chunk_id: str) -> JSONResponse:
+        """Expose the AST seed and latest human correction separately."""
+
+        request_id = _request_id()
+        try:
+            with repository() as current:
+                chunk = current.fetch_audio_chunk(chunk_id)
+                if chunk is None:
+                    return _error(request_id, "unknown_chunk", "chunk was not found", 404)
+                metadata = chunk.condition.acoustic_metadata if chunk.condition else None
+                correction = current.fetch_acoustic_condition_correction(chunk_id)
+                data = {
+                    "chunk_id": chunk.chunk_id,
+                    "episode_id": chunk.episode_id,
+                    "machine_seed": metadata.to_dict() if metadata is not None else None,
+                    "human_correction": correction.to_dict() if correction is not None else None,
+                }
+        except StorageError as exc:
+            return _error(request_id, "storage_unavailable", str(exc), 503)
+        return JSONResponse(content=ApiEnvelope(request_id, "ok", data=data).to_dict())
+
+    @app.post("/api/v1/chunks/{chunk_id:path}/condition")
+    def save_chunk_condition(chunk_id: str, body: dict[str, Any]) -> JSONResponse:
+        """Append a human music/quality correction for one frozen chunk."""
+
+        request_id = _request_id()
+        reviewer = body.get("reviewer")
+        try:
+            with repository() as current:
+                chunk = current.fetch_audio_chunk(chunk_id)
+                if chunk is None:
+                    return _error(request_id, "unknown_chunk", "chunk was not found", 404)
+                metadata = chunk.condition.acoustic_metadata if chunk.condition else None
+                if metadata is None:
+                    return _error(
+                        request_id,
+                        "condition_unavailable",
+                        "chunk has no AST acoustic machine seed",
+                        409,
+                    )
+                correction = AcousticConditionCorrection(
+                    music_level=body.get("music_level"),
+                    audio_quality=body.get("audio_quality"),
+                    reviewer=reviewer,
+                    reviewed_at=body.get("reviewed_at")
+                    or datetime.now(UTC).isoformat(timespec="seconds"),
+                    reason=body.get("reason"),
+                    seed_version=body.get("seed_version", metadata.version),
+                )
+                correction_id = current.record_acoustic_condition_correction(
+                    chunk_id, correction, correction_id=body.get("correction_id")
+                )
+                current_chunk = current.fetch_audio_chunk(chunk_id)
+                current_metadata = (
+                    current_chunk.condition.acoustic_metadata
+                    if current_chunk and current_chunk.condition
+                    else metadata
+                )
+                data = {
+                    "correction_id": correction_id,
+                    "machine_seed": current_metadata.to_dict(),
+                    "human_correction": correction.to_dict(),
+                }
+        except (StorageError, ValueError, TypeError, KeyError) as exc:
+            return _error(request_id, "invalid_condition_correction", str(exc), 422)
         return JSONResponse(content=ApiEnvelope(request_id, "ok", data=data).to_dict())
 
     @app.post("/api/v1/annotations/{episode_id}")

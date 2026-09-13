@@ -10,9 +10,9 @@ promoted `zanzara-archive/shared-base:py314-cu130` image and use `uv sync --inex
 with the shared packages excluded from installation. Model weights are never copied into this
 repository: Compose mounts the operator-provisioned read-only caches.
 
-The six P1 services load the fixed checkpoints and expose only internal `/health`,
+The P1 services load the fixed checkpoints and expose only internal `/health`,
 `/ready`, and `/v1/smoke` endpoints. `model-smoke` starts them through Compose,
-waits for readiness, and reports the six real inference results. The smoke input is
+waits for readiness, and reports the real inference results. The standard smoke input is
 the public ERes2Net ModelScope example, not archive audio; the result is a runtime
 compatibility check and does not claim archive quality.
 
@@ -78,3 +78,11 @@ It accepts the same constrained `/v1/audio/transcriptions` JSON shape as
 Whisper and returns a text-first hypothesis with raw generated token IDs. It
 does not synthesize word timestamps or provide a remote fallback. The smoke
 audio and model cache are mounted read-only.
+
+P1R-08A adds `audioset_ast`, a local AudioSet AST condition service. It loads
+the pinned `MIT/ast-finetuned-audioset-10-10-0.4593` checkpoint, emits retained
+AudioSet event probabilities and deterministic signal measurements for one
+source-relative chunk, and writes private RTX 5090 smoke evidence under
+`.git/zanzara-evidence/P1R-08A/`. It never emits speaker-count or overlap
+fields. Its model cache and the frozen archive smoke input are mounted
+read-only.

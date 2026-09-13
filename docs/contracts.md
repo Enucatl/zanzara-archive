@@ -24,7 +24,10 @@ P1R benchmark contracts are separate from production transcript timing:
 `AudioChunk` uses a deterministic source interval and segmentation fingerprint,
 `TranscriptionHypothesis` permits text-only, word-timed or segment-timed model
 artifacts, and `ChunkCondition` retains speaker streams and genuine overlap
-without requiring word timing. `TranscriptReference` and `ReferenceRevision`
+without requiring word timing. `ChunkCondition.acoustic_metadata` retains the
+AudioSet AST label-map probabilities, deterministic window aggregation and
+signal measurements separately from speaker metadata; its correction is an
+append-only human view. `TranscriptReference` and `ReferenceRevision`
 are append-only records; only a reviewed `human_truth` revision is reference
 truth. `ChunkBenchmarkManifest` ties the versioned chunks, references,
 hypotheses, episode partitions and source hashes together.

@@ -1,7 +1,7 @@
 # HTTP client policy and inventory
 
 This document records the P1-10 dependency audit. The inventory covers the
-root application, all eight model-service packages, tests, Docker/Compose
+root application, all nine model-service packages, tests, Docker/Compose
 metadata, and every committed `uv.lock` file.
 
 ## Policy
@@ -57,7 +57,7 @@ changing supported upstream package contracts and is outside this issue.
 ## Lock, image, and semantic impact
 
 The root lock was re-generated for the `niquests` inference adapter and the
-framework-supported `httpx2` test transport. The eight service locks are
+framework-supported `httpx2` test transport. The nine service locks are
 independently checked and contain one locked `httpx` version (`0.28.1`) where the paths
 above require it. The locked `requests` version is `2.34.2` where required by
 the service graphs. No duplicate `httpx`/`requests` installation was

@@ -15,11 +15,13 @@ import os
 import sqlite3
 import urllib.parse
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import get_ident
 
 from .contracts import (
+    AcousticConditionCorrection,
     ApiError,
     ArtifactManifest,
     AudioChunk,
@@ -34,7 +36,7 @@ from .contracts import (
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -715,6 +717,26 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_chunk_inference_dispatches_manifest
       ON chunk_inference_dispatches(manifest_id, status, adapter_id, chunk_id);
     """,
+    8: """
+    CREATE TABLE IF NOT EXISTS acoustic_condition_corrections (
+        correction_id TEXT PRIMARY KEY,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        seed_version TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_acoustic_condition_corrections_chunk
+      ON acoustic_condition_corrections(chunk_id, created_at, correction_id);
+    CREATE TRIGGER acoustic_condition_corrections_immutable_update
+    BEFORE UPDATE ON acoustic_condition_corrections BEGIN
+      SELECT RAISE(ABORT, 'acoustic condition corrections are append-only');
+    END;
+    CREATE TRIGGER acoustic_condition_corrections_immutable_delete
+    BEFORE DELETE ON acoustic_condition_corrections BEGIN
+      SELECT RAISE(ABORT, 'acoustic condition corrections are append-only');
+    END;
+    """,
 }
 
 
@@ -1031,7 +1053,95 @@ class SQLiteRepository:
         row = self.connection.execute(
             "SELECT payload_json FROM audio_chunks WHERE chunk_id = ?", (chunk_id,)
         ).fetchone()
-        return AudioChunk.from_dict(json.loads(row["payload_json"])) if row is not None else None
+        if row is None:
+            return None
+        chunk = AudioChunk.from_dict(json.loads(row["payload_json"]))
+        correction = self.fetch_acoustic_condition_correction(chunk_id)
+        if correction is None or chunk.condition is None:
+            return chunk
+        return replace(
+            chunk,
+            condition=replace(chunk.condition, acoustic_correction=correction),
+        )
+
+    def record_acoustic_condition_correction(
+        self,
+        chunk_id: str,
+        correction: AcousticConditionCorrection,
+        *,
+        correction_id: str | None = None,
+    ) -> str:
+        """Append an identified human correction without mutating the AST seed."""
+
+        row = self.connection.execute(
+            "SELECT payload_json, source_sha256 FROM audio_chunks WHERE chunk_id = ?",
+            (chunk_id,),
+        ).fetchone()
+        if row is None:
+            raise StorageConflictError(f"acoustic condition chunk is not registered: {chunk_id}")
+        chunk = AudioChunk.from_dict(json.loads(row["payload_json"]))
+        metadata = chunk.condition.acoustic_metadata if chunk.condition is not None else None
+        if metadata is None:
+            raise StorageConflictError("acoustic correction requires a stored machine seed")
+        if correction.seed_version != metadata.version:
+            raise StorageConflictError("acoustic correction seed version does not match chunk seed")
+        payload = _json(correction.to_dict())
+        resolved_id = correction_id or (
+            "acoustic-correction-" + hashlib.sha256(f"{chunk_id}:{payload}".encode()).hexdigest()
+        )
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT payload_json FROM acoustic_condition_corrections WHERE correction_id = ?",
+                (resolved_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_json"] == payload:
+                    return resolved_id
+                raise StorageConflictError(
+                    "acoustic correction identity already refers to different content"
+                )
+            connection.execute(
+                """INSERT INTO acoustic_condition_corrections (
+                    correction_id, chunk_id, source_sha256, seed_version, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    resolved_id,
+                    chunk_id,
+                    row["source_sha256"],
+                    correction.seed_version,
+                    payload,
+                    _now(),
+                ),
+            )
+        return resolved_id
+
+    def fetch_acoustic_condition_correction(
+        self, chunk_id: str
+    ) -> AcousticConditionCorrection | None:
+        """Return the latest append-only human condition correction for a chunk."""
+
+        row = self.connection.execute(
+            """SELECT payload_json FROM acoustic_condition_corrections
+            WHERE chunk_id = ? ORDER BY created_at DESC, correction_id DESC LIMIT 1""",
+            (chunk_id,),
+        ).fetchone()
+        return (
+            AcousticConditionCorrection.from_dict(json.loads(row["payload_json"])) if row else None
+        )
+
+    def list_acoustic_condition_corrections(
+        self, chunk_id: str
+    ) -> tuple[AcousticConditionCorrection, ...]:
+        """Return all condition corrections in stable append order."""
+
+        rows = self.connection.execute(
+            """SELECT payload_json FROM acoustic_condition_corrections
+            WHERE chunk_id = ? ORDER BY created_at, correction_id""",
+            (chunk_id,),
+        ).fetchall()
+        return tuple(
+            AcousticConditionCorrection.from_dict(json.loads(row["payload_json"])) for row in rows
+        )
 
     @staticmethod
     def _record_transcription_hypothesis(

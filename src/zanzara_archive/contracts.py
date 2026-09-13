@@ -32,6 +32,10 @@ SpeakerConditionLabel = Literal[
 ]
 SpeakerConditionOrigin = Literal["machine_seed", "human_review"]
 SpeakerConditionStatus = Literal["derived", "unknown"]
+MusicLevel = Literal["none", "background", "dominant", "uncertain"]
+AudioQuality = Literal["clean", "degraded", "uncertain"]
+AcousticConditionOrigin = Literal["machine_seed", "human_review"]
+AcousticConditionStatus = Literal["derived", "unknown"]
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
@@ -716,6 +720,216 @@ class SpeakerConditionCorrection:
 
 
 @dataclass(frozen=True, slots=True)
+class AudioSetScore:
+    """One retained AudioSet class probability with its locked label."""
+
+    class_id: int
+    label: str
+    probability: float
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.class_id, bool)
+            or not isinstance(self.class_id, int)
+            or self.class_id < 0
+        ):
+            raise ContractValidationError("AudioSet class_id must be a non-negative integer")
+        _require_text(self.label, "AudioSet label")
+        _confidence(self.probability, "AudioSet probability")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "class_id": self.class_id,
+            "label": self.label,
+            "probability": self.probability,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AudioSetScore:
+        return cls(**dict(value))
+
+
+@dataclass(frozen=True, slots=True)
+class AudioSetWindowScores:
+    """Retained relevant AudioSet probabilities for one deterministic window."""
+
+    start_ms: int
+    end_ms: int
+    scores: tuple[AudioSetScore, ...] = ()
+
+    def __post_init__(self) -> None:
+        _interval(self.start_ms, self.end_ms, "AudioSet window")
+        ids = [score.class_id for score in self.scores]
+        if len(ids) != len(set(ids)):
+            raise ContractValidationError("AudioSet window class IDs must be unique")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "scores": [score.to_dict() for score in self.scores],
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AudioSetWindowScores:
+        payload = dict(value)
+        payload["scores"] = tuple(
+            AudioSetScore.from_dict(score) for score in payload.get("scores", ())
+        )
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class SignalMeasurements:
+    """Deterministic signal measurements kept separate from AST predictions."""
+
+    clipping_fraction: float
+    peak_dbfs: float
+    rms_dbfs: float
+    silence_fraction: float
+
+    def __post_init__(self) -> None:
+        for name in ("clipping_fraction", "silence_fraction"):
+            _confidence(getattr(self, name), name)
+        _finite_number(self.peak_dbfs, "peak_dbfs")
+        _finite_number(self.rms_dbfs, "rms_dbfs")
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "clipping_fraction": self.clipping_fraction,
+            "peak_dbfs": self.peak_dbfs,
+            "rms_dbfs": self.rms_dbfs,
+            "silence_fraction": self.silence_fraction,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> SignalMeasurements:
+        return cls(**dict(value))
+
+
+@dataclass(frozen=True, slots=True)
+class AcousticConditionMetadata:
+    """Versioned AST/signal seed for non-speaker chunk conditions."""
+
+    version: str
+    threshold_version: str
+    has_music: bool
+    music_level: MusicLevel
+    has_speech: bool
+    non_speech_activity: tuple[str, ...]
+    audio_quality: AudioQuality
+    signal_measurements: SignalMeasurements
+    raw_scores: tuple[AudioSetScore, ...] = ()
+    window_scores: tuple[AudioSetWindowScores, ...] = ()
+    music_score: float = 0.0
+    speech_score: float = 0.0
+    status: AcousticConditionStatus = "derived"
+    origin: AcousticConditionOrigin = "machine_seed"
+    model_fingerprint: str | None = None
+    label_map_sha256: str | None = None
+    preprocessing_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_text(self.version, "acoustic condition version")
+        _require_text(self.threshold_version, "acoustic threshold version")
+        if not isinstance(self.has_music, bool) or not isinstance(self.has_speech, bool):
+            raise ContractValidationError("acoustic condition flags must be boolean")
+        _one_of(self.music_level, {"none", "background", "dominant", "uncertain"}, "music_level")
+        _one_of(self.audio_quality, {"clean", "degraded", "uncertain"}, "audio_quality")
+        _one_of(self.status, {"derived", "unknown"}, "acoustic condition status")
+        _one_of(self.origin, {"machine_seed", "human_review"}, "acoustic condition origin")
+        _confidence(self.music_score, "music_score")
+        _confidence(self.speech_score, "speech_score")
+        _tuple_text(self.non_speech_activity, "non_speech_activity")
+        if len(set(self.non_speech_activity)) != len(self.non_speech_activity):
+            raise ContractValidationError("non_speech_activity labels must be unique")
+        if self.status == "unknown":
+            if self.music_level != "uncertain" or self.audio_quality != "uncertain":
+                raise ContractValidationError("unknown acoustic conditions must be uncertain")
+            if self.raw_scores or self.window_scores:
+                raise ContractValidationError("unknown acoustic conditions cannot contain scores")
+        for name in ("model_fingerprint", "label_map_sha256", "preprocessing_sha256"):
+            value = getattr(self, name)
+            if value is not None:
+                _require_sha256(value, name)
+        score_ids = [score.class_id for score in self.raw_scores]
+        if len(score_ids) != len(set(score_ids)):
+            raise ContractValidationError("acoustic raw score class IDs must be unique")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "threshold_version": self.threshold_version,
+            "has_music": self.has_music,
+            "music_level": self.music_level,
+            "has_speech": self.has_speech,
+            "non_speech_activity": list(self.non_speech_activity),
+            "audio_quality": self.audio_quality,
+            "signal_measurements": self.signal_measurements.to_dict(),
+            "raw_scores": [score.to_dict() for score in self.raw_scores],
+            "window_scores": [window.to_dict() for window in self.window_scores],
+            "music_score": self.music_score,
+            "speech_score": self.speech_score,
+            "status": self.status,
+            "origin": self.origin,
+            "model_fingerprint": self.model_fingerprint,
+            "label_map_sha256": self.label_map_sha256,
+            "preprocessing_sha256": self.preprocessing_sha256,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AcousticConditionMetadata:
+        payload = dict(value)
+        payload["non_speech_activity"] = tuple(payload.get("non_speech_activity", ()))
+        payload["signal_measurements"] = SignalMeasurements.from_dict(
+            payload["signal_measurements"]
+        )
+        payload["raw_scores"] = tuple(
+            AudioSetScore.from_dict(score) for score in payload.get("raw_scores", ())
+        )
+        payload["window_scores"] = tuple(
+            AudioSetWindowScores.from_dict(window) for window in payload.get("window_scores", ())
+        )
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class AcousticConditionCorrection:
+    """Identified human correction that never overwrites the machine seed."""
+
+    music_level: MusicLevel
+    audio_quality: AudioQuality
+    reviewer: str
+    reviewed_at: str
+    reason: str
+    seed_version: str
+
+    def __post_init__(self) -> None:
+        _one_of(self.music_level, {"none", "background", "dominant", "uncertain"}, "music_level")
+        _one_of(self.audio_quality, {"clean", "degraded", "uncertain"}, "audio_quality")
+        _require_text(self.reviewer, "acoustic condition reviewer")
+        if self.reviewer == "machine":
+            raise ContractValidationError("machine output cannot be an acoustic correction")
+        _require_text(self.reviewed_at, "acoustic condition reviewed_at")
+        _require_text(self.reason, "acoustic condition correction reason")
+        _require_text(self.seed_version, "acoustic condition seed version")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "music_level": self.music_level,
+            "audio_quality": self.audio_quality,
+            "reviewer": self.reviewer,
+            "reviewed_at": self.reviewed_at,
+            "reason": self.reason,
+            "seed_version": self.seed_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AcousticConditionCorrection:
+        return cls(**dict(value))
+
+
+@dataclass(frozen=True, slots=True)
 class ChunkCondition:
     """Condition metadata for turn taking, overlap and acoustic slices."""
 
@@ -728,6 +942,8 @@ class ChunkCondition:
     exclusive_speaker_streams: tuple[SpeakerStream, ...] = ()
     speaker_metadata: SpeakerConditionMetadata | None = None
     speaker_correction: SpeakerConditionCorrection | None = None
+    acoustic_metadata: AcousticConditionMetadata | None = None
+    acoustic_correction: AcousticConditionCorrection | None = None
 
     def __post_init__(self) -> None:
         speaker_ids = tuple(stream.speaker_id for stream in self.speaker_streams)
@@ -757,6 +973,13 @@ class ChunkCondition:
                     raise ContractValidationError(
                         "speaker correction must reference the machine seed version"
                     )
+        if self.acoustic_correction is not None:
+            if self.acoustic_metadata is None:
+                raise ContractValidationError("acoustic correction requires a machine seed")
+            if self.acoustic_correction.seed_version != self.acoustic_metadata.version:
+                raise ContractValidationError(
+                    "acoustic correction must reference the machine seed version"
+                )
 
     def validate_bounds(self, start_ms: int, end_ms: int) -> None:
         """Require all condition intervals to remain inside the chunk."""
@@ -862,6 +1085,12 @@ class ChunkCondition:
             "speaker_correction": (
                 self.speaker_correction.to_dict() if self.speaker_correction is not None else None
             ),
+            "acoustic_metadata": (
+                self.acoustic_metadata.to_dict() if self.acoustic_metadata is not None else None
+            ),
+            "acoustic_correction": (
+                self.acoustic_correction.to_dict() if self.acoustic_correction is not None else None
+            ),
         }
 
     @classmethod
@@ -887,6 +1116,16 @@ class ChunkCondition:
         correction = payload.get("speaker_correction")
         payload["speaker_correction"] = (
             SpeakerConditionCorrection.from_dict(correction)
+            if isinstance(correction, Mapping)
+            else None
+        )
+        metadata = payload.get("acoustic_metadata")
+        payload["acoustic_metadata"] = (
+            AcousticConditionMetadata.from_dict(metadata) if isinstance(metadata, Mapping) else None
+        )
+        correction = payload.get("acoustic_correction")
+        payload["acoustic_correction"] = (
+            AcousticConditionCorrection.from_dict(correction)
             if isinstance(correction, Mapping)
             else None
         )

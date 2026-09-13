@@ -263,6 +263,40 @@
         {"cache": "huggingface", "path": "models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181/tokenizer_config.json", "size_bytes": 444, "sha256": "a62b2b6784f990259fddef5f16388693a8043be4f69179e6a5257eeb3f9abac4"}
       ],
       "smoke": {"status": "passed", "shape": [1024], "elapsed_ms": 861.712, "peak_vram_mib": 1115.291, "evidence_sha256": "dac0a464fba9693a03d396e0165b01f1203f2e897597e024150467fd6e8cbbbf"}
+    },
+    {
+      "id": "audioset_ast",
+      "role": "non-speaker acoustic condition classifier",
+      "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
+      "revision": "f826b80d28226b62986cc218e5cec390b1096902",
+      "license": "BSD-3-Clause",
+      "preprocessing": "mono 16 kHz ASTFeatureExtractor with max_length 1024, ten-second windows and zero-padding of the final window",
+      "dimensions": {"output": 527, "relevant_class_count": 100},
+      "precision": "float16 CUDA inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0"
+      },
+      "service": "services/audioset-ast",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-13",
+        "source": "public Hugging Face repository",
+        "credentials_required": false
+      },
+      "label_map": {
+        "source": "config.json:id2label",
+        "class_count": 527,
+        "sha256": "a93d525511d77e8ecc933d09674b85099815bbbb417c228a4edd655e252fb9ff"
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902/config.json", "size_bytes": 26763, "sha256": "a93d525511d77e8ecc933d09674b85099815bbbb417c228a4edd655e252fb9ff"},
+        {"cache": "huggingface", "path": "models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902/preprocessor_config.json", "size_bytes": 297, "sha256": "8d04ba5a9c6fca5d39d0de2b1fd05ecf79deb589fbba279728bbebac39934231"},
+        {"cache": "huggingface", "path": "models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902/model.safetensors", "size_bytes": 346404948, "sha256": "ae0c1e2ad4e1381d851fa9bf298ba13ebc9c5a914cdee2dbe427a6583869924d"}
+      ],
+      "smoke": {"status": "passed", "shape": [611, 100], "elapsed_ms": 37989.297, "peak_vram_mib": 235.534, "evidence_sha256": "0ea551361337fae4c09c7f0dadac6688226c26ecb966984ffeaa0ab260c7c71f"}
     }
   ],
   "services": [
@@ -273,6 +307,7 @@
     {"id": "resnet293", "directory": "services/resnet293", "image": "zanzara-archive/resnet293:py314-shared", "image_digest": "452257b5031214e4384dd9bb251194025201ec2ff50feccb1107bbc2f62ffb80", "python": "3.14.7", "uv_lock_sha256": "7b810071ec07525445b08d0f640fcf9bded04678165b3365bf3b3c107fd31090"},
     {"id": "eres2net", "directory": "services/eres2net", "image": "zanzara-archive/eres2net:py314-shared", "image_digest": "41620735648df7410649035e8d406ec61f8357aa9eacf837f650d2f6b4971641", "python": "3.14.7", "uv_lock_sha256": "00ba8bb7be58304a7797fdb6afa0795447a545bb6f42430fe737cf76125c8828"},
     {"id": "wavlm", "directory": "services/wavlm", "image": "zanzara-archive/wavlm:py314-shared", "image_digest": "5b06edf4885614dd869c3b41220f9730cc4cc4f4012f07370723c7a59d67b406", "python": "3.14.7", "uv_lock_sha256": "b4a5c1557da02e5792b230cc6416638ebc5a63e8ea468bcbe0ab63a768fcc621"},
-    {"id": "text_embeddings", "directory": "services/text-embeddings", "image": "zanzara-archive/text-embeddings:py314-shared", "image_digest": "05556d5a69d48c827123ae48a8c6f11c69eba961a2b053dbfa860ab08780952d", "python": "3.14.7", "uv_lock_sha256": "7562066e31c83045bd874fd625aa06a7d895bfea65931a37868e5779ce71e75f"}
+    {"id": "text_embeddings", "directory": "services/text-embeddings", "image": "zanzara-archive/text-embeddings:py314-shared", "image_digest": "05556d5a69d48c827123ae48a8c6f11c69eba961a2b053dbfa860ab08780952d", "python": "3.14.7", "uv_lock_sha256": "7562066e31c83045bd874fd625aa06a7d895bfea65931a37868e5779ce71e75f"},
+    {"id": "audioset_ast", "directory": "services/audioset-ast", "image": "zanzara-archive/audioset-ast:py314-shared", "image_digest": "5f65b15ada2a01919d1252804f866b4c8f98975f000b11776373d91b0cb2531e", "python": "3.14.7", "uv_lock_sha256": "f48b1e5557a3e782e6dabaff4a6d4eb4a864fd7853bb371220c5ba3d7088b707"}
   ]
 }

@@ -136,6 +136,74 @@
       },
       "additionalProperties": false
     },
+    "AudioSetScore": {
+      "type": "object",
+      "required": ["class_id", "label", "probability"],
+      "properties": {
+        "class_id": {"type": "integer", "minimum": 0},
+        "label": {"type": "string"},
+        "probability": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "AudioSetWindowScores": {
+      "type": "object",
+      "required": ["start_ms", "end_ms", "scores"],
+      "properties": {
+        "start_ms": {"type": "integer", "minimum": 0},
+        "end_ms": {"type": "integer", "exclusiveMinimum": 0},
+        "scores": {"type": "array", "items": {"$ref": "#/$defs/AudioSetScore"}}
+      },
+      "additionalProperties": false
+    },
+    "SignalMeasurements": {
+      "type": "object",
+      "required": ["clipping_fraction", "peak_dbfs", "rms_dbfs", "silence_fraction"],
+      "properties": {
+        "clipping_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "peak_dbfs": {"type": "number"},
+        "rms_dbfs": {"type": "number"},
+        "silence_fraction": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "AcousticConditionMetadata": {
+      "type": "object",
+      "required": ["version", "threshold_version", "has_music", "music_level", "has_speech", "non_speech_activity", "audio_quality", "signal_measurements", "raw_scores", "window_scores", "music_score", "speech_score", "status", "origin", "model_fingerprint", "label_map_sha256", "preprocessing_sha256"],
+      "properties": {
+        "version": {"type": "string"},
+        "threshold_version": {"type": "string"},
+        "has_music": {"type": "boolean"},
+        "music_level": {"enum": ["none", "background", "dominant", "uncertain"]},
+        "has_speech": {"type": "boolean"},
+        "non_speech_activity": {"type": "array", "items": {"type": "string"}},
+        "audio_quality": {"enum": ["clean", "degraded", "uncertain"]},
+        "signal_measurements": {"$ref": "#/$defs/SignalMeasurements"},
+        "raw_scores": {"type": "array", "items": {"$ref": "#/$defs/AudioSetScore"}},
+        "window_scores": {"type": "array", "items": {"$ref": "#/$defs/AudioSetWindowScores"}},
+        "music_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "speech_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "status": {"enum": ["derived", "unknown"]},
+        "origin": {"enum": ["machine_seed", "human_review"]},
+        "model_fingerprint": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "label_map_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "preprocessing_sha256": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "AcousticConditionCorrection": {
+      "type": "object",
+      "required": ["music_level", "audio_quality", "reviewer", "reviewed_at", "reason", "seed_version"],
+      "properties": {
+        "music_level": {"enum": ["none", "background", "dominant", "uncertain"]},
+        "audio_quality": {"enum": ["clean", "degraded", "uncertain"]},
+        "reviewer": {"type": "string"},
+        "reviewed_at": {"type": "string"},
+        "reason": {"type": "string"},
+        "seed_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
     "ChunkCondition": {
       "type": "object",
       "required": ["speaker_streams", "overlaps", "acoustic_labels", "rapid_turn_taking", "music", "degraded"],
@@ -148,7 +216,9 @@
         "degraded": {"type": "boolean"},
         "exclusive_speaker_streams": {"type": "array", "items": {"$ref": "#/$defs/SpeakerStream"}},
         "speaker_metadata": {"anyOf": [{"$ref": "#/$defs/SpeakerConditionMetadata"}, {"type": "null"}]},
-        "speaker_correction": {"anyOf": [{"$ref": "#/$defs/SpeakerConditionCorrection"}, {"type": "null"}]}
+        "speaker_correction": {"anyOf": [{"$ref": "#/$defs/SpeakerConditionCorrection"}, {"type": "null"}]},
+        "acoustic_metadata": {"anyOf": [{"$ref": "#/$defs/AcousticConditionMetadata"}, {"type": "null"}]},
+        "acoustic_correction": {"anyOf": [{"$ref": "#/$defs/AcousticConditionCorrection"}, {"type": "null"}]}
       },
       "additionalProperties": false
     },

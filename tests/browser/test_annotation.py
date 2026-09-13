@@ -30,6 +30,9 @@ def test_annotation_page_exposes_editor_and_api(tmp_path: Path) -> None:
     assert 'aria-label="Play ${escapeHtml(type)} interval"' in page.text
     assert "Mark human-reviewed" in page.text
     assert "Import draft JSON" in page.text
+    assert "AST acoustic condition seed" in page.text
+    assert "music_level" in page.text
+    assert "audio_quality" in page.text
     response = client.get("/api/v1/annotations/golden.opus")
     assert response.status_code == 200
     assert response.json()["data"]["annotation"] is None

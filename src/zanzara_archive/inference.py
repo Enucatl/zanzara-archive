@@ -19,17 +19,22 @@ from typing import Any
 import niquests
 from niquests.exceptions import Timeout as NiquestsTimeout
 
+from .acoustic_conditions import derive_acoustic_condition
 from .contracts import (
+    AcousticConditionMetadata,
     AdapterFailure,
     ApiError,
     AudioArtifact,
     AudioChunk,
+    AudioSetScore,
+    AudioSetWindowScores,
     CapabilityDeclaration,
     ContractValidationError,
     DiarizationResult,
     ModelFingerprint,
     Overlap,
     RequestTimeoutError,
+    SignalMeasurements,
     TimedWord,
     TranscriptionHypothesis,
     TranscriptResult,
@@ -42,11 +47,13 @@ PARAKEET_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 WHISPER_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 VOXTRAL_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 DIARIZATION_PATH = "/v1/diarize"
+AUDIOSET_CONDITION_PATH = "/v1/audio/classify"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_DIARIZATION_TIMEOUT_SECONDS = 600.0
 MAX_AUDIO_PAYLOAD_BYTES = 25_000_000
 MAX_DIARIZATION_PAYLOAD_BYTES = 50_000_000
+MAX_AUDIOSET_PAYLOAD_BYTES = 25_000_000
 MAX_WHISPER_AUDIO_MS = 30_000
 MAX_VOXTRAL_AUDIO_MS = 30_000
 WHISPER_LANGUAGE = "it"
@@ -822,6 +829,144 @@ class ParsedDiarization:
     """The typed diarization plus the exact service response for private evidence."""
 
     result: DiarizationResult
+    raw_response: Mapping[str, Any]
+
+
+def _parse_audioset_window(
+    value: Mapping[str, Any], *, chunk: AudioChunk, index: int, request_id: str
+) -> AudioSetWindowScores:
+    start_ms = value.get("start_ms")
+    end_ms = value.get("end_ms")
+    if (
+        isinstance(start_ms, bool)
+        or not isinstance(start_ms, int)
+        or isinstance(end_ms, bool)
+        or not isinstance(end_ms, int)
+        or start_ms < chunk.start_ms
+        or end_ms > chunk.end_ms
+        or end_ms <= start_ms
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"AudioSet window {index} is outside the chunk interval",
+            request_id,
+        )
+    raw_scores = value.get("scores")
+    if not isinstance(raw_scores, list):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"AudioSet window {index} scores must be an array",
+            request_id,
+        )
+    scores: list[AudioSetScore] = []
+    try:
+        for score_index, raw_score in enumerate(raw_scores):
+            if not isinstance(raw_score, Mapping):
+                raise ContractValidationError(f"score {score_index} is not an object")
+            scores.append(AudioSetScore.from_dict(raw_score))
+        return AudioSetWindowScores(start_ms, end_ms, tuple(scores))
+    except (ContractValidationError, TypeError, KeyError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"AudioSet window {index} scores are invalid: {exc}",
+            request_id,
+        ) from exc
+
+
+def parse_audioset_response(
+    payload: Mapping[str, Any],
+    *,
+    chunk: AudioChunk,
+    model: ModelFingerprint,
+    request_id: str,
+) -> AcousticConditionMetadata:
+    """Validate a local AST response and map it to the CPU condition contract."""
+
+    data = _unwrap_response(payload, request_id, service_name="AudioSet AST")
+    if data.get("model") not in {None, model.repository}:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response model does not match the locked model",
+            request_id,
+        )
+    if data.get("model_revision") not in {None, model.revision}:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response revision does not match the locked model",
+            request_id,
+        )
+    if data.get("chunk_id") not in {None, chunk.chunk_id}:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response chunk does not match the request",
+            request_id,
+        )
+    raw_windows = data.get("windows")
+    if not isinstance(raw_windows, list) or not raw_windows:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response must contain deterministic windows",
+            request_id,
+        )
+    try:
+        windows = tuple(
+            _parse_audioset_window(window, chunk=chunk, index=index, request_id=request_id)
+            for index, window in enumerate(raw_windows)
+            if isinstance(window, Mapping)
+        )
+    except TypeError as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response windows must be objects",
+            request_id,
+        ) from exc
+    if len(windows) != len(raw_windows):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response windows must be objects",
+            request_id,
+        )
+    measurements = data.get("signal_measurements")
+    if not isinstance(measurements, Mapping):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "AudioSet response is missing signal measurements",
+            request_id,
+        )
+    try:
+        signal = SignalMeasurements.from_dict(measurements)
+        return derive_acoustic_condition(
+            chunk,
+            window_scores=windows,
+            signal_measurements=signal,
+            model_fingerprint=model.fingerprint_sha256,
+            label_map_sha256=data.get("label_map_sha256"),
+            preprocessing_sha256=data.get("preprocessing_sha256"),
+        ).condition.acoustic_metadata  # type: ignore[union-attr]
+    except (ContractValidationError, TypeError, KeyError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"AudioSet response condition is invalid: {exc}",
+            request_id,
+        ) from exc
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedAcousticCondition:
+    """The typed condition seed plus the exact service response."""
+
+    result: AcousticConditionMetadata
     raw_response: Mapping[str, Any]
 
 
@@ -1653,6 +1798,141 @@ class DiarizerAdapter:
         ).result
 
 
+class AudioSetConditionAdapter:
+    """Application-side adapter for the local AudioSet AST endpoint."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioChunk], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = (
+            model_fingerprint_from_lock(model, "audioset_ast") if isinstance(model, str) else model
+        )
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        return CapabilityDeclaration(
+            model=self.model,
+            supports_timestamps=False,
+            max_audio_ms=30_000,
+            max_payload_bytes=MAX_AUDIOSET_PAYLOAD_BYTES,
+        )
+
+    def classify_bytes(
+        self,
+        chunk: AudioChunk,
+        audio_bytes: bytes,
+        *,
+        request_id: str | None = None,
+        audio_format: str = "wav",
+    ) -> ParsedAcousticCondition:
+        request_id = request_id or f"audioset-{uuid.uuid4().hex}"
+        if not isinstance(audio_bytes, bytes) or not audio_bytes:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio payload must contain bytes",
+                request_id,
+            )
+        if len(audio_bytes) > MAX_AUDIOSET_PAYLOAD_BYTES:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"audio payload exceeds {MAX_AUDIOSET_PAYLOAD_BYTES} bytes",
+                request_id,
+            )
+        payload = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "chunk_id": chunk.chunk_id,
+            "chunk": {
+                "start_ms": chunk.start_ms,
+                "end_ms": chunk.end_ms,
+                "source_sha256": chunk.source_sha256,
+            },
+            "input_audio": {
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": audio_format,
+            },
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{AUDIOSET_CONDITION_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "AudioSet AST request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"AudioSet AST endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "AudioSet AST endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "AudioSet AST endpoint returned a non-object JSON response",
+                request_id,
+            )
+        result = parse_audioset_response(
+            response,
+            chunk=chunk,
+            model=self.model,
+            request_id=request_id,
+        )
+        return ParsedAcousticCondition(result=result, raw_response=response)
+
+    def classify(self, chunk: AudioChunk, *, request_id: str) -> AcousticConditionMetadata:
+        if self.audio_loader is None:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "AudioSetConditionAdapter requires an audio_loader for a frozen chunk",
+                request_id,
+            )
+        return self.classify_bytes(
+            chunk,
+            self.audio_loader(chunk),
+            request_id=request_id,
+        ).result
+
+
+AudioSetAdapter = AudioSetConditionAdapter
+LocalAudioSetAdapter = AudioSetConditionAdapter
+
+
 Community1Adapter = DiarizerAdapter
 LocalDiarizerAdapter = DiarizerAdapter
 LocalParakeetAdapter = ParakeetAdapter
@@ -1663,6 +1943,9 @@ __all__ = [
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_DIARIZATION_TIMEOUT_SECONDS",
+    "AUDIOSET_CONDITION_PATH",
+    "AudioSetAdapter",
+    "AudioSetConditionAdapter",
     "ChunkParakeetAdapter",
     "DIARIZATION_PATH",
     "DiarizerAdapter",
@@ -1672,6 +1955,7 @@ __all__ = [
     "LocalDiarizerAdapter",
     "MAX_AUDIO_PAYLOAD_BYTES",
     "MAX_DIARIZATION_PAYLOAD_BYTES",
+    "MAX_AUDIOSET_PAYLOAD_BYTES",
     "MAX_PARAKEET_CHUNK_AUDIO_MS",
     "MAX_WHISPER_AUDIO_MS",
     "PARAKEET_CHUNK_CONFIGURATION",
@@ -1681,6 +1965,7 @@ __all__ = [
     "ParakeetChunkAdapter",
     "ParsedHypothesis",
     "ParsedDiarization",
+    "ParsedAcousticCondition",
     "ParsedTranscription",
     "WHISPER_DECODING_SETTINGS",
     "WHISPER_LANGUAGE",
@@ -1689,6 +1974,7 @@ __all__ = [
     "WhisperAdapter",
     "derive_overlap_intervals",
     "parse_diarization_response",
+    "parse_audioset_response",
     "parse_parakeet_chunk_response",
     "parse_parakeet_response",
     "parse_whisper_response",

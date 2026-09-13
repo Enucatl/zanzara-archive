@@ -1,4 +1,4 @@
-"""Aggregate readiness check for the six independent P1 model services."""
+"""Aggregate readiness check for the independent P1/P1R model services."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ SERVICES = (
     "eres2net",
     "wavlm",
     "text_embeddings",
+    "audioset_ast",
 )
 
 

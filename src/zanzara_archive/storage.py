@@ -36,7 +36,7 @@ from .contracts import (
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -767,6 +767,48 @@ MIGRATIONS: dict[int, str] = {
       SELECT RAISE(ABORT, 'annotation assistance drafts are append-only');
     END;
     """,
+    10: """
+    CREATE TABLE IF NOT EXISTS calibration_batches (
+        batch_id TEXT PRIMARY KEY,
+        manifest_sha256 TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS calibration_decisions (
+        decision_id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL REFERENCES calibration_batches(batch_id) ON DELETE RESTRICT,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        music_level TEXT NOT NULL CHECK (
+            music_level IN ('none','background','dominant','uncertain')
+        ),
+        reviewer TEXT NOT NULL,
+        reviewed_at TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (batch_id, chunk_id, revision)
+    );
+    CREATE INDEX IF NOT EXISTS idx_calibration_decisions_batch
+      ON calibration_decisions(batch_id, chunk_id, revision);
+    CREATE TRIGGER calibration_batches_immutable_update
+    BEFORE UPDATE ON calibration_batches BEGIN
+      SELECT RAISE(ABORT, 'calibration batches are immutable');
+    END;
+    CREATE TRIGGER calibration_batches_immutable_delete
+    BEFORE DELETE ON calibration_batches BEGIN
+      SELECT RAISE(ABORT, 'calibration batches are immutable');
+    END;
+    CREATE TRIGGER calibration_decisions_immutable_update
+    BEFORE UPDATE ON calibration_decisions BEGIN
+      SELECT RAISE(ABORT, 'calibration decisions are append-only');
+    END;
+    CREATE TRIGGER calibration_decisions_immutable_delete
+    BEFORE DELETE ON calibration_decisions BEGIN
+      SELECT RAISE(ABORT, 'calibration decisions are append-only');
+    END;
+    """,
 }
 
 
@@ -1093,6 +1135,142 @@ class SQLiteRepository:
             chunk,
             condition=replace(chunk.condition, acoustic_correction=correction),
         )
+
+    def record_calibration_batch(self, payload: Mapping[str, object]) -> None:
+        """Publish one immutable, validated development calibration batch."""
+
+        batch_id = str(payload["batch_id"])
+        serialized = _json(payload)
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT payload_json FROM calibration_batches WHERE batch_id = ?", (batch_id,)
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_json"] != serialized:
+                    raise StorageConflictError(
+                        "calibration batch identity already refers to different content"
+                    )
+                return
+            connection.execute(
+                """INSERT INTO calibration_batches
+                (batch_id, manifest_sha256, content_sha256, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (
+                    batch_id,
+                    payload["manifest_sha256"],
+                    payload["content_sha256"],
+                    serialized,
+                    _now(),
+                ),
+            )
+            for raw_chunk in payload["chunks"]:  # type: ignore[index]
+                self._record_audio_chunk(connection, AudioChunk.from_dict(raw_chunk))
+
+    def fetch_calibration_batch(self, batch_id: str) -> dict[str, object] | None:
+        row = self.connection.execute(
+            "SELECT payload_json FROM calibration_batches WHERE batch_id = ?", (batch_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload_json"])
+        decisions = self.connection.execute(
+            """SELECT d.* FROM calibration_decisions d
+            JOIN (SELECT chunk_id, max(revision) revision FROM calibration_decisions
+                  WHERE batch_id = ? GROUP BY chunk_id) latest
+              ON latest.chunk_id=d.chunk_id AND latest.revision=d.revision
+            WHERE d.batch_id = ? ORDER BY d.chunk_id""",
+            (batch_id, batch_id),
+        ).fetchall()
+        payload["decisions"] = {
+            row["chunk_id"]: {
+                "decision_id": row["decision_id"],
+                "revision": row["revision"],
+                "music_level": row["music_level"],
+                "reviewer": row["reviewer"],
+                "reviewed_at": row["reviewed_at"],
+                "note": row["note"],
+            }
+            for row in decisions
+        }
+        return payload
+
+    def record_calibration_decision(
+        self,
+        batch_id: str,
+        chunk_id: str,
+        *,
+        label: str,
+        reviewer: str,
+        expected_revision: int,
+        note: str = "",
+        reviewed_at: str | None = None,
+    ) -> dict[str, object]:
+        stamp = reviewed_at or _now()
+        with self.transaction() as connection:
+            batch = connection.execute(
+                "SELECT payload_json FROM calibration_batches WHERE batch_id = ?", (batch_id,)
+            ).fetchone()
+            if batch is None:
+                raise StorageConflictError("calibration batch was not found")
+            batch_chunks = {
+                item["chunk_id"] for item in json.loads(batch["payload_json"])["chunks"]
+            }
+            if chunk_id not in batch_chunks:
+                raise StorageConflictError("chunk is not part of this calibration batch")
+            current = (
+                connection.execute(
+                    "SELECT max(revision) AS revision FROM calibration_decisions "
+                    "WHERE batch_id=? AND chunk_id=?",
+                    (batch_id, chunk_id),
+                ).fetchone()["revision"]
+                or 0
+            )
+            if current != expected_revision:
+                raise StorageConflictError(
+                    "calibration decision revision conflict "
+                    f"(expected {expected_revision}, current {current})"
+                )
+            revision = current + 1
+            decision_id = (
+                "calibration-decision-"
+                + hashlib.sha256(
+                    f"{batch_id}:{chunk_id}:{revision}:{label}:{reviewer}:{stamp}:{note}".encode()
+                ).hexdigest()
+            )
+            payload = {
+                "decision_id": decision_id,
+                "batch_id": batch_id,
+                "chunk_id": chunk_id,
+                "revision": revision,
+                "music_level": label,
+                "reviewer": reviewer,
+                "reviewed_at": stamp,
+                "note": note,
+            }
+            connection.execute(
+                """INSERT INTO calibration_decisions
+                (decision_id,batch_id,chunk_id,revision,music_level,reviewer,reviewed_at,note,payload_json,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    decision_id,
+                    batch_id,
+                    chunk_id,
+                    revision,
+                    label,
+                    reviewer,
+                    stamp,
+                    note,
+                    _json(payload),
+                    _now(),
+                ),
+            )
+            return payload
+
+    def list_calibration_decisions(self, batch_id: str) -> tuple[dict[str, object], ...]:
+        payload = self.fetch_calibration_batch(batch_id)
+        if payload is None:
+            raise StorageConflictError("calibration batch was not found")
+        return tuple(payload.get("decisions", {}).values())  # type: ignore[return-value]
 
     def record_acoustic_condition_correction(
         self,

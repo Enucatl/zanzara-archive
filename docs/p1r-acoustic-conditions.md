@@ -63,6 +63,49 @@ replaced by model predictions.
 
 ### Evidence preparation and completion
 
+The dedicated P1R calibration server is separate from the legacy word editor.
+After preparing a private batch JSON, start it on the trusted operator LAN:
+
+```bash
+uv run zanzara calibration prepare \
+  --batch .git/zanzara-evidence/P1R-08B/development-batch.json \
+  --manifest planning/corpus-20.json \
+  --database .git/zanzara-state/state.db
+uv run zanzara web \
+  --database .git/zanzara-state/state.db \
+  --artifact-root .git/zanzara-artifacts \
+  --manifest planning/corpus-20.json \
+  --archive-root /export/scratch/archive/zanzara \
+  --host 0.0.0.0 --allow-network --port 8000
+```
+
+Open `http://<operator-host>:8000/calibration/<batch_id>`. The page has no
+manual chunk-ID entry: it plays one registered interval at a time, stops at
+the interval end, hides AST scores, records the reviewer's name and optional
+note, and advances after saving. Reloading resumes the latest saved decision.
+The batch JSON must contain `batch_id`, the exact frozen corpus
+`manifest_sha256`, `partition: "development"`, `segmentation_version`, and a
+`chunks` array. Each chunk is the serialized `AudioChunk` with
+`partition: "development"`, canonical episode/source hash, source-relative
+integer bounds and segmentation fingerprint. The preparation command rejects
+held-out/unknown episodes, mismatched hashes, invalid bounds and duplicate
+chunks before writing any batch state.
+
+For a browser or API client, the same preparation is available as
+`POST /api/v1/calibration/batches`; decisions are
+`POST /api/v1/calibration/<batch_id>/decisions` with `chunk_id`, one of the four
+music labels, `reviewer`, `expected_revision`, and optional `note`. Export
+decisions after review with:
+
+```bash
+uv run zanzara calibration export \
+  --batch-id <batch_id> --database .git/zanzara-state/state.db \
+  --output .git/zanzara-evidence/P1R-08B/review.json
+```
+
+The export reports reviewed and total counts. It is a review artifact only;
+threshold fitting and the reviewed confusion summary remain the P1R-08A gate.
+
 [P1R-08A](../planning/issues/P1R-08A.md) remains blocked until its reviewed
 development-only calibration artifact exists, even when implementation checks
 and the real RTX 5090 smoke pass. P1R-10 and dependent benchmark work cannot

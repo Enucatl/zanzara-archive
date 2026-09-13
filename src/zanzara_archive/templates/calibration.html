@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Music calibration review</title>
+<style>
+body{font:16px system-ui;background:#182027;color:#eef;max-width:760px;margin:2rem auto;padding:0 1rem}
+button,select,input,textarea{font:inherit;padding:.55rem;margin:.2rem}button{cursor:pointer}.labels{display:flex;gap:.5rem;flex-wrap:wrap}.labels button{min-width:9rem}.labels button.selected{outline:3px solid #8de;background:#285}.meta{color:#b9c8d4}#note{width:100%;box-sizing:border-box}audio{width:100%}
+</style></head><body>
+<h1>Music calibration review</h1>
+<p id="guidance">Listen before choosing: <b>none</b> has no music; <b>background</b> accompanies foreground speech; <b>dominant</b> is foreground music or singing; choose <b>uncertain</b> when no single label is clear.</p>
+<label>Reviewer <input id="reviewer" autocomplete="off" required></label>
+<p id="progress" class="meta"></p><p id="meta" class="meta"></p>
+<audio id="player" controls preload="metadata"></audio>
+<p><button id="replay">Replay clip</button> <button id="previous">Previous</button> <button id="next">Next</button></p>
+<div class="labels"><button data-label="none">None</button><button data-label="background">Background</button><button data-label="dominant">Dominant</button><button data-label="uncertain">Uncertain</button></div>
+<label for="note">Note (optional)</label><textarea id="note" rows="2"></textarea><p id="message" role="status"></p>
+<script>
+const batchId={{ batch_id|tojson }}, data={{ data|tojson }}; let index=0, selected=null, revision=0;
+const player=document.querySelector('#player'), chunks=data.chunks, decisions=data.decisions||{}, $=s=>document.querySelector(s);
+function draw(){const c=chunks[index],d=decisions[c.chunk_id];selected=d?.music_level||null;revision=d?.revision||0;$('#progress').textContent=`Clip ${index+1} of ${chunks.length} · ${Object.keys(decisions).length} reviewed`;$('#meta').textContent=`${c.episode_id} · ${c.start_ms}–${c.end_ms} ms`;player.src=`/calibration/media/${encodeURIComponent(batchId)}/${encodeURIComponent(c.chunk_id)}`;player.load();$('#note').value=d?.note||'';document.querySelectorAll('[data-label]').forEach(b=>b.classList.toggle('selected',b.dataset.label===selected));$('#message').textContent=d?'Saved decision loaded.':'Listen, then choose a label.'}
+function seekStart(){player.currentTime=Math.max(0,chunks[index].start_ms/1000);player.play().catch(()=>{})}
+player.addEventListener('loadedmetadata',seekStart);player.addEventListener('timeupdate',()=>{if(player.currentTime>=chunks[index].end_ms/1000){player.pause();player.currentTime=chunks[index].start_ms/1000}});
+document.querySelectorAll('[data-label]').forEach(b=>b.onclick=async()=>{const label=b.dataset.label,reviewer=$('#reviewer').value.trim();if(!reviewer){$('#message').textContent='Enter your reviewer name first.';return}const r=await fetch(`/api/v1/calibration/${encodeURIComponent(batchId)}/decisions`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chunk_id:chunks[index].chunk_id,music_level:label,reviewer,expected_revision:revision,note:$('#note').value.trim()})});const result=await r.json();if(!r.ok){$('#message').textContent=result.error?.message||'Save failed; reload this clip.';return}decisions[chunks[index].chunk_id]=result.data;revision=result.data.revision;draw();if(index<chunks.length-1){index++;draw()}});
+$('#replay').onclick=seekStart;$('#previous').onclick=()=>{if(index){index--;draw()}};$('#next').onclick=()=>{if(index<chunks.length-1){index++;draw()}};draw();
+</script></body></html>

@@ -14,6 +14,7 @@ from typing import Any
 from zanzara_archive import __version__
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
 from zanzara_archive.asr import transcribe_windowed
+from zanzara_archive.calibration import validate_batch
 from zanzara_archive.contracts import (
     AdapterFailure,
     AudioArtifact,
@@ -142,6 +143,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly allow non-loopback access to the unauthenticated local editor",
     )
+    calibration = commands.add_parser(
+        "calibration", help="prepare and export development music review batches"
+    )
+    calibration_commands = calibration.add_subparsers(dest="calibration_command", required=True)
+    prepare = calibration_commands.add_parser(
+        "prepare", help="validate and persist a calibration batch"
+    )
+    prepare.add_argument("--batch", required=True, help="private batch JSON")
+    prepare.add_argument("--manifest", default="planning/corpus-20.json")
+    prepare.add_argument(
+        "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
+    )
+    export = calibration_commands.add_parser(
+        "export", help="export append-only calibration decisions"
+    )
+    export.add_argument("--batch-id", required=True)
+    export.add_argument(
+        "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
+    )
+    export.add_argument("--output", required=True)
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
@@ -249,6 +270,53 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parser.error(str(exc))
             print(json.dumps(artifacts, indent=2, sort_keys=True))
             return 0 if artifacts["verdict"] == "pass" else 1
+    if arguments.command == "calibration":
+        try:
+            if arguments.calibration_command == "prepare":
+                manifest = load_manifest(arguments.manifest)
+                payload = json.loads(Path(arguments.batch).read_text(encoding="utf-8"))
+                normalized = validate_batch(payload, manifest)
+                repository = SQLiteRepository.open(arguments.database)
+                try:
+                    repository.record_calibration_batch(normalized)
+                finally:
+                    repository.close()
+                result = {
+                    "batch_id": normalized["batch_id"],
+                    "content_sha256": normalized["content_sha256"],
+                    "total_count": len(normalized["chunks"]),
+                }
+            else:
+                repository = SQLiteRepository.open(arguments.database)
+                try:
+                    batch = repository.fetch_calibration_batch(arguments.batch_id)
+                finally:
+                    repository.close()
+                if batch is None:
+                    parser.error("calibration batch was not found")
+                output = Path(arguments.output)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                payload = {"artifact_type": "p1r-development-music-review", "calibration": batch}
+                output.write_text(
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                result = {
+                    "path": str(output),
+                    "reviewed_count": len(batch.get("decisions", {})),
+                    "total_count": len(batch["chunks"]),
+                }
+        except (
+            CorpusValidationError,
+            StorageError,
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
     if arguments.command == "web":
         if arguments.host not in LOOPBACK_WEB_HOSTS and not arguments.allow_network:
             parser.error(

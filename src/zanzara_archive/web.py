@@ -7,6 +7,7 @@ paths are resolved from the frozen manifest or a revision-owned artifact name.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import uuid
@@ -28,6 +29,7 @@ from .annotations import (
     save_annotation_revision,
 )
 from .artifacts import ArtifactPublicationError
+from .calibration import validate_batch, validate_decision
 from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError
 from .corpus import CorpusValidationError, load_manifest, resolve_source
 from .qwen_assistance import (
@@ -131,6 +133,139 @@ def create_app(
             "status": "ok",
             "access": "network-enabled" if network_access else "loopback-default",
         }
+
+    @app.post("/api/v1/calibration/batches")
+    def prepare_calibration_batch(body: dict[str, Any]) -> JSONResponse:
+        if frozen_manifest is None:
+            return _error(
+                _request_id(),
+                "calibration_unavailable",
+                "a frozen corpus manifest is required",
+                503,
+            )
+        try:
+            batch = validate_batch(body, frozen_manifest)
+            with repository() as current:
+                current.record_calibration_batch(batch)
+        except (ValueError, TypeError, KeyError, StorageConflictError) as exc:
+            return _error(_request_id(), "invalid_calibration_batch", str(exc), 422)
+        return JSONResponse(
+            content=ApiEnvelope(
+                _request_id(),
+                "ok",
+                data={
+                    "batch_id": batch["batch_id"],
+                    "content_sha256": batch["content_sha256"],
+                    "total_count": len(batch["chunks"]),
+                },
+            ).to_dict()
+        )
+
+    @app.get("/calibration/{batch_id}", response_class=HTMLResponse, response_model=None)
+    def calibration_page(request: Request, batch_id: str) -> HTMLResponse | JSONResponse:
+        if frozen_manifest is None:
+            return _error(
+                _request_id(),
+                "calibration_unavailable",
+                "a frozen corpus manifest is required",
+                503,
+            )
+        with repository() as current:
+            batch = current.fetch_calibration_batch(batch_id)
+        if batch is None:
+            return _error(
+                _request_id(), "unknown_calibration_batch", "calibration batch was not found", 404
+            )
+        return templates.TemplateResponse(
+            request=request, name="calibration.html", context={"batch_id": batch_id, "data": batch}
+        )
+
+    @app.get("/api/v1/calibration/{batch_id}")
+    def get_calibration(batch_id: str) -> JSONResponse:
+        with repository() as current:
+            batch = current.fetch_calibration_batch(batch_id)
+        if batch is None:
+            return _error(
+                _request_id(), "unknown_calibration_batch", "calibration batch was not found", 404
+            )
+        return JSONResponse(content=ApiEnvelope(_request_id(), "ok", data=batch).to_dict())
+
+    @app.post("/api/v1/calibration/{batch_id}/decisions")
+    def save_calibration_decision(batch_id: str, body: dict[str, Any]) -> JSONResponse:
+        try:
+            label, reviewer, expected = validate_decision(
+                body.get("music_level"), body.get("reviewer"), body.get("expected_revision")
+            )
+            note = body.get("note", "")
+            if not isinstance(note, str):
+                raise ValueError("note must be text")
+            with repository() as current:
+                decision = current.record_calibration_decision(
+                    batch_id,
+                    str(body.get("chunk_id", "")),
+                    label=label,
+                    reviewer=reviewer,
+                    expected_revision=expected,
+                    note=note,
+                )
+        except StorageConflictError as exc:
+            return _error(_request_id(), "calibration_revision_conflict", str(exc), 409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return _error(_request_id(), "invalid_calibration_decision", str(exc), 422)
+        return JSONResponse(content=ApiEnvelope(_request_id(), "ok", data=decision).to_dict())
+
+    @app.get("/api/v1/calibration/{batch_id}/export")
+    def export_calibration(batch_id: str) -> JSONResponse:
+        with repository() as current:
+            batch = current.fetch_calibration_batch(batch_id)
+        if batch is None:
+            return _error(
+                _request_id(), "unknown_calibration_batch", "calibration batch was not found", 404
+            )
+        output = artifact_path / "calibration" / batch_id / "review.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"artifact_type": "p1r-development-music-review", "calibration": batch}
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
+        temporary = output.with_suffix(".tmp")
+        temporary.write_bytes(encoded)
+        temporary.replace(output)
+        return JSONResponse(
+            content=ApiEnvelope(
+                _request_id(),
+                "ok",
+                data={
+                    "path": str(output),
+                    "sha256": hashlib.sha256(encoded).hexdigest(),
+                    "reviewed_count": len(batch.get("decisions", {})),
+                    "total_count": len(batch["chunks"]),
+                },
+            ).to_dict()
+        )
+
+    @app.get("/calibration/media/{batch_id}/{chunk_id:path}", response_model=None)
+    def calibration_media(batch_id: str, chunk_id: str) -> FileResponse | JSONResponse:
+        if frozen_manifest is None or source_root is None:
+            return _error(
+                _request_id(), "media_unavailable", "no frozen archive is configured", 404
+            )
+        with repository() as current:
+            batch = current.fetch_calibration_batch(batch_id)
+        raw = next(
+            (item for item in (batch or {}).get("chunks", []) if item["chunk_id"] == chunk_id), None
+        )
+        if raw is None:
+            return _error(
+                _request_id(), "unknown_calibration_chunk", "chunk is not in this batch", 404
+            )
+        try:
+            source = resolve_source(source_root, raw["episode_id"])
+        except (CorpusValidationError, KeyError) as exc:
+            return _error(_request_id(), "media_unavailable", str(exc), 404)
+        return FileResponse(
+            source,
+            media_type=mimetypes.guess_type(source.name)[0] or "audio/ogg",
+            filename=source.name,
+        )
 
     @app.get("/annotations/{episode_id:path}", response_class=HTMLResponse)
     def annotation_page(request: Request, episode_id: str) -> HTMLResponse:

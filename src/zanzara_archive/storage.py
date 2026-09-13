@@ -26,6 +26,7 @@ from .contracts import (
     IdentityDecision,
     JobStatus,
 )
+from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
 SCHEMA_VERSION = 5
@@ -666,6 +667,97 @@ class SQLiteRepository:
 
     def close(self) -> None:
         self.connection.close()
+
+    def register_corpus_manifest(self, manifest: CorpusManifest) -> str:
+        """Idempotently register a frozen manifest and its episode metadata."""
+
+        manifest_id = f"manifest-{manifest.sha256}"
+        payload = _json(
+            {
+                "schema_version": manifest.schema_version,
+                "observed_at": manifest.observed_at.isoformat(),
+                "selection": manifest.selection,
+                "golden_episode": manifest.golden_episode,
+                "episodes": [episode.as_json() for episode in manifest.episodes],
+            }
+        )
+        episode_fields = (
+            "episode_id",
+            "manifest_id",
+            "relative_filename",
+            "episode_date",
+            "source_sha256",
+            "size_bytes",
+            "duration_ms",
+            "codec",
+            "channels",
+            "sample_rate_hz",
+            "source_read_only",
+        )
+        with self.transaction() as connection:
+            existing_manifest = connection.execute(
+                "SELECT manifest_id, selection, golden_episode, payload_json "
+                "FROM corpus_manifests WHERE sha256 = ?",
+                (manifest.sha256,),
+            ).fetchone()
+            expected_manifest = (
+                manifest_id,
+                manifest.selection,
+                manifest.golden_episode,
+                payload,
+            )
+            if existing_manifest is None:
+                connection.execute(
+                    "INSERT INTO corpus_manifests "
+                    "(manifest_id, sha256, selection, golden_episode, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        manifest_id,
+                        manifest.sha256,
+                        manifest.selection,
+                        manifest.golden_episode,
+                        payload,
+                        _now(),
+                    ),
+                )
+            elif tuple(existing_manifest) != expected_manifest:
+                raise StorageConflictError(
+                    "registered corpus manifest has conflicting metadata or payload"
+                )
+
+            for episode in manifest.episodes:
+                expected_episode = (
+                    episode.relative_filename,
+                    manifest_id,
+                    episode.relative_filename,
+                    episode.episode_date.isoformat(),
+                    episode.sha256,
+                    episode.size_bytes,
+                    episode.duration_ms,
+                    episode.codec,
+                    episode.channels,
+                    episode.sample_rate_hz,
+                    1,
+                )
+                existing_episode = connection.execute(
+                    "SELECT "
+                    + ", ".join(episode_fields)
+                    + " FROM episodes WHERE episode_id = ? OR relative_filename = ? "
+                    "OR source_sha256 = ?",
+                    (episode.relative_filename, episode.relative_filename, episode.sha256),
+                ).fetchone()
+                if existing_episode is None:
+                    connection.execute(
+                        "INSERT INTO episodes ("
+                        + ", ".join(episode_fields)
+                        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        expected_episode,
+                    )
+                elif tuple(existing_episode) != expected_episode:
+                    raise StorageConflictError(
+                        f"registered episode has conflicting metadata: {episode.relative_filename}"
+                    )
+        return manifest_id
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

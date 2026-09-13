@@ -1,8 +1,8 @@
-"""Loopback-only annotation application.
+"""Local annotation application.
 
-The app intentionally has no authentication bypass or public deployment mode.
-The CLI binds it to 127.0.0.1, and all media/export paths are resolved from
-the frozen manifest or a revision-owned artifact name.
+The CLI keeps loopback binding as its default and requires an explicit network
+opt-in for LAN access. The app has no authentication, and all media/export
+paths are resolved from the frozen manifest or a revision-owned artifact name.
 """
 
 from __future__ import annotations
@@ -92,6 +92,7 @@ def create_app(
     artifact_root: str | Path = ".git/zanzara-artifacts",
     archive_root: str | Path | None = None,
     manifest_path: str | Path | None = None,
+    network_access: bool = False,
 ) -> FastAPI:
     """Create the local annotation app for one canonical SQLite state path."""
 
@@ -101,6 +102,12 @@ def create_app(
     artifact_path = Path(artifact_root).expanduser()
     source_root = Path(archive_root).expanduser() if archive_root is not None else None
     frozen_manifest = load_manifest(manifest_path) if manifest_path is not None else None
+    if frozen_manifest is not None:
+        current = SQLiteRepository.open(database_path)
+        try:
+            current.register_corpus_manifest(frozen_manifest)
+        finally:
+            current.close()
 
     @contextmanager
     def repository() -> Iterator[SQLiteRepository]:
@@ -112,7 +119,10 @@ def create_app(
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
-        return {"status": "ok", "access": "loopback-only"}
+        return {
+            "status": "ok",
+            "access": "network-enabled" if network_access else "loopback-default",
+        }
 
     @app.get("/annotations/{episode_id:path}", response_class=HTMLResponse)
     def annotation_page(request: Request, episode_id: str) -> HTMLResponse:
@@ -224,6 +234,9 @@ def create_app(
     def seed_annotation(episode_id: str, body: dict[str, Any]) -> JSONResponse:
         request_id = _request_id()
         source = body.get("attribution", body.get("draft"))
+        # Accept the raw P1-04 artifact too, matching the documented curl workflow.
+        if source is None and ("diarization" in body or "data" in body):
+            source = body
         expected_revision = body.get("expected_revision", 0)
         if not isinstance(source, Mapping):
             return _error(request_id, "invalid_annotation", "attribution draft is required", 422)

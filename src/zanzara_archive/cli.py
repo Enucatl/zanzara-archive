@@ -44,6 +44,8 @@ from zanzara_archive.stages import stage_fingerprint
 from zanzara_archive.storage import SQLiteRepository, StorageError
 from zanzara_archive.transcripts import build_attributed_transcript, render_exports
 
+LOOPBACK_WEB_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level parser without starting services or reading archive data."""
@@ -89,7 +91,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--reviewed-commit",
         help="code commit to record; defaults to the current Git HEAD when available",
     )
-    web = commands.add_parser("web", help="run the loopback annotation UI")
     run = evaluation_commands.add_parser(
         "run", help="execute the real local golden baseline and write a private E6 run"
     )
@@ -119,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--ffmpeg", default="ffmpeg")
     run.add_argument("--language")
+    web = commands.add_parser("web", help="run the annotation UI")
     web.add_argument("--database", required=True, help="local SQLite state path")
     web.add_argument(
         "--artifact-root",
@@ -129,8 +131,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
     )
     web.add_argument("--manifest", default="planning/corpus-20.json")
-    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument(
+        "--host",
+        default=os.environ.get("ZANZARA_WEB_HOST", "127.0.0.1"),
+        help="bind address; non-loopback addresses require --allow-network",
+    )
     web.add_argument("--port", type=int, default=8000)
+    web.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="explicitly allow non-loopback access to the unauthenticated local editor",
+    )
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
@@ -239,8 +250,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(artifacts, indent=2, sort_keys=True))
             return 0 if artifacts["verdict"] == "pass" else 1
     if arguments.command == "web":
-        if arguments.host not in {"127.0.0.1", "localhost", "::1"}:
-            parser.error("the annotation UI is loopback-only; choose 127.0.0.1, localhost, or ::1")
+        if arguments.host not in LOOPBACK_WEB_HOSTS and not arguments.allow_network:
+            parser.error(
+                "the annotation UI is loopback-only by default; pass --allow-network "
+                "to explicitly enable a non-loopback bind"
+            )
         try:
             import uvicorn
 
@@ -253,6 +267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 artifact_root=arguments.artifact_root,
                 archive_root=arguments.archive_root,
                 manifest_path=arguments.manifest,
+                network_access=arguments.host not in LOOPBACK_WEB_HOSTS,
             ),
             host=arguments.host,
             port=arguments.port,

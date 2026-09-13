@@ -1,25 +1,48 @@
 # Local annotation and reviewed references
 
-P1-05 provides a loopback-only FastAPI/Jinja editor. Start it with a local
-SQLite state database:
+P1-05 provides a FastAPI/Jinja editor with loopback access by default. For the
+LAN-only review workflow on `complex.home.arpa`, start it with a local SQLite
+state database and explicitly enable the network bind:
 
 ```bash
 uv run zanzara web \
   --database .git/zanzara-state/state.db \
   --artifact-root .git/zanzara-artifacts \
   --manifest planning/corpus-20.json \
-  --archive-root /export/scratch/archive/zanzara
+  --archive-root /export/scratch/archive/zanzara \
+  --host 0.0.0.0 \
+  --allow-network
 ```
 
-The web command rejects non-loopback hosts. Open
-`http://127.0.0.1:8000/annotations/260910-lazanzara.opus`. The page plays the
-registered frozen source, draws source-relative millisecond timings, and lets
-the reviewer edit words, standard/exclusive turns, overlaps, and
-unintelligible spans. A P1-04 `attributed.json` can be imported locally into
-the editor, or posted to the seed endpoint as a machine draft:
+The editor is unauthenticated, so only use this on the trusted LAN and stop it
+when the review is complete. The DNS record for `complex.home.arpa` must point
+to this machine; the application does not create DNS records. Open
+`http://complex.home.arpa:8000/annotations/260910-lazanzara.opus`. The page
+plays the registered frozen source, draws source-relative millisecond timings,
+and lets the reviewer edit words, standard/exclusive turns, overlaps, and
+unintelligible spans. A P1-04 `attributed.json` can be imported locally into the
+editor, or posted to the seed endpoint as a machine draft:
+
+Large annotation sections are paginated at 100 rows per page so the browser
+does not create a DOM node for the entire episode at once. Page changes and
+draft saves preserve edits made on other pages.
+
+The supplied frozen manifest is registered idempotently in the local SQLite
+state database when the application starts; no manual database import is
+needed.
+
+Check name resolution and service reachability from the reviewing computer
+before opening the editor:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8000/api/v1/annotations/260910-lazanzara.opus/seed \
+getent hosts complex.home.arpa
+curl -fsS http://complex.home.arpa:8000/healthz
+```
+
+The health response should report `"access": "network-enabled"`.
+
+```bash
+curl -sS -X POST http://complex.home.arpa:8000/api/v1/annotations/260910-lazanzara.opus/seed \
   -H 'content-type: application/json' \
   --data-binary @attributed.json
 ```

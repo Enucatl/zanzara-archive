@@ -18,6 +18,8 @@
       th, td { padding: .25rem; border-bottom: 1px solid #7774; text-align: left; }
       input[type="text"] { min-width: 8rem; }
       input[type="number"] { width: 6.5rem; }
+      .pager { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+      .pager input[type="number"] { width: 4.5rem; }
       .scroll { overflow-x: auto; }
       .danger { color: #ff9a9a; }
       button { cursor: pointer; }
@@ -42,11 +44,11 @@
       <canvas id="waveform" width="1200" height="130" aria-label="timestamp waveform"></canvas>
     </section>
     <form id="annotation-form">
-      <section class="panel"><h2>Words</h2><div class="scroll"><table><thead><tr><th>Play</th><th>Text</th><th>Start ms</th><th>End ms</th><th>Speaker</th><th>Overlap</th><th>Unintelligible</th><th>Manual timing</th></tr></thead><tbody id="words"></tbody></table></div></section>
-      <section class="panel"><h2>Standard speaker turns</h2><div class="scroll"><table><thead><tr><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="standard-turns"></tbody></table></div><button type="button" class="add-row" data-target="standard-turns">Add standard turn</button></section>
-      <section class="panel"><h2>Exclusive speaker turns</h2><div class="scroll"><table><thead><tr><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="exclusive-turns"></tbody></table></div><button type="button" class="add-row" data-target="exclusive-turns">Add exclusive turn</button></section>
-      <section class="panel"><h2>Overlap intervals</h2><div class="scroll"><table><thead><tr><th>Speakers (comma-separated)</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="overlaps"></tbody></table></div><button type="button" class="add-row" data-target="overlaps">Add overlap</button></section>
-      <section class="panel"><h2>Unintelligible spans</h2><div class="scroll"><table><thead><tr><th>Start ms</th><th>End ms</th></tr></thead><tbody id="unintelligible"></tbody></table></div><button type="button" class="add-row" data-target="unintelligible">Add unintelligible span</button></section>
+      <section class="panel"><h2>Words</h2><div class="pager" id="words-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Play</th><th>Text</th><th>Start ms</th><th>End ms</th><th>Speaker</th><th>Overlap</th><th>Unintelligible</th><th>Manual timing</th></tr></thead><tbody id="words"></tbody></table></div></section>
+      <section class="panel"><h2>Standard speaker turns</h2><div class="pager" id="standard-turns-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Play</th><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="standard-turns"></tbody></table></div><button type="button" class="add-row" data-target="standard-turns">Add standard turn</button></section>
+      <section class="panel"><h2>Exclusive speaker turns</h2><div class="pager" id="exclusive-turns-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Play</th><th>Speaker</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="exclusive-turns"></tbody></table></div><button type="button" class="add-row" data-target="exclusive-turns">Add exclusive turn</button></section>
+      <section class="panel"><h2>Overlap intervals</h2><div class="pager" id="overlaps-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Speakers (comma-separated)</th><th>Start ms</th><th>End ms</th></tr></thead><tbody id="overlaps"></tbody></table></div><button type="button" class="add-row" data-target="overlaps">Add overlap</button></section>
+      <section class="panel"><h2>Unintelligible spans</h2><div class="pager" id="unintelligible-pager" aria-live="polite"></div><div class="scroll"><table><thead><tr><th>Start ms</th><th>End ms</th></tr></thead><tbody id="unintelligible"></tbody></table></div><button type="button" class="add-row" data-target="unintelligible">Add unintelligible span</button></section>
     </form>
     <section class="panel"><h2>Append-only history</h2><ul id="history"></ul></section>
     <script>
@@ -54,31 +56,129 @@
       const INITIAL = {{ initial_json|safe }};
       const HISTORY = {{ history_json|safe }};
       let state = INITIAL.status === "empty" ? null : INITIAL;
+      const PAGE_SIZE = 100;
+      const pageNumbers = {words: 0, standard_turns: 0, exclusive_turns: 0, overlap_intervals: 0, unintelligible_spans: 0};
+      const pageLabels = {words: "Words", standard_turns: "Standard turns", exclusive_turns: "Exclusive turns", overlap_intervals: "Overlap intervals", unintelligible_spans: "Unintelligible spans"};
       const $ = (id) => document.getElementById(id);
       const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[char]));
-      const play = (ms) => { const player = $("player"); if (player) { player.currentTime = ms / 1000; player.play().catch(() => {}); } };
+      let playbackEndMs = null;
+      let playbackToken = 0;
+      let playbackStopTimer = null;
+      let playbackFrame = null;
+      const clearPlaybackWatch = () => {
+        if (playbackStopTimer !== null) { clearTimeout(playbackStopTimer); playbackStopTimer = null; }
+        if (playbackFrame !== null) { cancelAnimationFrame(playbackFrame); playbackFrame = null; }
+      };
+      const stopSegment = (token) => {
+        const player = $("player");
+        if (!player || token !== playbackToken || playbackEndMs === null) return;
+        player.pause();
+        playbackEndMs = null;
+        clearPlaybackWatch();
+      };
+      const watchSegment = (token) => {
+        const player = $("player");
+        if (!player || token !== playbackToken || playbackEndMs === null) return;
+        if (player.currentTime * 1000 >= playbackEndMs) { stopSegment(token); return; }
+        playbackFrame = requestAnimationFrame(() => watchSegment(token));
+      };
+      const play = (startMs, endMs = null) => {
+        const player = $("player");
+        if (!player) return;
+        playbackToken += 1;
+        const token = playbackToken;
+        clearPlaybackWatch();
+        playbackEndMs = endMs;
+        player.pause();
+        player.currentTime = startMs / 1000;
+        if (playbackEndMs === null || playbackEndMs <= startMs) { player.play().catch(() => {}); return; }
+        const scheduleStop = () => {
+          if (token !== playbackToken || playbackEndMs === null) return;
+          const remainingMs = Math.max(0, playbackEndMs - player.currentTime * 1000);
+          playbackStopTimer = setTimeout(() => stopSegment(token), remainingMs);
+          watchSegment(token);
+        };
+        player.addEventListener("playing", scheduleStop, {once: true});
+        player.play().catch(() => {
+          player.removeEventListener("playing", scheduleStop);
+          if (token === playbackToken) { playbackEndMs = null; clearPlaybackWatch(); }
+        });
+      };
       const input = (value, cls, type="text") => `<input class="${cls}" type="${type}" value="${escapeHtml(value)}">`;
+      const resetPages = () => Object.keys(pageNumbers).forEach((kind) => { pageNumbers[kind] = 0; });
+      const itemsFor = (kind) => state?.[kind] || [];
+      function drawPager(targetId, kind) {
+        const items = itemsFor(kind);
+        const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+        pageNumbers[kind] = Math.min(pageNumbers[kind], pageCount - 1);
+        const page = pageNumbers[kind];
+        if (!items.length) { $(targetId).innerHTML = `<span>${pageLabels[kind]}: none</span>`; return; }
+        const first = page * PAGE_SIZE + 1;
+        const last = Math.min((page + 1) * PAGE_SIZE, items.length);
+        $(targetId).innerHTML = `<button type="button" data-page-kind="${kind}" data-page="${Math.max(0, page - 1)}" ${page === 0 ? "disabled" : ""}>Previous</button><span>${pageLabels[kind]} ${first}–${last} of ${items.length}</span><label>Page <input type="number" min="1" max="${pageCount}" value="${page + 1}" data-page-input="${kind}"> of ${pageCount}</label><button type="button" data-page-kind="${kind}" data-page="${Math.min(pageCount - 1, page + 1)}" ${page === pageCount - 1 ? "disabled" : ""}>Next</button>`;
+      }
       function row(item, type, index) {
         const id = escapeHtml(item.turn_id || `${type}-${index}`);
-        return `<tr data-id="${id}"><td>${input(item.speaker_id || "", "speaker")}</td><td>${input(item.start_ms ?? 0, "start", "number")}</td><td>${input(item.end_ms ?? 1, "end", "number")}</td></tr>`;
+        return `<tr data-id="${id}" data-index="${index}"><td><button type="button" class="play" aria-label="Play ${escapeHtml(type)} interval">▶</button></td><td>${input(item.speaker_id || "", "speaker")}</td><td>${input(item.start_ms ?? 0, "start", "number")}</td><td>${input(item.end_ms ?? 1, "end", "number")}</td></tr>`;
       }
       function draw() {
-        const words = state?.words || [];
-        $("words").innerHTML = words.map((word, index) => `<tr data-id="${escapeHtml(word.word_id)}" data-start="${word.start_ms}"><td><button type="button" class="play" data-ms="${word.start_ms}">▶</button></td><td>${input(word.text, "text")}</td><td>${input(word.start_ms, "start", "number")}</td><td>${input(word.end_ms, "end", "number")}</td><td>${input(word.speaker_id || "", "speaker")}</td><td><input class="overlap" type="checkbox" ${word.overlap ? "checked" : ""}></td><td><input class="unintelligible" type="checkbox" ${word.unintelligible ? "checked" : ""}></td><td><input class="manual" type="checkbox" ${(state.manual_timing_word_ids || []).includes(word.word_id) ? "checked" : ""}></td></tr>`).join("");
-        $("standard-turns").innerHTML = (state?.standard_turns || []).map((item, index) => row(item, "standard", index)).join("");
-        $("exclusive-turns").innerHTML = (state?.exclusive_turns || []).map((item, index) => row(item, "exclusive", index)).join("");
-        $("overlaps").innerHTML = (state?.overlap_intervals || []).map((item, index) => `<tr data-id="${escapeHtml(item.overlap_id || `overlap-${index}`)}"><td>${input((item.speaker_ids || []).join(", "), "speakers")}</td><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
-        $("unintelligible").innerHTML = (state?.unintelligible_spans || []).map((item) => `<tr><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
+        const words = itemsFor("words");
+        const wordStart = pageNumbers.words * PAGE_SIZE;
+        $("words").innerHTML = words.slice(wordStart, wordStart + PAGE_SIZE).map((word, offset) => `<tr data-id="${escapeHtml(word.word_id)}" data-index="${wordStart + offset}" data-start="${word.start_ms}"><td><button type="button" class="play" data-ms="${word.start_ms}" data-end-ms="${word.end_ms}">▶</button></td><td>${input(word.text, "text")}</td><td>${input(word.start_ms, "start", "number")}</td><td>${input(word.end_ms, "end", "number")}</td><td>${input(word.speaker_id || "", "speaker")}</td><td><input class="overlap" type="checkbox" ${word.overlap ? "checked" : ""}></td><td><input class="unintelligible" type="checkbox" ${word.unintelligible ? "checked" : ""}></td><td><input class="manual" type="checkbox" ${(state.manual_timing_word_ids || []).includes(word.word_id) ? "checked" : ""}></td></tr>`).join("");
+        const standardStart = pageNumbers.standard_turns * PAGE_SIZE;
+        $("standard-turns").innerHTML = itemsFor("standard_turns").slice(standardStart, standardStart + PAGE_SIZE).map((item, offset) => row(item, "standard", standardStart + offset)).join("");
+        const exclusiveStart = pageNumbers.exclusive_turns * PAGE_SIZE;
+        $("exclusive-turns").innerHTML = itemsFor("exclusive_turns").slice(exclusiveStart, exclusiveStart + PAGE_SIZE).map((item, offset) => row(item, "exclusive", exclusiveStart + offset)).join("");
+        const overlapStart = pageNumbers.overlap_intervals * PAGE_SIZE;
+        $("overlaps").innerHTML = itemsFor("overlap_intervals").slice(overlapStart, overlapStart + PAGE_SIZE).map((item, offset) => `<tr data-id="${escapeHtml(item.overlap_id || `overlap-${overlapStart + offset}`)}" data-index="${overlapStart + offset}"><td>${input((item.speaker_ids || []).join(", "), "speakers")}</td><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
+        const unintelligibleStart = pageNumbers.unintelligible_spans * PAGE_SIZE;
+        $("unintelligible").innerHTML = itemsFor("unintelligible_spans").slice(unintelligibleStart, unintelligibleStart + PAGE_SIZE).map((item, offset) => `<tr data-index="${unintelligibleStart + offset}"><td>${input(item.start_ms, "start", "number")}</td><td>${input(item.end_ms, "end", "number")}</td></tr>`).join("");
+        drawPager("words-pager", "words");
+        drawPager("standard-turns-pager", "standard_turns");
+        drawPager("exclusive-turns-pager", "exclusive_turns");
+        drawPager("overlaps-pager", "overlap_intervals");
+        drawPager("unintelligible-pager", "unintelligible_spans");
         $("reviewer").value = state?.reviewer === "machine" ? "" : (state?.reviewer || "");
         $("status").textContent = state?.status || "empty";
         $("status").className = `status ${state?.status || ""}`;
         $("history").innerHTML = (state?.history || HISTORY || []).map((item) => `<li>r${item.revision} — ${escapeHtml(item.status)} — ${escapeHtml(item.reviewer)} <a href="${item.export_url}">private reference export</a></li>`).join("");
         drawWaveform();
       }
-      function collectTurns(id) { return [...$(id).querySelectorAll("tr")].map((tr, index) => ({turn_id: tr.dataset.id || `${id}-${index}`, speaker_id: tr.querySelector(".speaker").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})); }
+      function captureTurns(id, key) {
+        const items = state[key] || (state[key] = []);
+        [...$(id).querySelectorAll("tr")].forEach((tr) => {
+          const index = Number(tr.dataset.index);
+          items[index] = {...(items[index] || {}), turn_id: tr.dataset.id || `${key}-${index}`, speaker_id: tr.querySelector(".speaker").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)};
+        });
+      }
+      function captureVisible() {
+        if (!state) return;
+        const manual = new Set(state.manual_timing_word_ids || []);
+        [...$("words").querySelectorAll("tr")].forEach((tr) => {
+          const index = Number(tr.dataset.index);
+          const word = state.words[index];
+          if (!word) return;
+          state.words[index] = {...word, text: tr.querySelector(".text").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value), speaker_id: tr.querySelector(".speaker").value || null, overlap: tr.querySelector(".overlap").checked, unintelligible: tr.querySelector(".unintelligible").checked};
+          if (tr.querySelector(".manual").checked) manual.add(word.word_id); else manual.delete(word.word_id);
+        });
+        state.manual_timing_word_ids = [...manual];
+        captureTurns("standard-turns", "standard_turns");
+        captureTurns("exclusive-turns", "exclusive_turns");
+        const overlaps = state.overlap_intervals || (state.overlap_intervals = []);
+        [...$("overlaps").querySelectorAll("tr")].forEach((tr) => {
+          const index = Number(tr.dataset.index);
+          overlaps[index] = {...(overlaps[index] || {}), overlap_id: tr.dataset.id || `overlap-${index}`, speaker_ids: tr.querySelector(".speakers").value.split(",").map((item) => item.trim()).filter(Boolean), start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)};
+        });
+        const unintelligible = state.unintelligible_spans || (state.unintelligible_spans = []);
+        [...$("unintelligible").querySelectorAll("tr")].forEach((tr) => {
+          const index = Number(tr.dataset.index);
+          unintelligible[index] = {...(unintelligible[index] || {}), start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)};
+        });
+      }
       function collect() {
-        const words = [...$("words").querySelectorAll("tr")].map((tr) => ({word_id: tr.dataset.id, text: tr.querySelector(".text").value, start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value), speaker_id: tr.querySelector(".speaker").value || null, overlap: tr.querySelector(".overlap").checked, unintelligible: tr.querySelector(".unintelligible").checked}));
-        return {episode_id: {{ episode_id|tojson }}, source_sha256: state?.source_sha256, duration_ms: state?.duration_ms, source_artifact_id: state?.source_artifact_id || null, words, standard_turns: collectTurns("standard-turns"), exclusive_turns: collectTurns("exclusive-turns"), overlap_intervals: [...$("overlaps").querySelectorAll("tr")].map((tr, index) => ({overlap_id: tr.dataset.id || `overlap-${index}`, speaker_ids: tr.querySelector(".speakers").value.split(",").map((item) => item.trim()).filter(Boolean), start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})), unintelligible_spans: [...$("unintelligible").querySelectorAll("tr")].map((tr) => ({start_ms: Number(tr.querySelector(".start").value), end_ms: Number(tr.querySelector(".end").value)})), reviewed_word_ids: words.map((word) => word.word_id), manual_timing_word_ids: words.filter((word, index) => $("words").querySelectorAll("tr")[index].querySelector(".manual").checked).map((word) => word.word_id), provenance: state?.provenance || {configuration: {source: "loopback-editor"}}};
+        captureVisible();
+        const words = state?.words || [];
+        return {episode_id: {{ episode_id|tojson }}, source_sha256: state?.source_sha256, duration_ms: state?.duration_ms, source_artifact_id: state?.source_artifact_id || null, words, standard_turns: state?.standard_turns || [], exclusive_turns: state?.exclusive_turns || [], overlap_intervals: state?.overlap_intervals || [], unintelligible_spans: state?.unintelligible_spans || [], reviewed_word_ids: words.map((word) => word.word_id), manual_timing_word_ids: state?.manual_timing_word_ids || [], provenance: state?.provenance || {configuration: {source: "loopback-editor"}}};
       }
       async function save(reviewed) {
         const enteredReviewer = $("reviewer").value.trim();
@@ -93,10 +193,14 @@
         state = result.data.annotation; state.history = result.data.history; $("message").textContent = `Saved immutable revision ${state.revision}.`; $("message").className = ""; draw();
       }
       $("save").onclick = () => save(false); $("review").onclick = () => save(true);
-      $("import").onclick = async () => { const file = $("draft-file").files[0]; if (!file) return; const imported = JSON.parse(await file.text()); state = imported.data || imported; state.status = "draft"; state.actor_type = "machine"; state.reviewer = "machine"; state.revision = 0; draw(); $("message").textContent = "Machine draft loaded locally; it cannot be marked reviewed by the machine."; };
+      $("import").onclick = async () => { const file = $("draft-file").files[0]; if (!file) return; const imported = JSON.parse(await file.text()); state = imported.data || imported; state.status = "draft"; state.actor_type = "machine"; state.reviewer = "machine"; state.revision = 0; resetPages(); draw(); $("message").textContent = "Machine draft loaded locally; it cannot be marked reviewed by the machine."; };
       $("seed").onclick = async () => { if (!state) { $("message").textContent = "Import a draft JSON before seeding."; return; } await save(false); };
-      document.addEventListener("click", (event) => { const button = event.target.closest(".play"); if (button) play(Number(button.dataset.ms)); });
-      document.querySelectorAll(".add-row").forEach((button) => button.onclick = () => { const target = $(button.dataset.target); const index = target.querySelectorAll("tr").length; if (button.dataset.target === "overlaps") target.insertAdjacentHTML("beforeend", `<tr data-id="overlap-${index}"><td>${input("SPEAKER_A, SPEAKER_B", "speakers")}</td><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else if (button.dataset.target === "unintelligible") target.insertAdjacentHTML("beforeend", `<tr><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else target.insertAdjacentHTML("beforeend", row({}, button.dataset.target, index)); });
+      const player = $("player");
+      if (player) player.addEventListener("ended", () => { playbackEndMs = null; clearPlaybackWatch(); });
+      document.addEventListener("click", (event) => { const pageButton = event.target.closest("[data-page-kind]"); if (pageButton) { captureVisible(); pageNumbers[pageButton.dataset.pageKind] = Number(pageButton.dataset.page); draw(); return; } const button = event.target.closest(".play"); if (button) { const intervalRow = button.closest("tr"); play(Number(intervalRow.querySelector(".start").value), Number(intervalRow.querySelector(".end").value)); } });
+      document.addEventListener("change", (event) => { const pageInput = event.target.closest("[data-page-input]"); if (!pageInput) return; captureVisible(); const kind = pageInput.dataset.pageInput; const pageCount = Math.max(1, Math.ceil(itemsFor(kind).length / PAGE_SIZE)); pageNumbers[kind] = Math.max(0, Math.min(pageCount - 1, Number(pageInput.value || 1) - 1)); draw(); });
+      const pageKindForTarget = {"standard-turns": "standard_turns", "exclusive-turns": "exclusive_turns", "overlaps": "overlap_intervals", "unintelligible": "unintelligible_spans"};
+      document.querySelectorAll(".add-row").forEach((button) => button.onclick = () => { const target = $(button.dataset.target); const kind = pageKindForTarget[button.dataset.target]; const index = pageNumbers[kind] * PAGE_SIZE + target.querySelectorAll("tr").length; if (button.dataset.target === "overlaps") target.insertAdjacentHTML("beforeend", `<tr data-id="overlap-${index}" data-index="${index}"><td>${input("SPEAKER_A, SPEAKER_B", "speakers")}</td><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else if (button.dataset.target === "unintelligible") target.insertAdjacentHTML("beforeend", `<tr data-index="${index}"><td>${input(0, "start", "number")}</td><td>${input(1, "end", "number")}</td></tr>`); else target.insertAdjacentHTML("beforeend", row({}, button.dataset.target, index)); });
       function drawWaveform() { const canvas = $("waveform"), ctx = canvas.getContext("2d"), duration = state?.duration_ms || 1; ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = "#68b7d1"; ctx.fillStyle = "#68b7d1"; for (let x = 0; x < canvas.width; x += 8) { const height = 8 + Math.abs(Math.sin(x * .13)) * 38 + Math.abs(Math.sin(x * .031)) * 22; ctx.fillRect(x, canvas.height / 2 - height / 2, 4, height); } (state?.words || []).forEach((word) => { const x = word.start_ms / duration * canvas.width; ctx.fillStyle = word.unintelligible ? "#e77979" : (word.overlap ? "#e7c779" : "#68b7d1"); ctx.fillRect(x, 0, Math.max(2, (word.end_ms - word.start_ms) / duration * canvas.width), 4); }); }
       $("waveform").onclick = (event) => { const rect = event.currentTarget.getBoundingClientRect(); play((event.clientX - rect.left) / rect.width * (state?.duration_ms || 0)); };
       draw();

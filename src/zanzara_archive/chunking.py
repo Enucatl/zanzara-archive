@@ -14,7 +14,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .contracts import AudioChunk, ContractValidationError, Turn
+from .contracts import (
+    AudioChunk,
+    ContractValidationError,
+    DiarizationResult,
+    NativeActivityArtifact,
+    NativeActivityInterval,
+    Turn,
+)
 from .stages import stage_fingerprint
 
 BoundaryKind = Literal["silence", "speaker_turn", "acoustic"]
@@ -209,6 +216,75 @@ class Community1AdaptiveConfig(ChunkSegmentationConfig):
             "diarization_artifact_id",
             "diarization_fingerprint",
             "diarization_model_fingerprint",
+        ):
+            payload.pop(key, None)
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
+    """Fixed native ``speaker_counting`` adaptive chunk policy."""
+
+    version: str = "community1-native-adaptive-v1"
+    preferred_min_s: float = 8.0
+    target_s: float = 12.0
+    preferred_max_s: float = 16.0
+    hard_max_s: float = 18.0
+    strong_pause_ms: int = 400
+    short_pause_ms: int = 150
+    overlap_margin_ms: int = 250
+    minimum_chunk_ms: int = 4_000
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        for field_name in (
+            "strong_pause_ms",
+            "short_pause_ms",
+            "overlap_margin_ms",
+            "minimum_chunk_ms",
+        ):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ContractValidationError(f"{field_name} must be a positive integer")
+        if self.strong_pause_ms <= self.short_pause_ms:
+            raise ContractValidationError("strong_pause_ms must exceed short_pause_ms")
+        if self.minimum_chunk_ms > self.preferred_min_ms:
+            raise ContractValidationError("minimum_chunk_ms cannot exceed preferred_min_ms")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "algorithm": self.version,
+            "preferred_min_ms": self.preferred_min_ms,
+            "target_ms": self.target_ms,
+            "preferred_max_ms": self.preferred_max_ms,
+            "hard_max_ms": self.hard_max_ms,
+            "strong_pause_ms": self.strong_pause_ms,
+            "short_pause_ms": self.short_pause_ms,
+            "overlap_margin_ms": self.overlap_margin_ms,
+            "minimum_chunk_ms": self.minimum_chunk_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> Community1NativeAdaptiveConfig:
+        payload = dict(value)
+        for seconds, milliseconds in (
+            ("preferred_min_s", "preferred_min_ms"),
+            ("target_s", "target_ms"),
+            ("preferred_max_s", "preferred_max_ms"),
+            ("hard_max_s", "hard_max_ms"),
+        ):
+            if milliseconds in payload:
+                payload[seconds] = payload.pop(milliseconds) / 1000
+        for key in (
+            "algorithm",
+            "configuration_sha256",
+            "duration_ms",
+            "episode_id",
+            "selected_regions_ms",
+            "community1_artifact_id",
+            "native_activity_artifact_id",
+            "diarization_fingerprint",
         ):
             payload.pop(key, None)
         return cls(**payload)
@@ -1150,6 +1226,8 @@ def segment_chunks_with_metadata(
     speaker_turns: Sequence[object] = (),
     diarization_turns: Sequence[object] = (),
     standard_turns: Sequence[object] | None = None,
+    exclusive_turns: Sequence[object] | None = None,
+    native_activity: NativeActivityArtifact | Mapping[str, Any] | None = None,
     diarization: object | None = None,
     selected_regions: Sequence[object] | None = None,
     partition: Literal["development", "held_out"] | None = None,
@@ -1158,6 +1236,7 @@ def segment_chunks_with_metadata(
     diarization_fingerprint: str | None = None,
     input_fingerprints: Sequence[str] = (),
     diarization_artifact_id: str | None = None,
+    community1_artifact_id: str | None = None,
     algorithm: str | None = None,
 ) -> ChunkSegmentationResult:
     """Build deterministic chunks and their publication metadata.
@@ -1170,8 +1249,32 @@ def segment_chunks_with_metadata(
     fallback. Calls without those inputs retain the legacy P1R policy.
     """
 
-    if algorithm not in (None, "p1r-chunk-segmentation-v1", "community1-adaptive-v1"):
+    if algorithm not in (
+        None,
+        "p1r-chunk-segmentation-v1",
+        "community1-adaptive-v1",
+        "community1-native-adaptive-v1",
+    ):
         raise ContractValidationError(f"unsupported chunk segmentation algorithm: {algorithm}")
+    if algorithm == "community1-native-adaptive-v1" or native_activity is not None:
+        native_config = (
+            config
+            if isinstance(config, Community1NativeAdaptiveConfig)
+            else Community1NativeAdaptiveConfig()
+        )
+        return segment_native_activity_with_metadata(
+            episode_id,
+            source_sha256,
+            duration_ms,
+            native_activity=native_activity,
+            diarization=diarization,
+            standard_turns=standard_turns,
+            exclusive_turns=exclusive_turns,
+            community1_artifact_id=community1_artifact_id or diarization_artifact_id,
+            config=native_config,
+            selected_regions=selected_regions,
+            partition=partition,
+        )
     use_community = algorithm == "community1-adaptive-v1" or any(
         (
             standard_turns is not None,
@@ -1302,6 +1405,478 @@ def segment_chunks_with_metadata(
     return result
 
 
+@dataclass(frozen=True, slots=True)
+class _NativeCandidate:
+    time_ms: int
+    candidate_type: str
+    type_adjustment: float
+    pause_duration_ms: int | None = None
+    exclusive_speaker_before: str | None = None
+    exclusive_speaker_after: str | None = None
+
+
+_NATIVE_TYPE_ADJUSTMENTS = {
+    "target": 0.0,
+    "strong_pause": -2.0,
+    "short_pause": -1.0,
+    "speaker_change": -1.5,
+    "strong_pause_and_speaker_change": -2.5,
+    "short_pause_and_speaker_change": -1.75,
+}
+
+
+def _native_activity_value(
+    value: object, *, source_sha256: str, duration_ms: int
+) -> NativeActivityArtifact:
+    if isinstance(value, NativeActivityArtifact):
+        artifact = value
+    elif isinstance(value, Mapping):
+        try:
+            artifact = NativeActivityArtifact.from_dict(value)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ContractValidationError(f"invalid native activity artifact: {exc}") from exc
+    else:
+        raise ContractValidationError("native activity artifact is required")
+    if artifact.source_sha256 != source_sha256:
+        raise ContractValidationError("native activity source hash does not match the episode")
+    if artifact.duration_ms != duration_ms:
+        raise ContractValidationError("native activity duration does not match the episode")
+    return artifact
+
+
+def _exclusive_turns(
+    value: object | None,
+    *,
+    duration_ms: int,
+    explicit: Sequence[object] | None,
+) -> tuple[Turn, ...]:
+    if explicit is not None:
+        raw = explicit
+    elif isinstance(value, DiarizationResult):
+        raw = value.exclusive_turns
+    elif isinstance(value, Mapping):
+        raw = value.get("exclusive_turns", ())
+    elif value is not None:
+        raw = getattr(value, "exclusive_turns", ())
+    else:
+        raw = ()
+    if not isinstance(raw, Sequence):
+        raise ContractValidationError("diarization exclusive_turns must be a sequence")
+    return _normalize_turns(raw, field_name="diarization.exclusive_turns", duration_ms=duration_ms)
+
+
+def _native_transitions(turns: Sequence[Turn]) -> tuple[tuple[int, str, str], ...]:
+    ordered = sorted(turns, key=lambda turn: (turn.start_ms, turn.end_ms, turn.speaker_id))
+    transitions: list[tuple[int, str, str]] = []
+    for before, after in zip(ordered, ordered[1:], strict=False):
+        if before.speaker_id != after.speaker_id:
+            transitions.append((after.start_ms, before.speaker_id, after.speaker_id))
+    return tuple(transitions)
+
+
+def _native_overlap_adjustment(
+    time_ms: int,
+    activity: Sequence[NativeActivityInterval],
+    *,
+    margin_ms: int,
+) -> float:
+    instant_overlap = any(
+        interval.speaker_count >= 2 and interval.start_ms <= time_ms < interval.end_ms
+        for interval in activity
+    )
+    if instant_overlap:
+        return 1.5
+    nearby_overlap = any(
+        interval.speaker_count >= 2
+        and interval.end_ms > time_ms - margin_ms
+        and interval.start_ms < time_ms + margin_ms
+        for interval in activity
+    )
+    return 0.75 if nearby_overlap else 0.0
+
+
+def _native_candidates(
+    *,
+    start_ms: int,
+    region_end_ms: int,
+    activity: NativeActivityArtifact,
+    exclusive_turns: Sequence[Turn],
+    config: Community1NativeAdaptiveConfig,
+) -> tuple[_NativeCandidate, ...]:
+    target_ms = start_ms + config.target_ms
+    lower = start_ms + config.preferred_min_ms
+    upper = min(start_ms + config.preferred_max_ms, region_end_ms)
+    if target_ms >= region_end_ms:
+        return ()
+    transitions = _native_transitions(exclusive_turns)
+    candidates: list[_NativeCandidate] = [
+        _NativeCandidate(target_ms, "target", _NATIVE_TYPE_ADJUSTMENTS["target"])
+    ]
+    for interval in activity.intervals:
+        if interval.speaker_count != 0:
+            continue
+        pause_duration_ms = interval.end_ms - interval.start_ms
+        if pause_duration_ms < config.short_pause_ms:
+            continue
+        midpoint_ms = (interval.start_ms + interval.end_ms) // 2
+        if not lower <= midpoint_ms <= upper:
+            continue
+        nearby_transition = min(
+            (
+                transition
+                for transition in transitions
+                if abs(transition[0] - midpoint_ms) <= config.overlap_margin_ms
+            ),
+            key=lambda transition: (abs(transition[0] - midpoint_ms), transition[0]),
+            default=None,
+        )
+        strong = pause_duration_ms >= config.strong_pause_ms
+        base_type = "strong_pause" if strong else "short_pause"
+        candidate_type = f"{base_type}_and_speaker_change" if nearby_transition else base_type
+        candidates.append(
+            _NativeCandidate(
+                midpoint_ms,
+                candidate_type,
+                _NATIVE_TYPE_ADJUSTMENTS[candidate_type],
+                pause_duration_ms,
+                nearby_transition[1] if nearby_transition else None,
+                nearby_transition[2] if nearby_transition else None,
+            )
+        )
+    pause_times = tuple(
+        candidate.time_ms for candidate in candidates if "pause" in candidate.candidate_type
+    )
+    for time_ms, before, after in transitions:
+        if not lower <= time_ms <= upper:
+            continue
+        if any(abs(time_ms - pause_time) <= config.overlap_margin_ms for pause_time in pause_times):
+            continue
+        candidates.append(
+            _NativeCandidate(
+                time_ms,
+                "speaker_change",
+                _NATIVE_TYPE_ADJUSTMENTS["speaker_change"],
+                exclusive_speaker_before=before,
+                exclusive_speaker_after=after,
+            )
+        )
+    return tuple(candidates)
+
+
+def _select_native_candidate(
+    *,
+    start_ms: int,
+    region_end_ms: int,
+    activity: NativeActivityArtifact,
+    exclusive_turns: Sequence[Turn],
+    config: Community1NativeAdaptiveConfig,
+) -> tuple[int, str, _NativeCandidate | None, dict[str, float]]:
+    remaining_ms = region_end_ms - start_ms
+    if remaining_ms <= config.target_ms:
+        return (
+            region_end_ms,
+            "episode_end",
+            None,
+            {
+                "distance_cost": abs(remaining_ms - config.target_ms) / 1000.0,
+                "type_adjustment": 0.0,
+                "overlap_adjustment": 0.0,
+                "total_score": abs(remaining_ms - config.target_ms) / 1000.0,
+            },
+        )
+    candidates = _native_candidates(
+        start_ms=start_ms,
+        region_end_ms=region_end_ms,
+        activity=activity,
+        exclusive_turns=exclusive_turns,
+        config=config,
+    )
+    target_ms = start_ms + config.target_ms
+
+    def scored(candidate: _NativeCandidate) -> tuple[float, float, float, float, int]:
+        distance_cost = abs(candidate.time_ms - target_ms) / 1000.0
+        overlap_adjustment = _native_overlap_adjustment(
+            candidate.time_ms, activity.intervals, margin_ms=config.overlap_margin_ms
+        )
+        return (
+            distance_cost + candidate.type_adjustment + overlap_adjustment,
+            abs(candidate.time_ms - target_ms),
+            candidate.type_adjustment,
+            overlap_adjustment,
+            candidate.time_ms,
+        )
+
+    selected = min(candidates, key=scored)
+    distance_cost = abs(selected.time_ms - target_ms) / 1000.0
+    overlap_adjustment = _native_overlap_adjustment(
+        selected.time_ms, activity.intervals, margin_ms=config.overlap_margin_ms
+    )
+    details = {
+        "distance_cost": distance_cost,
+        "type_adjustment": selected.type_adjustment,
+        "overlap_adjustment": overlap_adjustment,
+        "total_score": distance_cost + selected.type_adjustment + overlap_adjustment,
+    }
+    return selected.time_ms, selected.candidate_type, selected, details
+
+
+def _native_chunk(
+    *,
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    start_ms: int,
+    end_ms: int,
+    reason: str,
+    candidate: _NativeCandidate | None,
+    score: Mapping[str, float],
+    start_reason: str | None,
+    partition: Literal["development", "held_out"] | None,
+    fingerprint: str,
+    config: Community1NativeAdaptiveConfig,
+    community1_artifact_id: str,
+    native_activity_artifact_id: str,
+) -> AudioChunk:
+    return AudioChunk.create(
+        episode_id=episode_id,
+        source_sha256=source_sha256,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        duration_ms=duration_ms,
+        segmentation_fingerprint=fingerprint,
+        partition=partition,
+        boundary_start_reason=start_reason,  # type: ignore[arg-type]
+        boundary_end_reason=reason,  # type: ignore[arg-type]
+        boundary_speaker_change=bool(candidate and candidate.exclusive_speaker_before),
+        distance_from_target_ms=abs(end_ms - start_ms - config.target_ms),
+        diarization_artifact_id=community1_artifact_id,
+        community1_artifact_id=community1_artifact_id,
+        native_activity_artifact_id=native_activity_artifact_id,
+        selected_candidate_type=(candidate.candidate_type if candidate else reason),
+        selected_candidate_timestamp_ms=(candidate.time_ms if candidate else end_ms),
+        distance_cost=score.get("distance_cost"),
+        type_adjustment=score.get("type_adjustment"),
+        overlap_adjustment=score.get("overlap_adjustment"),
+        total_score=score.get("total_score"),
+        pause_duration_ms=(candidate.pause_duration_ms if candidate else None),
+        exclusive_speaker_before=(candidate.exclusive_speaker_before if candidate else None),
+        exclusive_speaker_after=(candidate.exclusive_speaker_after if candidate else None),
+        segmentation_version=config.version,
+        segmentation_configuration_hash=config.configuration_sha256,
+    )
+
+
+def _segment_native_activity(
+    *,
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    config: Community1NativeAdaptiveConfig,
+    activity: NativeActivityArtifact,
+    exclusive_turns: tuple[Turn, ...],
+    selected_regions: tuple[Interval, ...],
+    partition: Literal["development", "held_out"] | None,
+    fingerprint: str,
+    community1_artifact_id: str,
+) -> tuple[tuple[AudioChunk, ...], tuple[Mapping[str, Any], ...]]:
+    chunks: list[AudioChunk] = []
+    diagnostics: list[Mapping[str, Any]] = []
+    for region_start, region_end in selected_regions:
+        current = region_start
+        region_chunks: list[AudioChunk] = []
+        while current < region_end:
+            remaining_ms = region_end - current
+            if remaining_ms < config.minimum_chunk_ms and region_chunks:
+                previous = region_chunks[-1]
+                if region_end - previous.start_ms <= config.hard_max_ms:
+                    merged = _native_chunk(
+                        episode_id=episode_id,
+                        source_sha256=source_sha256,
+                        duration_ms=duration_ms,
+                        start_ms=previous.start_ms,
+                        end_ms=region_end,
+                        reason="episode_end",
+                        candidate=None,
+                        score={
+                            "distance_cost": abs(region_end - previous.start_ms - config.target_ms)
+                            / 1000.0,
+                            "type_adjustment": 0.0,
+                            "overlap_adjustment": 0.0,
+                            "total_score": abs(region_end - previous.start_ms - config.target_ms)
+                            / 1000.0,
+                        },
+                        start_reason=previous.boundary_start_reason,
+                        partition=partition,
+                        fingerprint=fingerprint,
+                        config=config,
+                        community1_artifact_id=community1_artifact_id,
+                        native_activity_artifact_id=activity.artifact_id,
+                    )
+                    region_chunks[-1] = merged
+                    diagnostics[-1] = {
+                        **diagnostics[-1],
+                        "end_ms": region_end,
+                        "reason": "episode_end",
+                    }
+                    current = region_end
+                    continue
+            end_ms, reason, candidate, score = _select_native_candidate(
+                start_ms=current,
+                region_end_ms=region_end,
+                activity=activity,
+                exclusive_turns=exclusive_turns,
+                config=config,
+            )
+            chunk = _native_chunk(
+                episode_id=episode_id,
+                source_sha256=source_sha256,
+                duration_ms=duration_ms,
+                start_ms=current,
+                end_ms=end_ms,
+                reason=reason,
+                candidate=candidate,
+                score=score,
+                start_reason=(
+                    region_chunks[-1].boundary_end_reason if region_chunks else "episode_start"
+                ),
+                partition=partition,
+                fingerprint=fingerprint,
+                config=config,
+                community1_artifact_id=community1_artifact_id,
+                native_activity_artifact_id=activity.artifact_id,
+            )
+            region_chunks.append(chunk)
+            diagnostics.append(
+                {
+                    "start_ms": current,
+                    "end_ms": end_ms,
+                    "reason": reason,
+                    "selected_candidate_type": chunk.selected_candidate_type,
+                    "selected_candidate_timestamp_ms": chunk.selected_candidate_timestamp_ms,
+                    **score,
+                }
+            )
+            current = end_ms
+        chunks.extend(region_chunks)
+    return tuple(chunks), tuple(diagnostics)
+
+
+def segment_native_activity_with_metadata(
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    *,
+    native_activity: NativeActivityArtifact | Mapping[str, Any] | None = None,
+    diarization: object | None = None,
+    standard_turns: Sequence[object] | None = None,
+    exclusive_turns: Sequence[object] | None = None,
+    community1_artifact_id: str | None = None,
+    config: Community1NativeAdaptiveConfig | None = None,
+    selected_regions: Sequence[object] | None = None,
+    partition: Literal["development", "held_out"] | None = None,
+) -> ChunkSegmentationResult:
+    """Build chunks from one Community-1 run's native speaker-count artifact."""
+
+    policy = config or Community1NativeAdaptiveConfig()
+    if not isinstance(policy, Community1NativeAdaptiveConfig):
+        raise ContractValidationError("native activity requires Community1NativeAdaptiveConfig")
+    if isinstance(diarization, DiarizationResult):
+        artifact = native_activity or diarization.native_activity
+        standard = standard_turns or diarization.standard_turns
+        exclusive = _exclusive_turns(diarization, duration_ms=duration_ms, explicit=exclusive_turns)
+        default_artifact_id = diarization.artifact_id
+    else:
+        artifact = native_activity
+        standard = standard_turns
+        exclusive = _exclusive_turns(diarization, duration_ms=duration_ms, explicit=exclusive_turns)
+        default_artifact_id = (
+            _diarization_value(diarization, "artifact_id") if diarization else None
+        )
+    if artifact is None:
+        raise ContractValidationError("community1-native-adaptive-v1 requires native activity")
+    native = _native_activity_value(artifact, source_sha256=source_sha256, duration_ms=duration_ms)
+    if standard is None:
+        raise ContractValidationError("community1-native-adaptive-v1 requires standard diarization")
+    standard_normalized = _normalize_turns(
+        standard, field_name="diarization.standard_turns", duration_ms=duration_ms
+    )
+    if not exclusive:
+        raise ContractValidationError(
+            "community1-native-adaptive-v1 requires exclusive diarization"
+        )
+    regions = _normalize_regions(selected_regions, duration_ms)
+    artifact_id = community1_artifact_id or default_artifact_id
+    if not isinstance(artifact_id, str) or not artifact_id.strip():
+        raise ContractValidationError("community1_artifact_id is required")
+    input_hashes = (
+        _input_digest(
+            "community1-standard-diarization",
+            [turn.to_dict() for turn in standard_normalized],
+        ),
+        _input_digest("community1-exclusive-diarization", [turn.to_dict() for turn in exclusive]),
+        _input_digest("community1-native-activity", native.to_dict()),
+    )
+    fingerprint = stage_fingerprint(
+        "benchmark_chunks",
+        source_sha256=source_sha256,
+        upstream_artifact_hashes=input_hashes,
+        configuration={
+            "algorithm": policy.version,
+            "duration_ms": duration_ms,
+            "episode_id": episode_id,
+            "selected_regions_ms": [list(region) for region in regions],
+            "segmentation": policy.to_dict(),
+            "community1_artifact_id": artifact_id,
+            "native_activity_artifact_id": native.artifact_id,
+        },
+        pipeline_version=policy.version,
+    )
+    chunks, diagnostics = _segment_native_activity(
+        episode_id=episode_id,
+        source_sha256=source_sha256,
+        duration_ms=duration_ms,
+        config=policy,
+        activity=native,
+        exclusive_turns=exclusive,
+        selected_regions=regions,
+        partition=partition,
+        fingerprint=fingerprint,
+        community1_artifact_id=artifact_id,
+    )
+    result = ChunkSegmentationResult(
+        chunks=chunks,
+        version=policy.version,
+        configuration={
+            **policy.to_dict(),
+            "configuration_sha256": policy.configuration_sha256,
+            "duration_ms": duration_ms,
+            "episode_id": episode_id,
+            "selected_regions_ms": [list(region) for region in regions],
+            "community1_artifact_id": artifact_id,
+            "native_activity_artifact_id": native.artifact_id,
+            "native_activity_timeline": native.to_dict()["timeline"],
+        },
+        input_fingerprints=input_hashes,
+        segmentation_fingerprint=fingerprint,
+        boundary_diagnostics=diagnostics,
+    )
+    _validate_coverage(result.chunks, regions, hard_max_ms=policy.hard_max_ms)
+    return result
+
+
+def segment_native_activity_chunks(
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    **kwargs: Any,
+) -> tuple[AudioChunk, ...]:
+    """Return only chunks from the native Community-1 adaptive policy."""
+
+    return segment_native_activity_with_metadata(
+        episode_id, source_sha256, duration_ms, **kwargs
+    ).chunks
+
+
 def segment_chunks(
     episode_id: str,
     source_sha256: str,
@@ -1369,10 +1944,13 @@ __all__ = [
     "ChunkSegmentationConfig",
     "ChunkSegmentationResult",
     "Community1AdaptiveConfig",
+    "Community1NativeAdaptiveConfig",
     "build_audio_chunks",
     "segment_community1_chunks",
     "segment_audio_chunks",
     "segment_chunks",
     "segment_chunks_with_metadata",
+    "segment_native_activity_chunks",
+    "segment_native_activity_with_metadata",
     "validate_chunk_coverage",
 ]

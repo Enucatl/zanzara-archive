@@ -32,6 +32,7 @@ from .contracts import (
     ContractValidationError,
     DiarizationResult,
     ModelFingerprint,
+    NativeActivityArtifact,
     Overlap,
     RequestTimeoutError,
     SignalMeasurements,
@@ -784,6 +785,46 @@ def render_rttm(turns: Sequence[Turn], *, file_id: str = "episode") -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+def _parse_native_activity(
+    data: Mapping[str, Any], *, audio: AudioArtifact, request_id: str
+) -> NativeActivityArtifact | None:
+    """Parse the supported Community-1 speaker-count hook artifact."""
+
+    raw = data.get("native_activity")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Community-1 native_activity must be an object",
+            request_id,
+        )
+    payload = dict(raw)
+    payload.setdefault("source_sha256", audio.source_sha256)
+    payload.setdefault("duration_ms", audio.duration_ms)
+    timeline = payload.get("timeline")
+    intervals = payload.get("intervals")
+    if not isinstance(timeline, Mapping) or not isinstance(intervals, list):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Community-1 native_activity requires intervals and timeline metadata",
+            request_id,
+        )
+    if "artifact_id" not in payload:
+        payload["artifact_id"] = "native-activity-" + _json_sha256(payload)
+    try:
+        return NativeActivityArtifact.from_dict(payload)
+    except (ContractValidationError, KeyError, TypeError, ValueError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"Community-1 native_activity is invalid: {exc}",
+            request_id,
+        ) from exc
+
+
 def parse_diarization_response(
     payload: Mapping[str, Any],
     *,
@@ -812,6 +853,7 @@ def parse_diarization_response(
         )
     standard_turns = _parse_turns(data, "standard_turns", audio=audio, request_id=request_id)
     exclusive_turns = _parse_turns(data, "exclusive_turns", audio=audio, request_id=request_id)
+    native_activity = _parse_native_activity(data, audio=audio, request_id=request_id)
     return DiarizationResult(
         artifact_id=audio.artifact_id,
         source_sha256=audio.source_sha256,
@@ -821,6 +863,7 @@ def parse_diarization_response(
         exclusive_turns=exclusive_turns,
         overlaps=derive_overlap_intervals(standard_turns),
         request_id=request_id,
+        native_activity=native_activity,
     )
 
 
@@ -1731,6 +1774,7 @@ class DiarizerAdapter:
         payload = {
             "request_id": request_id,
             "model": self.model.repository,
+            "source_sha256": audio.source_sha256,
             "input_audio": {
                 "data": base64.b64encode(audio_bytes).decode("ascii"),
                 "format": audio.audio_format,

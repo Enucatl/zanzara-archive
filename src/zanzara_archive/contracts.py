@@ -21,6 +21,11 @@ ReferenceReviewStatus = Literal["draft", "human_truth", "superseded", "rejected"
 ChunkPartition = Literal["development", "held_out"]
 ChunkBoundaryReason = Literal[
     "episode_start",
+    "target",
+    "strong_pause_and_speaker_change",
+    "strong_pause",
+    "short_pause_and_speaker_change",
+    "short_pause",
     "strong_gap_and_speaker_change",
     "strong_gap",
     "speaker_change",
@@ -511,6 +516,99 @@ class Overlap:
         """Build an overlap interval from JSON-compatible data."""
         payload = dict(value)
         payload["speaker_ids"] = tuple(payload["speaker_ids"])
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeActivityInterval:
+    """One source-relative run of Community-1's native speaker count."""
+
+    start_ms: int
+    end_ms: int
+    speaker_count: int
+
+    def __post_init__(self) -> None:
+        _interval(self.start_ms, self.end_ms, "native activity")
+        _require_nonnegative_int(self.speaker_count, "native activity speaker_count")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "speaker_count": self.speaker_count,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> NativeActivityInterval:
+        return cls(**dict(value))
+
+
+@dataclass(frozen=True, slots=True)
+class NativeActivityArtifact:
+    """Persisted Community-1 speaker-count activity and frame time mapping."""
+
+    artifact_id: str
+    source_sha256: str
+    duration_ms: int
+    intervals: tuple[NativeActivityInterval, ...]
+    frame_count: int
+    frame_start_ms: int
+    frame_step_ms: int
+    frame_duration_ms: int
+    time_origin: str = "original episode"
+
+    def __post_init__(self) -> None:
+        _require_id(self.artifact_id, "native activity artifact_id")
+        _require_sha256(self.source_sha256, "native activity source_sha256")
+        _require_positive_int(self.duration_ms, "native activity duration_ms")
+        _require_positive_int(self.frame_count, "native activity frame_count")
+        _require_nonnegative_int(self.frame_start_ms, "native activity frame_start_ms")
+        _require_positive_int(self.frame_step_ms, "native activity frame_step_ms")
+        _require_positive_int(self.frame_duration_ms, "native activity frame_duration_ms")
+        _require_text(self.time_origin, "native activity time_origin")
+        if not self.intervals:
+            raise ContractValidationError("native activity requires at least one interval")
+        expected_start = self.intervals[0].start_ms
+        previous_count: int | None = None
+        for index, interval in enumerate(self.intervals):
+            if interval.end_ms > self.duration_ms:
+                raise ContractValidationError(
+                    f"native activity interval {index} exceeds source duration"
+                )
+            if interval.start_ms != expected_start:
+                raise ContractValidationError("native activity intervals must be contiguous")
+            if previous_count == interval.speaker_count:
+                raise ContractValidationError("native activity intervals must be run-length merged")
+            expected_start = interval.end_ms
+            previous_count = interval.speaker_count
+        if expected_start != self.duration_ms:
+            raise ContractValidationError("native activity must cover the source duration")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_id": self.artifact_id,
+            "source_sha256": self.source_sha256,
+            "duration_ms": self.duration_ms,
+            "intervals": [interval.to_dict() for interval in self.intervals],
+            "timeline": {
+                "frame_count": self.frame_count,
+                "frame_start_ms": self.frame_start_ms,
+                "frame_step_ms": self.frame_step_ms,
+                "frame_duration_ms": self.frame_duration_ms,
+                "time_origin": self.time_origin,
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> NativeActivityArtifact:
+        payload = dict(value)
+        raw_timeline = payload.pop("timeline", None)
+        if not isinstance(raw_timeline, Mapping):
+            raise ContractValidationError("native activity timeline is required")
+        payload.update(raw_timeline)
+        payload["intervals"] = tuple(
+            NativeActivityInterval.from_dict(interval) for interval in payload["intervals"]
+        )
         return cls(**payload)
 
 
@@ -1162,6 +1260,17 @@ class AudioChunk:
     boundary_overlap_conflict: bool = False
     distance_from_target_ms: int | None = None
     diarization_artifact_id: str | None = None
+    community1_artifact_id: str | None = None
+    native_activity_artifact_id: str | None = None
+    selected_candidate_type: str | None = None
+    selected_candidate_timestamp_ms: int | None = None
+    distance_cost: float | None = None
+    type_adjustment: float | None = None
+    overlap_adjustment: float | None = None
+    total_score: float | None = None
+    pause_duration_ms: int | None = None
+    exclusive_speaker_before: str | None = None
+    exclusive_speaker_after: str | None = None
     segmentation_version: str | None = None
     segmentation_configuration_hash: str | None = None
 
@@ -1180,6 +1289,11 @@ class AudioChunk:
                 self.boundary_start_reason,
                 {
                     "episode_start",
+                    "target",
+                    "strong_pause_and_speaker_change",
+                    "strong_pause",
+                    "short_pause_and_speaker_change",
+                    "short_pause",
                     "strong_gap_and_speaker_change",
                     "strong_gap",
                     "speaker_change",
@@ -1194,6 +1308,11 @@ class AudioChunk:
             _one_of(
                 self.boundary_end_reason,
                 {
+                    "target",
+                    "strong_pause_and_speaker_change",
+                    "strong_pause",
+                    "short_pause_and_speaker_change",
+                    "short_pause",
                     "strong_gap_and_speaker_change",
                     "strong_gap",
                     "speaker_change",
@@ -1214,6 +1333,26 @@ class AudioChunk:
             _require_nonnegative_int(self.distance_from_target_ms, "distance_from_target_ms")
         if self.diarization_artifact_id is not None:
             _require_id(self.diarization_artifact_id, "diarization_artifact_id")
+        for field_name in ("community1_artifact_id", "native_activity_artifact_id"):
+            value = getattr(self, field_name)
+            if value is not None:
+                _require_id(value, field_name)
+        if self.selected_candidate_type is not None:
+            _require_text(self.selected_candidate_type, "selected_candidate_type")
+        if self.selected_candidate_timestamp_ms is not None:
+            _require_nonnegative_int(
+                self.selected_candidate_timestamp_ms, "selected_candidate_timestamp_ms"
+            )
+        for field_name in ("distance_cost", "type_adjustment", "overlap_adjustment", "total_score"):
+            value = getattr(self, field_name)
+            if value is not None:
+                _finite_number(value, field_name)
+        if self.pause_duration_ms is not None:
+            _require_nonnegative_int(self.pause_duration_ms, "pause_duration_ms")
+        for field_name in ("exclusive_speaker_before", "exclusive_speaker_after"):
+            value = getattr(self, field_name)
+            if value is not None:
+                _require_id(value, field_name)
         if self.segmentation_version is not None:
             _require_text(self.segmentation_version, "segmentation_version")
         if self.segmentation_configuration_hash is not None:
@@ -1262,6 +1401,17 @@ class AudioChunk:
         boundary_overlap_conflict: bool = False,
         distance_from_target_ms: int | None = None,
         diarization_artifact_id: str | None = None,
+        community1_artifact_id: str | None = None,
+        native_activity_artifact_id: str | None = None,
+        selected_candidate_type: str | None = None,
+        selected_candidate_timestamp_ms: int | None = None,
+        distance_cost: float | None = None,
+        type_adjustment: float | None = None,
+        overlap_adjustment: float | None = None,
+        total_score: float | None = None,
+        pause_duration_ms: int | None = None,
+        exclusive_speaker_before: str | None = None,
+        exclusive_speaker_after: str | None = None,
         segmentation_version: str | None = None,
         segmentation_configuration_hash: str | None = None,
     ) -> AudioChunk:
@@ -1286,6 +1436,17 @@ class AudioChunk:
             boundary_overlap_conflict=boundary_overlap_conflict,
             distance_from_target_ms=distance_from_target_ms,
             diarization_artifact_id=diarization_artifact_id,
+            community1_artifact_id=community1_artifact_id,
+            native_activity_artifact_id=native_activity_artifact_id,
+            selected_candidate_type=selected_candidate_type,
+            selected_candidate_timestamp_ms=selected_candidate_timestamp_ms,
+            distance_cost=distance_cost,
+            type_adjustment=type_adjustment,
+            overlap_adjustment=overlap_adjustment,
+            total_score=total_score,
+            pause_duration_ms=pause_duration_ms,
+            exclusive_speaker_before=exclusive_speaker_before,
+            exclusive_speaker_after=exclusive_speaker_after,
             segmentation_version=segmentation_version,
             segmentation_configuration_hash=segmentation_configuration_hash,
         )
@@ -1310,6 +1471,17 @@ class AudioChunk:
             "boundary_overlap_conflict": self.boundary_overlap_conflict,
             "distance_from_target_ms": self.distance_from_target_ms,
             "diarization_artifact_id": self.diarization_artifact_id,
+            "community1_artifact_id": self.community1_artifact_id,
+            "native_activity_artifact_id": self.native_activity_artifact_id,
+            "selected_candidate_type": self.selected_candidate_type,
+            "selected_candidate_timestamp_ms": self.selected_candidate_timestamp_ms,
+            "distance_cost": self.distance_cost,
+            "type_adjustment": self.type_adjustment,
+            "overlap_adjustment": self.overlap_adjustment,
+            "total_score": self.total_score,
+            "pause_duration_ms": self.pause_duration_ms,
+            "exclusive_speaker_before": self.exclusive_speaker_before,
+            "exclusive_speaker_after": self.exclusive_speaker_after,
             "segmentation_version": self.segmentation_version,
             "segmentation_configuration_hash": self.segmentation_configuration_hash,
         }
@@ -1907,6 +2079,7 @@ class DiarizationResult:
     exclusive_turns: tuple[Turn, ...]
     overlaps: tuple[Overlap, ...]
     request_id: str | None = None
+    native_activity: NativeActivityArtifact | None = None
 
     def __post_init__(self) -> None:
         _require_id(self.artifact_id, "artifact_id")
@@ -1918,6 +2091,11 @@ class DiarizationResult:
             _interval(turn.start_ms, turn.end_ms, "turn", self.duration_ms)
         for overlap in self.overlaps:
             _interval(overlap.start_ms, overlap.end_ms, "overlap", self.duration_ms)
+        if self.native_activity is not None:
+            if self.native_activity.source_sha256 != self.source_sha256:
+                raise ContractValidationError("native activity source does not match diarization")
+            if self.native_activity.duration_ms != self.duration_ms:
+                raise ContractValidationError("native activity duration does not match diarization")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize both diarization views and every active overlap speaker."""
@@ -1930,6 +2108,9 @@ class DiarizationResult:
             "exclusive_turns": [turn.to_dict() for turn in self.exclusive_turns],
             "overlaps": [overlap.to_dict() for overlap in self.overlaps],
             "request_id": self.request_id,
+            "native_activity": (
+                self.native_activity.to_dict() if self.native_activity is not None else None
+            ),
         }
 
     @classmethod
@@ -1944,6 +2125,12 @@ class DiarizationResult:
             Turn.from_dict(turn) for turn in payload["exclusive_turns"]
         )
         payload["overlaps"] = tuple(Overlap.from_dict(overlap) for overlap in payload["overlaps"])
+        native_activity = payload.get("native_activity")
+        payload["native_activity"] = (
+            NativeActivityArtifact.from_dict(native_activity)
+            if isinstance(native_activity, Mapping)
+            else None
+        )
         return cls(**payload)
 
 
@@ -2431,6 +2618,8 @@ __all__ = [
     "JobStatus",
     "ModelFingerprint",
     "ModelUnavailableError",
+    "NativeActivityArtifact",
+    "NativeActivityInterval",
     "Overlap",
     "RequestTimeoutError",
     "SERVICE_ROUTES",

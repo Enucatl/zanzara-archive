@@ -17,6 +17,7 @@ from zanzara_archive.asr import transcribe_windowed
 from zanzara_archive.calibration import build_batch, validate_batch
 from zanzara_archive.chunking import (
     Community1AdaptiveConfig,
+    Community1NativeAdaptiveConfig,
     segment_chunks_with_metadata,
     validate_chunk_coverage,
 )
@@ -182,7 +183,11 @@ def build_parser() -> argparse.ArgumentParser:
     chunk_build = chunk_commands.add_parser(
         "build", help="build Community-1 adaptive chunks from known artifacts"
     )
-    chunk_build.add_argument("--algorithm", required=True, choices=("community1-adaptive-v1",))
+    chunk_build.add_argument(
+        "--algorithm",
+        required=True,
+        choices=("community1-adaptive-v1", "community1-native-adaptive-v1"),
+    )
     chunk_build.add_argument("--manifest", required=True)
     chunk_build.add_argument("--output", required=True)
     chunk_build.add_argument(
@@ -199,6 +204,27 @@ def build_parser() -> argparse.ArgumentParser:
     chunk_validate.add_argument(
         "--corpus", default="planning/corpus-20.json", help="frozen corpus manifest"
     )
+    chunk_report = chunk_commands.add_parser(
+        "report", help="compare chunk duration and boundary distributions"
+    )
+    chunk_report.add_argument("--manifest", required=True)
+    chunk_report.add_argument("--compare", required=True)
+    chunk_report.add_argument("--output", required=True)
+    diarization = commands.add_parser(
+        "diarization", help="validate and export Community-1 diarization artifacts"
+    )
+    diarization_commands = diarization.add_subparsers(dest="diarization_command", required=True)
+    native_activity = diarization_commands.add_parser(
+        "native-activity", help="export captured native speaker-count activity"
+    )
+    native_activity.add_argument("--manifest", required=True)
+    native_activity.add_argument("--output", required=True)
+    native_activity.add_argument(
+        "--artifact-root",
+        default=os.environ.get("ZANZARA_ARTIFACT_ROOT", ".git/zanzara-artifacts"),
+    )
+    native_activity.add_argument("--model-lock", default="models.lock.json")
+    native_activity.add_argument("--episode", action="append")
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
@@ -376,11 +402,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if arguments.command == "chunks":
         try:
-            result = (
-                _build_chunk_manifest(arguments)
-                if arguments.chunks_command == "build"
-                else _validate_chunk_manifest(arguments)
-            )
+            if arguments.chunks_command == "build":
+                result = _build_chunk_manifest(arguments)
+            elif arguments.chunks_command == "validate":
+                result = _validate_chunk_manifest(arguments)
+            else:
+                result = _report_chunk_manifests(arguments)
         except (
             ArtifactPublicationError,
             CorpusValidationError,
@@ -388,6 +415,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             TypeError,
             ValueError,
         ) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
+    if arguments.command == "diarization":
+        try:
+            result = _export_native_activity(arguments)
+        except (CorpusValidationError, OSError, TypeError, ValueError) as exc:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
         return 0
@@ -559,7 +593,11 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
     unknown = selected - known.keys()
     if unknown:
         raise CorpusValidationError(f"episode is not present in manifest: {sorted(unknown)[0]}")
-    config = Community1AdaptiveConfig()
+    config = (
+        Community1NativeAdaptiveConfig()
+        if arguments.algorithm == "community1-native-adaptive-v1"
+        else Community1AdaptiveConfig()
+    )
     episode_payloads: list[dict[str, Any]] = []
     chunks: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
@@ -606,6 +644,11 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
                 "source_sha256": episode.sha256,
                 "duration_ms": episode.duration_ms,
                 "diarization_artifact_id": diarization.artifact_id,
+                "native_activity_artifact_id": (
+                    diarization.native_activity.artifact_id
+                    if diarization.native_activity is not None
+                    else None
+                ),
                 "diarization_model_fingerprint": diarization.model.fingerprint_sha256,
                 "diarization_manifest_sha256": _manifest_digest(artifact_manifest),
                 "chunk_count": len(episode_chunks),
@@ -640,9 +683,19 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
             "chunk_count": len(chunks),
             "mean_duration_ms": sum(durations) / len(durations),
             "median_duration_ms": sorted(durations)[len(durations) // 2],
+            "p90_duration_ms": sorted(durations)[
+                min(len(durations) - 1, (len(durations) * 90 + 99) // 100 - 1)
+            ],
             "p95_duration_ms": sorted(durations)[
                 min(len(durations) - 1, (len(durations) * 95 + 99) // 100 - 1)
             ],
+            "duration_bins": {
+                "8-10s": sum(8_000 <= value < 10_000 for value in durations),
+                "10-12s": sum(10_000 <= value < 12_000 for value in durations),
+                "12-14s": sum(12_000 <= value < 14_000 for value in durations),
+                "14-16s": sum(14_000 <= value < 16_000 for value in durations),
+                "16-18s": sum(16_000 <= value <= 18_000 for value in durations),
+            },
             "boundary_reason_counts": reason_counts,
             "hard_maximum_count": hard_maximum_count,
             "overlap_conflicted_boundary_count": overlap_conflicted_count,
@@ -672,11 +725,18 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
     payload = json.loads(Path(arguments.manifest).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("chunk manifest must be a JSON object")
-    if payload.get("algorithm") != "community1-adaptive-v1":
-        raise ValueError("chunk manifest algorithm is not community1-adaptive-v1")
+    if payload.get("algorithm") not in {
+        "community1-adaptive-v1",
+        "community1-native-adaptive-v1",
+    }:
+        raise ValueError("chunk manifest algorithm is not a supported Community-1 algorithm")
     if payload.get("corpus_manifest_sha256") != corpus.sha256:
         raise ValueError("chunk manifest corpus hash does not match the frozen corpus")
-    config = Community1AdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
+    config = (
+        Community1NativeAdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
+        if payload.get("algorithm") == "community1-native-adaptive-v1"
+        else Community1AdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
+    )
     if payload.get("segmentation_version") != config.version:
         raise ValueError("chunk manifest segmentation version does not match configuration")
     if payload.get("segmentation_configuration_hash") != config.configuration_sha256:
@@ -701,6 +761,9 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"chunks[{index}] has a mismatched configuration hash")
         if chunk.diarization_artifact_id is None:
             raise ValueError(f"chunks[{index}] is missing Community-1 artifact provenance")
+        if payload.get("algorithm") == "community1-native-adaptive-v1":
+            if chunk.community1_artifact_id is None or chunk.native_activity_artifact_id is None:
+                raise ValueError(f"chunks[{index}] is missing native Community-1 provenance")
         parsed.append(chunk)
     sorted_chunks = sorted(parsed, key=lambda item: (item.episode_id, item.start_ms, item.end_ms))
     if list(raw_chunks) != [chunk.to_dict() for chunk in sorted_chunks]:
@@ -734,6 +797,131 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
+
+
+def _export_native_activity(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Export captured native activity without running Community-1 again."""
+
+    corpus = load_manifest(arguments.manifest)
+    selected = set(arguments.episode or (item.relative_filename for item in corpus.episodes))
+    known = {item.relative_filename: item for item in corpus.episodes}
+    unknown = selected - known.keys()
+    if unknown:
+        raise CorpusValidationError(f"episode is not present in manifest: {sorted(unknown)[0]}")
+    episodes: list[dict[str, Any]] = []
+    for episode in corpus.episodes:
+        if episode.relative_filename not in selected:
+            continue
+        artifact_path = _chunk_artifact_path(arguments, episode, corpus)
+        _, payload, _, _ = _load_stage_payload(
+            arguments.artifact_root,
+            artifact_path,
+            expected_stage="diarization",
+            payload_name="diarization.json",
+        )
+        try:
+            diarization = DiarizationResult.from_dict(payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid Community-1 artifact for {episode.relative_filename}: {exc}"
+            ) from exc
+        if diarization.native_activity is None:
+            raise ValueError(
+                f"Community-1 artifact for {episode.relative_filename} has no native "
+                "speaker-count activity"
+            )
+        episodes.append(
+            {
+                "episode_id": episode.relative_filename,
+                "source_sha256": episode.sha256,
+                "native_activity": diarization.native_activity.to_dict(),
+                "community1_artifact_id": diarization.artifact_id,
+            }
+        )
+    if not episodes:
+        raise ValueError("native activity export requires at least one selected episode")
+    normalized: dict[str, Any] = {
+        "artifact_type": "community1-native-activity-v1",
+        "corpus_manifest_sha256": corpus.sha256,
+        "episodes": episodes,
+    }
+    normalized["content_sha256"] = hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    output = Path(arguments.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(normalized, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+    return {
+        "path": str(output),
+        "content_sha256": normalized["content_sha256"],
+        "episode_count": len(episodes),
+    }
+
+
+def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
+    raw_chunks = payload.get("chunks")
+    if not isinstance(raw_chunks, list) or not raw_chunks:
+        raise ValueError("chunk manifest requires a non-empty chunks array")
+    durations = sorted(
+        int(item["end_ms"]) - int(item["start_ms"])
+        for item in raw_chunks
+        if isinstance(item, Mapping)
+    )
+    if len(durations) != len(raw_chunks):
+        raise ValueError("chunk manifest contains a non-object chunk")
+    reasons: dict[str, int] = {}
+    candidate_types: dict[str, int] = {}
+    for item in raw_chunks:
+        reason = str(item.get("boundary_end_reason"))
+        reasons[reason] = reasons.get(reason, 0) + 1
+        candidate = str(item.get("selected_candidate_type") or reason)
+        candidate_types[candidate] = candidate_types.get(candidate, 0) + 1
+
+    def percentile(fraction: float) -> int:
+        index = min(len(durations) - 1, max(0, int(len(durations) * fraction + 0.999999) - 1))
+        return durations[index]
+
+    bins = {
+        "8-10s": sum(8_000 <= value < 10_000 for value in durations),
+        "10-12s": sum(10_000 <= value < 12_000 for value in durations),
+        "12-14s": sum(12_000 <= value < 14_000 for value in durations),
+        "14-16s": sum(14_000 <= value < 16_000 for value in durations),
+        "16-18s": sum(16_000 <= value <= 18_000 for value in durations),
+    }
+    return {
+        "chunk_count": len(durations),
+        "mean_duration_ms": sum(durations) / len(durations),
+        "median_duration_ms": durations[len(durations) // 2],
+        "p90_duration_ms": percentile(0.90),
+        "p95_duration_ms": percentile(0.95),
+        "duration_bins": bins,
+        "boundary_reason_counts": reasons,
+        "boundary_type_counts": candidate_types,
+        "hard_maximum_count": reasons.get("hard_maximum", 0),
+    }
+
+
+def _report_chunk_manifests(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Write a sanitized comparison report for two private chunk manifests."""
+
+    current = json.loads(Path(arguments.manifest).read_text(encoding="utf-8"))
+    previous = json.loads(Path(arguments.compare).read_text(encoding="utf-8"))
+    if not isinstance(current, Mapping) or not isinstance(previous, Mapping):
+        raise ValueError("chunk reports require JSON object manifests")
+    report = {
+        "algorithm": current.get("algorithm"),
+        "current_content_sha256": current.get("content_sha256"),
+        "previous_content_sha256": previous.get("content_sha256"),
+        "current": _chunk_distribution(current),
+        "previous": _chunk_distribution(previous),
+    }
+    output = Path(arguments.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+    report["path"] = str(output)
+    return report
 
 
 def _default_attribution_input_path(

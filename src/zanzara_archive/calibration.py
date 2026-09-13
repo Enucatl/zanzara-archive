@@ -13,20 +13,6 @@ from .corpus import CorpusManifest
 
 MUSIC_LEVELS = ("none", "background", "dominant", "uncertain")
 
-# The general P1R chunk policy permits a 30-second hard fallback when no
-# boundary evidence is available.  Calibration listening needs shorter clips,
-# so its deterministic fallback is explicitly capped at 15 seconds while
-# retaining the shared 8-second minimum and 12-second target.
-CALIBRATION_CHUNK_CONFIG = ChunkSegmentationConfig(
-    version="p1r-calibration-chunk-segmentation-v1",
-    preferred_min_s=8.0,
-    target_s=12.0,
-    preferred_max_s=15.0,
-    hard_max_s=15.0,
-)
-CALIBRATION_MIN_DURATION_MS = CALIBRATION_CHUNK_CONFIG.preferred_min_ms
-CALIBRATION_MAX_DURATION_MS = CALIBRATION_CHUNK_CONFIG.hard_max_ms
-
 
 def canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -61,7 +47,7 @@ def build_batch(
     development_set, held_out_set = set(development), set(held_out)
     if development_set | held_out_set != expected or development_set & held_out_set:
         raise ContractValidationError("split must assign every corpus episode exactly once")
-    config = CALIBRATION_CHUNK_CONFIG
+    config = ChunkSegmentationConfig()
     chunks: list[dict[str, Any]] = []
     by_name = {episode.relative_filename: episode for episode in corpus.episodes}
     for episode_name in development:
@@ -183,11 +169,6 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
             )
         if chunk.partition != "development":
             raise ContractValidationError(f"calibration chunk {chunk.chunk_id} is not development")
-        duration_ms = chunk.end_ms - chunk.start_ms
-        if not CALIBRATION_MIN_DURATION_MS <= duration_ms <= CALIBRATION_MAX_DURATION_MS:
-            raise ContractValidationError(
-                f"calibration chunk {chunk.chunk_id} duration must be between 8 and 15 seconds"
-            )
         normalized.append(chunk.to_dict())
     normalized_split: dict[str, Any] = {"development": development, "held_out": held_out}
     for key in ("method", "seed"):

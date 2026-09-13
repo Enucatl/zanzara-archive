@@ -75,17 +75,17 @@ not inspect AST scores or human labels:
 uv run zanzara calibration generate \
   --split .git/zanzara-evidence/P1R-08B/episode-split.json \
   --manifest planning/corpus-20.json \
-  --batch-id p1r08a-music-dev-v2 \
+  --batch-id p1r08a-music-dev-v3 \
   --clips-per-episode 8 \
   --output .git/zanzara-evidence/P1R-08B/development-batch.json
 ```
 
-The calibration generator uses the shared deterministic chunker with an
-8-second preferred minimum, 12-second target and 15-second hard maximum. This
-keeps review clips between 8 and 15 seconds when no VAD or acoustic boundary
-artifact has been supplied. AudioSet AST is the later acoustic classifier; it
-provides music probabilities for each frozen clip and does not choose clip
-boundaries.
+The calibration generator uses the frozen P1R chunk policy: an 8-second
+preferred minimum, 12-second target, 18-second preferred maximum and 30-second
+hard maximum. When no VAD or acoustic boundary artifact is supplied, the
+specified hard-duration fallback can therefore produce 30-second clips.
+AudioSet AST is the later acoustic classifier; it provides music probabilities
+for each frozen clip and does not choose clip boundaries.
 
 The split file has this shape:
 

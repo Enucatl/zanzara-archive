@@ -716,6 +716,7 @@
         "P1R-01",
         "P1R-02",
         "P1R-03",
+        "P1R-03A",
         "P1R-04",
         "P1R-05",
         "P1R-06",
@@ -738,6 +739,7 @@
         "P1R-01",
         "P1R-02",
         "P1R-03",
+        "P1R-03A",
         "P1R-04",
         "P1R-05",
         "P1R-06",
@@ -843,6 +845,36 @@
       "design_refs": [
         "D5",
         "D6"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-03A",
+      "title": "[P1R-03A] Community-1-aware adaptive chunk boundary selection",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1535,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1R-03",
+        "P1-03"
+      ],
+      "body": "issues/P1R-03A.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
       ],
       "labels": [
         "phase:P1R",
@@ -2781,6 +2813,7 @@
       "issues": [
         "P1R-02",
         "P1R-03",
+        "P1R-03A",
         "P1R-04",
         "P1R-05",
         "P1R-06",

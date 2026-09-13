@@ -29,6 +29,7 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1R-01](issues/P1R-01.md) | Supersede legacy evaluation design and migrate planning contracts | P1R | P0 | Luna | Implementation | P0 | 1510 |
 | [P1R-02](issues/P1R-02.md) | Define chunk and hypothesis canonical schemas | P1R | P0, P1R-01 | Luna | Implementation | P0 | 1520 |
 | [P1R-03](issues/P1R-03.md) | Implement deterministic adaptive chunk segmentation | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1530 |
+| [P1R-03A](issues/P1R-03A.md) | Community-1-aware adaptive chunk boundary selection | P1R | P0, P1R-02, P1R-03, P1-03 | Luna | Implementation | P1 | 1535 |
 | [P1R-04](issues/P1R-04.md) | Adapt Parakeet to the chunk-first transcription contract | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1540 |
 | [P1R-05](issues/P1R-05.md) | Add Whisper Large v3 local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1550 |
 | [P1R-06](issues/P1R-06.md) | Add Voxtral Mini 4B Realtime local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1560 |

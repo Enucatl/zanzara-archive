@@ -14,7 +14,7 @@ from typing import Any
 from zanzara_archive import __version__
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
 from zanzara_archive.asr import transcribe_windowed
-from zanzara_archive.calibration import validate_batch
+from zanzara_archive.calibration import build_batch, validate_batch
 from zanzara_archive.contracts import (
     AdapterFailure,
     AudioArtifact,
@@ -147,6 +147,14 @@ def build_parser() -> argparse.ArgumentParser:
         "calibration", help="prepare and export development music review batches"
     )
     calibration_commands = calibration.add_subparsers(dest="calibration_command", required=True)
+    generate = calibration_commands.add_parser(
+        "generate", help="generate a deterministic development review batch"
+    )
+    generate.add_argument("--split", required=True, help="private episode split JSON")
+    generate.add_argument("--manifest", default="planning/corpus-20.json")
+    generate.add_argument("--batch-id", required=True)
+    generate.add_argument("--clips-per-episode", type=int, default=8)
+    generate.add_argument("--output", required=True, help="private batch JSON output")
     prepare = calibration_commands.add_parser(
         "prepare", help="validate and persist a calibration batch"
     )
@@ -272,7 +280,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0 if artifacts["verdict"] == "pass" else 1
     if arguments.command == "calibration":
         try:
-            if arguments.calibration_command == "prepare":
+            if arguments.calibration_command == "generate":
+                manifest = load_manifest(arguments.manifest)
+                split = json.loads(Path(arguments.split).read_text(encoding="utf-8"))
+                result = build_batch(
+                    manifest,
+                    split,
+                    batch_id=arguments.batch_id,
+                    clips_per_episode=arguments.clips_per_episode,
+                )
+                output = Path(arguments.output)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(
+                    json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                result = {
+                    "batch_id": result["batch_id"],
+                    "content_sha256": result["content_sha256"],
+                    "path": str(output),
+                    "total_count": len(result["chunks"]),
+                }
+            elif arguments.calibration_command == "prepare":
                 manifest = load_manifest(arguments.manifest)
                 payload = json.loads(Path(arguments.batch).read_text(encoding="utf-8"))
                 normalized = validate_batch(payload, manifest)

@@ -711,44 +711,281 @@
       "kind": "Phase",
       "priority": "P0",
       "order": 1500,
-      "blocked_by": ["P0", "P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-16", "P1R-17", "P1R-08B"],
-      "children": ["P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08B", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-15", "P1R-16", "P1R-17"],
+      "blocked_by": [
+        "P0",
+        "P1R-01",
+        "P1R-02",
+        "P1R-03",
+        "P1R-04",
+        "P1R-05",
+        "P1R-06",
+        "P1R-07",
+        "P1R-08",
+        "P1R-08A",
+        "P1R-09",
+        "P1R-10",
+        "P1R-11",
+        "P1R-H01",
+        "P1R-12",
+        "P1R-13",
+        "P1R-14",
+        "P1R-16",
+        "P1R-17",
+        "P1R-08B",
+        "P1R-08C"
+      ],
+      "children": [
+        "P1R-01",
+        "P1R-02",
+        "P1R-03",
+        "P1R-04",
+        "P1R-05",
+        "P1R-06",
+        "P1R-07",
+        "P1R-08",
+        "P1R-08B",
+        "P1R-08C",
+        "P1R-08A",
+        "P1R-09",
+        "P1R-10",
+        "P1R-11",
+        "P1R-H01",
+        "P1R-12",
+        "P1R-13",
+        "P1R-14",
+        "P1R-15",
+        "P1R-16",
+        "P1R-17"
+      ],
       "body": "issues/P1R.md",
-      "design_refs": ["D5", "D6", "E1", "E2"],
-      "labels": ["phase:P1R", "kind:phase", "executor:human", "priority:P0"],
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:phase",
+        "executor:human",
+        "priority:P0"
+      ],
       "initial_status": "Blocked"
     },
     {
-      "id": "P1R-01", "title": "[P1R-01] Supersede legacy evaluation design and migrate planning contracts", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1510,
-      "blocked_by": ["P0"], "body": "issues/P1R-01.md", "design_refs": ["D5", "D6", "E1", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-01",
+      "title": "[P1R-01] Supersede legacy evaluation design and migrate planning contracts",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1510,
+      "blocked_by": [
+        "P0"
+      ],
+      "body": "issues/P1R-01.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-02", "title": "[P1R-02] Define chunk and hypothesis canonical schemas", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1520,
-      "blocked_by": ["P0", "P1R-01"], "body": "issues/P1R-02.md", "design_refs": ["D3", "D5", "D6"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-02",
+      "title": "[P1R-02] Define chunk and hypothesis canonical schemas",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1520,
+      "blocked_by": [
+        "P0",
+        "P1R-01"
+      ],
+      "body": "issues/P1R-02.md",
+      "design_refs": [
+        "D3",
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-03", "title": "[P1R-03] Implement deterministic adaptive chunk segmentation", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1530,
-      "blocked_by": ["P0", "P1R-02"], "body": "issues/P1R-03.md", "design_refs": ["D5", "D6"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-03",
+      "title": "[P1R-03] Implement deterministic adaptive chunk segmentation",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1530,
+      "blocked_by": [
+        "P0",
+        "P1R-02"
+      ],
+      "body": "issues/P1R-03.md",
+      "design_refs": [
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-04", "title": "[P1R-04] Adapt Parakeet to the chunk-first transcription contract", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1540,
-      "blocked_by": ["P0", "P1R-02"], "body": "issues/P1R-04.md", "design_refs": ["D5", "D6"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-04",
+      "title": "[P1R-04] Adapt Parakeet to the chunk-first transcription contract",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1540,
+      "blocked_by": [
+        "P0",
+        "P1R-02"
+      ],
+      "body": "issues/P1R-04.md",
+      "design_refs": [
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-05", "title": "[P1R-05] Add Whisper Large v3 local ASR service", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1550,
-      "blocked_by": ["P0", "P1R-02"], "body": "issues/P1R-05.md", "design_refs": ["D5", "D11"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-05",
+      "title": "[P1R-05] Add Whisper Large v3 local ASR service",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1550,
+      "blocked_by": [
+        "P0",
+        "P1R-02"
+      ],
+      "body": "issues/P1R-05.md",
+      "design_refs": [
+        "D5",
+        "D11"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-06", "title": "[P1R-06] Add Voxtral Mini 4B Realtime local ASR service", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1560,
-      "blocked_by": ["P0", "P1R-02"], "body": "issues/P1R-06.md", "design_refs": ["D5", "D11"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-06",
+      "title": "[P1R-06] Add Voxtral Mini 4B Realtime local ASR service",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1560,
+      "blocked_by": [
+        "P0",
+        "P1R-02"
+      ],
+      "body": "issues/P1R-06.md",
+      "design_refs": [
+        "D5",
+        "D11"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-07", "title": "[P1R-07] Orchestrate multi-model chunk inference", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1570,
-      "blocked_by": ["P0", "P1R-03", "P1R-04", "P1R-05", "P1R-06"], "body": "issues/P1R-07.md", "design_refs": ["D4", "D5", "D6"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-07",
+      "title": "[P1R-07] Orchestrate multi-model chunk inference",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1570,
+      "blocked_by": [
+        "P0",
+        "P1R-03",
+        "P1R-04",
+        "P1R-05",
+        "P1R-06"
+      ],
+      "body": "issues/P1R-07.md",
+      "design_refs": [
+        "D4",
+        "D5",
+        "D6"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-08", "title": "[P1R-08] Derive speaker-count and overlap metadata from Community-1", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1580,
-      "blocked_by": ["P0", "P1R-03"], "body": "issues/P1R-08.md", "design_refs": ["D5", "D6", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-08",
+      "title": "[P1R-08] Derive speaker-count and overlap metadata from Community-1",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1580,
+      "blocked_by": [
+        "P0",
+        "P1R-03"
+      ],
+      "body": "issues/P1R-08.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
       "id": "P1R-08B",
@@ -779,48 +1016,342 @@
       "initial_status": "Blocked"
     },
     {
-      "id": "P1R-08A", "title": "[P1R-08A] Classify acoustic conditions with AudioSet AST", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1585,
-      "blocked_by": ["P0", "P1R-03", "P1R-08B"], "body": "issues/P1R-08A.md", "design_refs": ["D5", "D6", "D11", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-08C",
+      "title": "[P1R-08C] Generate deterministic development calibration batches",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1585,
+      "blocked_by": [
+        "P0",
+        "P1R-03"
+      ],
+      "body": "issues/P1R-08C.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "D11",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-09", "title": "[P1R-09] Add local Qwen annotation-assistance service", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1590,
-      "blocked_by": ["P0", "P1R-07"], "body": "issues/P1R-09.md", "design_refs": ["D5", "E1"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-08A",
+      "title": "[P1R-08A] Classify acoustic conditions with AudioSet AST",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1586,
+      "blocked_by": [
+        "P0",
+        "P1R-03",
+        "P1R-08B",
+        "P1R-08C"
+      ],
+      "body": "issues/P1R-08A.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "D11",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-10", "title": "[P1R-10] Replace annotation UI with chunk-centric transcription review", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1600,
-      "blocked_by": ["P0", "P1R-07", "P1R-08", "P1R-08A", "P1R-09"], "body": "issues/P1R-10.md", "design_refs": ["D10", "E1"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-09",
+      "title": "[P1R-09] Add local Qwen annotation-assistance service",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1590,
+      "blocked_by": [
+        "P0",
+        "P1R-07"
+      ],
+      "body": "issues/P1R-09.md",
+      "design_refs": [
+        "D5",
+        "E1"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-11", "title": "[P1R-11] Freeze representative and stress benchmark manifests", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P0", "order": 1610,
-      "blocked_by": ["P0", "P1R-08", "P1R-08A", "P1R-10"], "body": "issues/P1R-11.md", "design_refs": ["D6", "E1", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-10",
+      "title": "[P1R-10] Replace annotation UI with chunk-centric transcription review",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1600,
+      "blocked_by": [
+        "P0",
+        "P1R-07",
+        "P1R-08",
+        "P1R-08A",
+        "P1R-09"
+      ],
+      "body": "issues/P1R-10.md",
+      "design_refs": [
+        "D10",
+        "E1"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-H01", "title": "[P1R-H01] Human: review and finalize chunk gold references", "phase": "P1R", "parent": "P1R", "executor": "Human", "kind": "Operator", "priority": "P0", "order": 1620,
-      "blocked_by": ["P0", "P1R-10", "P1R-11"], "body": "issues/P1R-H01.md", "design_refs": ["E1", "E2"], "labels": ["phase:P1R", "kind:operator", "executor:human", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-11",
+      "title": "[P1R-11] Freeze representative and stress benchmark manifests",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P0",
+      "order": 1610,
+      "blocked_by": [
+        "P0",
+        "P1R-08",
+        "P1R-08A",
+        "P1R-10"
+      ],
+      "body": "issues/P1R-11.md",
+      "design_refs": [
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-12", "title": "[P1R-12] Implement chunk-level ASR scoring harness", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P0", "order": 1630,
-      "blocked_by": ["P0", "P1R-02"], "body": "issues/P1R-12.md", "design_refs": ["E1", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-H01",
+      "title": "[P1R-H01] Human: review and finalize chunk gold references",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Human",
+      "kind": "Operator",
+      "priority": "P0",
+      "order": 1620,
+      "blocked_by": [
+        "P0",
+        "P1R-10",
+        "P1R-11"
+      ],
+      "body": "issues/P1R-H01.md",
+      "design_refs": [
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:operator",
+        "executor:human",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-13", "title": "[P1R-13] Rebuild diarization evaluation independently of ASR words", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P1", "order": 1640,
-      "blocked_by": ["P0", "P1R-02", "P1R-08"], "body": "issues/P1R-13.md", "design_refs": ["D6", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-12",
+      "title": "[P1R-12] Implement chunk-level ASR scoring harness",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P0",
+      "order": 1630,
+      "blocked_by": [
+        "P0",
+        "P1R-02"
+      ],
+      "body": "issues/P1R-12.md",
+      "design_refs": [
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-14", "title": "[P1R-14] Implement integrated who-said-what scoring", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P1", "order": 1650,
-      "blocked_by": ["P0", "P1R-02", "P1R-12", "P1R-13"], "body": "issues/P1R-14.md", "design_refs": ["D6", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "id": "P1R-13",
+      "title": "[P1R-13] Rebuild diarization evaluation independently of ASR words",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 1640,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1R-08"
+      ],
+      "body": "issues/P1R-13.md",
+      "design_refs": [
+        "D6",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-15", "title": "[P1R-15] Evaluate human-review assistance effectiveness", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P2", "order": 1660,
-      "blocked_by": ["P0", "P1R-H01"], "release_blocker": false, "body": "issues/P1R-15.md", "design_refs": ["E1"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P2"], "initial_status": "Blocked"
+      "id": "P1R-14",
+      "title": "[P1R-14] Implement integrated who-said-what scoring",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P1",
+      "order": 1650,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1R-12",
+        "P1R-13"
+      ],
+      "body": "issues/P1R-14.md",
+      "design_refs": [
+        "D6",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-16", "title": "[P1R-16] Execute three-model benchmark and publish selection report", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P0", "order": 1670,
-      "blocked_by": ["P0", "P1R-07", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14"], "body": "issues/P1R-16.md", "design_refs": ["D5", "D6", "E1", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-15",
+      "title": "[P1R-15] Evaluate human-review assistance effectiveness",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P2",
+      "order": 1660,
+      "blocked_by": [
+        "P0",
+        "P1R-H01"
+      ],
+      "release_blocker": false,
+      "body": "issues/P1R-15.md",
+      "design_refs": [
+        "E1"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P2"
+      ],
+      "initial_status": "Blocked"
     },
     {
-      "id": "P1R-17", "title": "[P1R-17] Rewrite release gates and downstream dependency contracts", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1680,
-      "blocked_by": ["P0", "P1R-01", "P1R-16"], "body": "issues/P1R-17.md", "design_refs": ["D5", "D6", "E1", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "id": "P1R-16",
+      "title": "[P1R-16] Execute three-model benchmark and publish selection report",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Evaluation",
+      "priority": "P0",
+      "order": 1670,
+      "blocked_by": [
+        "P0",
+        "P1R-07",
+        "P1R-11",
+        "P1R-H01",
+        "P1R-12",
+        "P1R-13",
+        "P1R-14"
+      ],
+      "body": "issues/P1R-16.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:evaluation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-17",
+      "title": "[P1R-17] Rewrite release gates and downstream dependency contracts",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1680,
+      "blocked_by": [
+        "P0",
+        "P1R-01",
+        "P1R-16"
+      ],
+      "body": "issues/P1R-17.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
     },
     {
       "id": "P2",

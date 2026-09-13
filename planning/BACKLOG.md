@@ -35,7 +35,8 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1R-07](issues/P1R-07.md) | Orchestrate multi-model chunk inference | P1R | P0, P1R-03–P1R-06 | Luna | Implementation | P1 | 1570 |
 | [P1R-08](issues/P1R-08.md) | Derive speaker-count and overlap metadata from Community-1 | P1R | P0, P1R-03 | Luna | Implementation | P1 | 1580 |
 | [P1R-08B](issues/P1R-08B.md) | Prepare dedicated music calibration review workflow | P1R | P0, P1R-03 | Luna | Implementation | P0 | 1584 |
-| [P1R-08A](issues/P1R-08A.md) | Classify acoustic conditions with AudioSet AST | P1R | P0, P1R-03, P1R-08B | Luna | Implementation | P1 | 1585 |
+| [P1R-08C](issues/P1R-08C.md) | Generate deterministic development calibration batches | P1R | P0, P1R-03 | Luna | Implementation | P0 | 1585 |
+| [P1R-08A](issues/P1R-08A.md) | Classify acoustic conditions with AudioSet AST | P1R | P0, P1R-03, P1R-08B, P1R-08C | Luna | Implementation | P1 | 1586 |
 | [P1R-09](issues/P1R-09.md) | Add local Qwen annotation-assistance service | P1R | P0, P1R-07 | Luna | Implementation | P1 | 1590 |
 | [P1R-10](issues/P1R-10.md) | Replace annotation UI with chunk-centric transcription review | P1R | P0, P1R-07–P1R-09, P1R-08A | Luna | Implementation | P0 | 1600 |
 | [P1R-11](issues/P1R-11.md) | Freeze representative and stress benchmark manifests | P1R | P0, P1R-08, P1R-08A, P1R-10 | Luna | Evaluation | P0 | 1610 |

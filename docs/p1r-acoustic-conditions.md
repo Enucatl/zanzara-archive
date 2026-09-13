@@ -64,7 +64,30 @@ replaced by model predictions.
 ### Evidence preparation and completion
 
 The dedicated P1R calibration server is separate from the legacy word editor.
-After preparing a private batch JSON, start it on the trusted operator LAN:
+First create a private, episode-level development/held-out split. The split
+must list every filename in `planning/corpus-20.json` exactly once, under
+`development` or `held_out`, and must be frozen before selecting clips. Then
+generate a model-independent batch. The generator uses the deterministic P1R
+chunk policy and selects evenly spaced clips per development episode; it does
+not inspect AST scores or human labels:
+
+```bash
+uv run zanzara calibration generate \
+  --split .git/zanzara-evidence/P1R-08B/episode-split.json \
+  --manifest planning/corpus-20.json \
+  --batch-id p1r08a-music-dev-v1 \
+  --clips-per-episode 8 \
+  --output .git/zanzara-evidence/P1R-08B/development-batch.json
+```
+
+The split file has this shape:
+
+```json
+{"development": ["260910-lazanzara.opus"], "held_out": ["..."]}
+```
+
+Include all 20 frozen filenames in the real file. After generating the batch,
+validate and persist it, then start the server on the trusted operator LAN:
 
 ```bash
 uv run zanzara calibration prepare \

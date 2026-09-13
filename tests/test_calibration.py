@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from zanzara_archive.calibration import validate_batch
+from zanzara_archive.calibration import build_batch, validate_batch
 from zanzara_archive.contracts import AudioChunk
 from zanzara_archive.corpus import load_manifest
 from zanzara_archive.storage import SQLiteRepository
@@ -25,6 +25,10 @@ def _batch() -> dict:
         "manifest_sha256": manifest.sha256,
         "partition": "development",
         "segmentation_version": "fixture-v1",
+        "split": {
+            "development": [episode.relative_filename],
+            "held_out": [item.relative_filename for item in manifest.episodes[1:]],
+        },
         "chunks": [chunk.to_dict()],
     }
 
@@ -42,6 +46,19 @@ def test_batch_validation_rejects_held_out_and_normalizes() -> None:
         assert "development" in str(exc)
     else:
         raise AssertionError("held-out batch was accepted")
+
+
+def test_build_batch_selects_deterministic_development_clips() -> None:
+    manifest = load_manifest("planning/corpus-20.json")
+    split = {
+        "development": [manifest.episodes[0].relative_filename],
+        "held_out": [episode.relative_filename for episode in manifest.episodes[1:]],
+    }
+    first = build_batch(manifest, split, batch_id="generated-fixture", clips_per_episode=3)
+    second = build_batch(manifest, split, batch_id="generated-fixture", clips_per_episode=3)
+    assert first == second
+    assert len(first["chunks"]) == 3
+    assert all(chunk["partition"] == "development" for chunk in first["chunks"])
 
 
 def test_calibration_page_decision_resume_conflict_and_export(tmp_path: Path) -> None:

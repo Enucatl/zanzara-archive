@@ -103,6 +103,39 @@
       },
       "additionalProperties": false
     },
+    "SpeakerConditionMetadata": {
+      "type": "object",
+      "required": ["version", "threshold_version", "speaker_ids", "speaker_count", "max_simultaneous_speakers", "speech_ms", "overlap_ms", "overlap_fraction", "has_overlap", "speaker_condition", "status", "origin", "diarization_fingerprint", "diarization_artifact_id"],
+      "properties": {
+        "version": {"type": "string"},
+        "threshold_version": {"type": "string"},
+        "speaker_ids": {"type": "array", "items": {"type": "string"}},
+        "speaker_count": {"type": "integer", "minimum": 0},
+        "max_simultaneous_speakers": {"type": "integer", "minimum": 0},
+        "speech_ms": {"type": "integer", "minimum": 0},
+        "overlap_ms": {"type": "integer", "minimum": 0},
+        "overlap_fraction": {"anyOf": [{"type": "number", "minimum": 0, "maximum": 1}, {"type": "null"}]},
+        "has_overlap": {"type": "boolean"},
+        "speaker_condition": {"enum": ["single_speaker", "multi_speaker_no_overlap", "partial_overlap", "heavy_overlap", "uncertain"]},
+        "status": {"enum": ["derived", "unknown"]},
+        "origin": {"enum": ["machine_seed", "human_review"]},
+        "diarization_fingerprint": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]},
+        "diarization_artifact_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "SpeakerConditionCorrection": {
+      "type": "object",
+      "required": ["metadata", "reviewer", "reviewed_at", "reason", "seed_version"],
+      "properties": {
+        "metadata": {"$ref": "#/$defs/SpeakerConditionMetadata"},
+        "reviewer": {"type": "string"},
+        "reviewed_at": {"type": "string"},
+        "reason": {"type": "string"},
+        "seed_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
     "ChunkCondition": {
       "type": "object",
       "required": ["speaker_streams", "overlaps", "acoustic_labels", "rapid_turn_taking", "music", "degraded"],
@@ -112,7 +145,10 @@
         "acoustic_labels": {"type": "array", "items": {"type": "string"}},
         "rapid_turn_taking": {"type": "boolean"},
         "music": {"type": "boolean"},
-        "degraded": {"type": "boolean"}
+        "degraded": {"type": "boolean"},
+        "exclusive_speaker_streams": {"type": "array", "items": {"$ref": "#/$defs/SpeakerStream"}},
+        "speaker_metadata": {"anyOf": [{"$ref": "#/$defs/SpeakerConditionMetadata"}, {"type": "null"}]},
+        "speaker_correction": {"anyOf": [{"$ref": "#/$defs/SpeakerConditionCorrection"}, {"type": "null"}]}
       },
       "additionalProperties": false
     },

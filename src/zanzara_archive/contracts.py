@@ -23,6 +23,15 @@ JobState = Literal["queued", "running", "retry_wait", "succeeded", "failed", "ca
 IdentityAction = Literal["same_person", "different_person", "uncertain"]
 IdentityState = Literal["active", "superseded"]
 CalibrationStatus = Literal["uncalibrated_rank_fusion", "calibrated_estimate", "unavailable"]
+SpeakerConditionLabel = Literal[
+    "single_speaker",
+    "multi_speaker_no_overlap",
+    "partial_overlap",
+    "heavy_overlap",
+    "uncertain",
+]
+SpeakerConditionOrigin = Literal["machine_seed", "human_review"]
+SpeakerConditionStatus = Literal["derived", "unknown"]
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
@@ -525,6 +534,187 @@ class SpeakerStream:
         return cls(**payload)
 
 
+def _validate_speaker_metrics(
+    *,
+    speaker_ids: Sequence[str],
+    speaker_count: int,
+    max_simultaneous_speakers: int,
+    speech_ms: int,
+    overlap_ms: int,
+    overlap_fraction: float | None,
+    has_overlap: bool,
+    speaker_condition: SpeakerConditionLabel,
+    status: SpeakerConditionStatus,
+) -> None:
+    """Validate the scalar speaker/overlap metadata shared by seed and review."""
+
+    _tuple_text(speaker_ids, "speaker_ids")
+    if len(set(speaker_ids)) != len(speaker_ids):
+        raise ContractValidationError("speaker IDs must be unique")
+    if isinstance(speaker_count, bool) or not isinstance(speaker_count, int) or speaker_count < 0:
+        raise ContractValidationError("speaker_count must be a non-negative integer")
+    if speaker_count != len(speaker_ids):
+        raise ContractValidationError("speaker_count must match speaker_ids")
+    if (
+        isinstance(max_simultaneous_speakers, bool)
+        or not isinstance(max_simultaneous_speakers, int)
+        or max_simultaneous_speakers < 0
+    ):
+        raise ContractValidationError("max_simultaneous_speakers must be a non-negative integer")
+    if max_simultaneous_speakers > speaker_count:
+        raise ContractValidationError("max_simultaneous_speakers cannot exceed speaker_count")
+    if speaker_count > 0 and max_simultaneous_speakers == 0:
+        raise ContractValidationError("active speakers require a positive simultaneous count")
+    _require_nonnegative_int(speech_ms, "speech_ms")
+    _require_nonnegative_int(overlap_ms, "overlap_ms")
+    if overlap_ms > speech_ms:
+        raise ContractValidationError("overlap_ms cannot exceed speech_ms")
+    if speech_ms == 0:
+        if overlap_fraction is not None:
+            raise ContractValidationError("overlap_fraction must be null when speech_ms is zero")
+    else:
+        if overlap_fraction is None:
+            raise ContractValidationError("overlap_fraction is required when speech_ms is nonzero")
+        fraction = _finite_number(overlap_fraction, "overlap_fraction")
+        if not 0.0 <= fraction <= 1.0:
+            raise ContractValidationError("overlap_fraction must be between 0 and 1")
+        if not math.isclose(fraction, overlap_ms / speech_ms, rel_tol=0.0, abs_tol=1e-12):
+            raise ContractValidationError("overlap_fraction must equal overlap_ms / speech_ms")
+    if has_overlap != (overlap_ms > 0):
+        raise ContractValidationError("has_overlap must match overlap_ms")
+    _one_of(
+        speaker_condition,
+        {
+            "single_speaker",
+            "multi_speaker_no_overlap",
+            "partial_overlap",
+            "heavy_overlap",
+            "uncertain",
+        },
+        "speaker_condition",
+    )
+    _one_of(status, {"derived", "unknown"}, "speaker condition status")
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerConditionMetadata:
+    """Versioned machine-seeded speaker structure for one benchmark chunk."""
+
+    version: str
+    threshold_version: str
+    speaker_ids: tuple[str, ...]
+    speaker_count: int
+    max_simultaneous_speakers: int
+    speech_ms: int
+    overlap_ms: int
+    overlap_fraction: float | None
+    has_overlap: bool
+    speaker_condition: SpeakerConditionLabel
+    status: SpeakerConditionStatus = "derived"
+    origin: SpeakerConditionOrigin = "machine_seed"
+    diarization_fingerprint: str | None = None
+    diarization_artifact_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_text(self.version, "speaker condition version")
+        _require_text(self.threshold_version, "speaker condition threshold version")
+        _validate_speaker_metrics(
+            speaker_ids=self.speaker_ids,
+            speaker_count=self.speaker_count,
+            max_simultaneous_speakers=self.max_simultaneous_speakers,
+            speech_ms=self.speech_ms,
+            overlap_ms=self.overlap_ms,
+            overlap_fraction=self.overlap_fraction,
+            has_overlap=self.has_overlap,
+            speaker_condition=self.speaker_condition,
+            status=self.status,
+        )
+        _one_of(self.origin, {"machine_seed", "human_review"}, "speaker condition origin")
+        if self.status == "unknown":
+            if self.speaker_condition != "uncertain":
+                raise ContractValidationError("unknown speaker conditions must be uncertain")
+            if self.speaker_ids or self.speech_ms or self.overlap_ms:
+                raise ContractValidationError("unknown speaker conditions cannot contain metrics")
+        if self.origin == "machine_seed":
+            if self.diarization_fingerprint is not None:
+                _require_sha256(self.diarization_fingerprint, "diarization_fingerprint")
+            elif self.status == "derived":
+                raise ContractValidationError(
+                    "derived machine seed requires a diarization fingerprint"
+                )
+        if self.diarization_artifact_id is not None:
+            _require_id(self.diarization_artifact_id, "diarization_artifact_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the machine seed without hiding unknown or zero-speech states."""
+
+        return {
+            "version": self.version,
+            "threshold_version": self.threshold_version,
+            "speaker_ids": list(self.speaker_ids),
+            "speaker_count": self.speaker_count,
+            "max_simultaneous_speakers": self.max_simultaneous_speakers,
+            "speech_ms": self.speech_ms,
+            "overlap_ms": self.overlap_ms,
+            "overlap_fraction": self.overlap_fraction,
+            "has_overlap": self.has_overlap,
+            "speaker_condition": self.speaker_condition,
+            "status": self.status,
+            "origin": self.origin,
+            "diarization_fingerprint": self.diarization_fingerprint,
+            "diarization_artifact_id": self.diarization_artifact_id,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> SpeakerConditionMetadata:
+        """Build speaker metadata from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["speaker_ids"] = tuple(payload.get("speaker_ids", ()))
+        return cls(**payload)
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerConditionCorrection:
+    """An identified human correction kept separate from the machine seed."""
+
+    metadata: SpeakerConditionMetadata
+    reviewer: str
+    reviewed_at: str
+    reason: str
+    seed_version: str
+
+    def __post_init__(self) -> None:
+        if self.metadata.origin != "human_review":
+            raise ContractValidationError("speaker corrections must have human_review origin")
+        _require_text(self.reviewer, "speaker condition reviewer")
+        if self.reviewer == "machine":
+            raise ContractValidationError("machine output cannot be a speaker correction")
+        _require_text(self.reviewed_at, "speaker condition reviewed_at")
+        _require_text(self.reason, "speaker condition correction reason")
+        if self.seed_version != self.metadata.version:
+            raise ContractValidationError("speaker correction seed version does not match metadata")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the reviewed correction and its provenance."""
+
+        return {
+            "metadata": self.metadata.to_dict(),
+            "reviewer": self.reviewer,
+            "reviewed_at": self.reviewed_at,
+            "reason": self.reason,
+            "seed_version": self.seed_version,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> SpeakerConditionCorrection:
+        """Build a reviewed correction from JSON-compatible data."""
+
+        payload = dict(value)
+        payload["metadata"] = SpeakerConditionMetadata.from_dict(payload["metadata"])
+        return cls(**payload)
+
+
 @dataclass(frozen=True, slots=True)
 class ChunkCondition:
     """Condition metadata for turn taking, overlap and acoustic slices."""
@@ -535,11 +725,17 @@ class ChunkCondition:
     rapid_turn_taking: bool = False
     music: bool = False
     degraded: bool = False
+    exclusive_speaker_streams: tuple[SpeakerStream, ...] = ()
+    speaker_metadata: SpeakerConditionMetadata | None = None
+    speaker_correction: SpeakerConditionCorrection | None = None
 
     def __post_init__(self) -> None:
         speaker_ids = tuple(stream.speaker_id for stream in self.speaker_streams)
+        exclusive_ids = tuple(stream.speaker_id for stream in self.exclusive_speaker_streams)
         if len(set(speaker_ids)) != len(speaker_ids):
             raise ContractValidationError("chunk condition speaker IDs must be unique")
+        if len(set(exclusive_ids)) != len(exclusive_ids):
+            raise ContractValidationError("exclusive speaker IDs must be unique")
         _tuple_text(self.acoustic_labels, "acoustic_labels")
         if len(set(self.acoustic_labels)) != len(self.acoustic_labels):
             raise ContractValidationError("chunk condition acoustic labels must be unique")
@@ -549,6 +745,18 @@ class ChunkCondition:
                 raise ContractValidationError(
                     "chunk condition overlap references an unknown speaker stream"
                 )
+        if self.speaker_correction is not None and self.speaker_metadata is None:
+            raise ContractValidationError("speaker correction requires a machine seed")
+        if self.speaker_metadata is not None:
+            if set(self.speaker_metadata.speaker_ids) != set(speaker_ids):
+                raise ContractValidationError(
+                    "speaker metadata IDs must match standard speaker streams"
+                )
+            if self.speaker_correction is not None:
+                if self.speaker_correction.metadata.version != self.speaker_metadata.version:
+                    raise ContractValidationError(
+                        "speaker correction must reference the machine seed version"
+                    )
 
     def validate_bounds(self, start_ms: int, end_ms: int) -> None:
         """Require all condition intervals to remain inside the chunk."""
@@ -558,20 +766,81 @@ class ChunkCondition:
                 _interval(turn.start_ms, turn.end_ms, "speaker stream turn")
                 if turn.start_ms < start_ms or turn.end_ms > end_ms:
                     raise ContractValidationError("speaker stream turn exceeds chunk interval")
+        for stream in self.exclusive_speaker_streams:
+            for turn in stream.turns:
+                _interval(turn.start_ms, turn.end_ms, "exclusive speaker stream turn")
+                if turn.start_ms < start_ms or turn.end_ms > end_ms:
+                    raise ContractValidationError(
+                        "exclusive speaker stream turn exceeds chunk interval"
+                    )
         for overlap in self.overlaps:
             if overlap.start_ms < start_ms or overlap.end_ms > end_ms:
                 raise ContractValidationError("overlap interval exceeds chunk interval")
+        if (
+            self.speaker_metadata is not None
+            and self.speaker_metadata.speech_ms > end_ms - start_ms
+        ):
+            raise ContractValidationError("speaker speech_ms exceeds chunk interval")
 
     @property
     def speaker_count(self) -> int:
         """Return the number of distinct speaker streams in the condition."""
 
+        if self.speaker_metadata is not None:
+            return self.speaker_metadata.speaker_count
         return len(self.speaker_streams)
+
+    @property
+    def speaker_ids(self) -> tuple[str, ...]:
+        """Return episode-scoped local speaker IDs in stable order."""
+
+        if self.speaker_metadata is not None:
+            return self.speaker_metadata.speaker_ids
+        return tuple(stream.speaker_id for stream in self.speaker_streams)
+
+    @property
+    def max_simultaneous_speakers(self) -> int:
+        """Return the maximum active standard-track speaker count."""
+
+        if self.speaker_metadata is not None:
+            return self.speaker_metadata.max_simultaneous_speakers
+        return max(
+            (len(overlap.speaker_ids) for overlap in self.overlaps),
+            default=self.speaker_count,
+        )
+
+    @property
+    def speech_ms(self) -> int | None:
+        """Return derived standard-track speech duration when available."""
+
+        return self.speaker_metadata.speech_ms if self.speaker_metadata is not None else None
+
+    @property
+    def overlap_ms(self) -> int | None:
+        """Return derived simultaneous-standard-track duration when available."""
+
+        return self.speaker_metadata.overlap_ms if self.speaker_metadata is not None else None
+
+    @property
+    def overlap_fraction(self) -> float | None:
+        """Return overlap divided by union speech, or null for zero speech."""
+
+        return self.speaker_metadata.overlap_fraction if self.speaker_metadata is not None else None
+
+    @property
+    def speaker_condition(self) -> SpeakerConditionLabel | None:
+        """Return the versioned machine-seeded condition label."""
+
+        return (
+            self.speaker_metadata.speaker_condition if self.speaker_metadata is not None else None
+        )
 
     @property
     def has_overlap(self) -> bool:
         """Return whether genuine simultaneous speaker activity is recorded."""
 
+        if self.speaker_metadata is not None:
+            return self.speaker_metadata.has_overlap
         return bool(self.overlaps)
 
     def to_dict(self) -> dict[str, Any]:
@@ -584,6 +853,15 @@ class ChunkCondition:
             "rapid_turn_taking": self.rapid_turn_taking,
             "music": self.music,
             "degraded": self.degraded,
+            "exclusive_speaker_streams": [
+                stream.to_dict() for stream in self.exclusive_speaker_streams
+            ],
+            "speaker_metadata": (
+                self.speaker_metadata.to_dict() if self.speaker_metadata is not None else None
+            ),
+            "speaker_correction": (
+                self.speaker_correction.to_dict() if self.speaker_correction is not None else None
+            ),
         }
 
     @classmethod
@@ -594,10 +872,24 @@ class ChunkCondition:
         payload["speaker_streams"] = tuple(
             SpeakerStream.from_dict(stream) for stream in payload.get("speaker_streams", ())
         )
+        payload["exclusive_speaker_streams"] = tuple(
+            SpeakerStream.from_dict(stream)
+            for stream in payload.get("exclusive_speaker_streams", ())
+        )
         payload["overlaps"] = tuple(
             Overlap.from_dict(overlap) for overlap in payload.get("overlaps", ())
         )
         payload["acoustic_labels"] = tuple(payload.get("acoustic_labels", ()))
+        metadata = payload.get("speaker_metadata")
+        payload["speaker_metadata"] = (
+            SpeakerConditionMetadata.from_dict(metadata) if isinstance(metadata, Mapping) else None
+        )
+        correction = payload.get("speaker_correction")
+        payload["speaker_correction"] = (
+            SpeakerConditionCorrection.from_dict(correction)
+            if isinstance(correction, Mapping)
+            else None
+        )
         return cls(**payload)
 
 
@@ -1811,6 +2103,11 @@ __all__ = [
     "RequestTimeoutError",
     "SERVICE_ROUTES",
     "SpeakerEmbedder",
+    "SpeakerConditionCorrection",
+    "SpeakerConditionLabel",
+    "SpeakerConditionMetadata",
+    "SpeakerConditionOrigin",
+    "SpeakerConditionStatus",
     "TextEmbedder",
     "TimedWord",
     "TranscriptResult",

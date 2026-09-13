@@ -60,3 +60,21 @@ to Parakeet only on the shared chunk interval and text hypothesis fields.
 Set
 `HF_HOME`, `ZANZARA_MODEL_CACHE`, `SMOKE_AUDIO_HOST`, and `EVIDENCE_DIR` only when
 the operator uses non-default cache locations.
+
+P1R also adds a separate `voxtral` service for accuracy-oriented offline
+benchmark hypotheses. It uses the pinned
+`mistralai/Voxtral-Mini-4B-Realtime-2602` checkpoint, Transformers' native
+Voxtral implementation, forced Italian request metadata, non-streaming
+processing, and the model-card-recommended 480 ms delay configuration. The
+service writes private startup smoke evidence under
+`.git/zanzara-evidence/P1R-06/`:
+
+```bash
+docker compose --profile processing build voxtral
+docker compose --profile processing up voxtral
+```
+
+It accepts the same constrained `/v1/audio/transcriptions` JSON shape as
+Whisper and returns a text-first hypothesis with raw generated token IDs. It
+does not synthesize word timestamps or provide a remote fallback. The smoke
+audio and model cache are mounted read-only.

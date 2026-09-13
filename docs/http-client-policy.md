@@ -1,7 +1,7 @@
 # HTTP client policy and inventory
 
 This document records the P1-10 dependency audit. The inventory covers the
-root application, all six model-service packages, tests, Docker/Compose
+root application, all eight model-service packages, tests, Docker/Compose
 metadata, and every committed `uv.lock` file.
 
 ## Policy
@@ -41,12 +41,14 @@ to the same locked package and do not represent duplicate installations.
 | Environment | `niquests` path | `httpx` path | `requests` path |
 | --- | --- | --- | --- |
 | Root | `zanzara-archive -> niquests` | No `httpx` package; `zanzara-archive (dev) -> httpx2` is the framework test transport | None |
-| `services/parakeet` | `parakeet-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | `parakeet-service -> librosa -> pooch -> requests` |
-| `services/diarization` | `diarization-service -> pyannote-audio -> huggingface-hub -> httpx` (also via `transformers`) | `diarization-service -> pyannote-audio -> opentelemetry-exporter-otlp -> opentelemetry-exporter-otlp-proto-http -> requests`; also `pyannoteai-sdk -> requests` |
-| `services/resnet293` | `resnet293-service -> transformers -> huggingface-hub -> httpx` | `resnet293-service -> wespeaker -> s3prl -> requests`; also `openai-whisper -> tiktoken -> requests` |
-| `services/eres2net` | `eres2net-service -> transformers -> huggingface-hub -> httpx` | None |
-| `services/wavlm` | `wavlm-service -> transformers -> huggingface-hub -> httpx` | None |
-| `services/text-embeddings` | `text-embeddings-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | None |
+| `services/parakeet` | None | `parakeet-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | `parakeet-service -> librosa -> pooch -> requests` |
+| `services/whisper` | None | `whisper-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | `whisper-service -> librosa -> pooch -> requests` |
+| `services/voxtral` | None | `voxtral-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | `voxtral-service -> librosa -> pooch -> requests`; also `mistral-common -> requests` |
+| `services/diarization` | None | `diarization-service -> pyannote-audio -> huggingface-hub -> httpx` (also via `transformers`) | `diarization-service -> pyannote-audio -> opentelemetry-exporter-otlp -> opentelemetry-exporter-otlp-proto-http -> requests`; also `pyannoteai-sdk -> requests` |
+| `services/resnet293` | None | `resnet293-service -> transformers -> huggingface-hub -> httpx` | `resnet293-service -> wespeaker -> s3prl -> requests`; also `openai-whisper -> tiktoken -> requests` |
+| `services/eres2net` | None | `eres2net-service -> transformers -> huggingface-hub -> httpx` | None |
+| `services/wavlm` | None | `wavlm-service -> transformers -> huggingface-hub -> httpx` | None |
+| `services/text-embeddings` | None | `text-embeddings-service -> accelerate -> huggingface-hub -> httpx` (also via `transformers`) | None |
 
 The service occurrences are owned by locked model/download/telemetry
 dependencies, not by Zanzara application code. Replacing them would require
@@ -55,8 +57,8 @@ changing supported upstream package contracts and is outside this issue.
 ## Lock, image, and semantic impact
 
 The root lock was re-generated for the `niquests` inference adapter and the
-framework-supported `httpx2` test transport. The six service locks remain
-unchanged and contain one locked `httpx` version (`0.28.1`) where the paths
+framework-supported `httpx2` test transport. The eight service locks are
+independently checked and contain one locked `httpx` version (`0.28.1`) where the paths
 above require it. The locked `requests` version is `2.34.2` where required by
 the service graphs. No duplicate `httpx`/`requests` installation was
 introduced.
@@ -102,14 +104,16 @@ Run from the repository root:
 ```bash
 rg -n "httpx|requests|niquests" pyproject.toml services src tests docs
 uv tree
-for service in services/parakeet services/diarization services/resnet293 \
-  services/eres2net services/wavlm services/text-embeddings; do
+for service in services/parakeet services/whisper services/voxtral \
+  services/diarization services/resnet293 services/eres2net \
+  services/wavlm services/text-embeddings; do
   uv tree --directory "$service"
 done
 uv run pytest tests/test_parakeet_adapter.py tests/test_diarization_adapter.py -q
 uv lock --check
-for service in services/parakeet services/diarization services/resnet293 \
-  services/eres2net services/wavlm services/text-embeddings; do
+for service in services/parakeet services/whisper services/voxtral \
+  services/diarization services/resnet293 services/eres2net \
+  services/wavlm services/text-embeddings; do
   uv lock --check --directory "$service"
 done
 uv run ruff check .

@@ -66,6 +66,30 @@ services:
       EVIDENCE_PATH: /evidence/whisper.json
       SMOKE_AUDIO_LABEL: "260910-lazanzara.opus [0,10000) ms frozen Italian chunk"
       SMOKE_AUDIO_PROVENANCE: "real frozen corpus audio; private local excerpt; no synthesis"
+  voxtral:
+    <<: *gpu
+    image: zanzara-archive/voxtral:py314-shared
+    # P1R keeps Voxtral's model smoke evidence separate from P1 service evidence.
+    volumes:
+      - ${HF_HOME:-/home/user/.cache/huggingface}:/models/hf:ro
+      - ${ZANZARA_MODEL_CACHE:-/home/user/.cache/zanzara-archive/models}:/models/zanzara:ro
+      - ${SMOKE_AUDIO_HOST:-/home/user/.cache/zanzara-archive/models/eres2net/v1.0.3/examples/speaker1_a_en_16k.wav}:/smoke/audio.wav:ro
+      - ${EVIDENCE_DIR:-.git/zanzara-evidence}/P1R-06:/evidence
+    ports:
+      - "127.0.0.1:${VOXTRAL_PORT:-18083}:8080"
+    depends_on: [shared-base]
+    build:
+      context: .
+      dockerfile: services/voxtral/Dockerfile
+    environment:
+      MODEL_PATH: /models/hf/hub/models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add
+      MODEL_REVISION: 2769294da9567371363522aac9bbcfdd19447add
+      MODEL_SOURCE: mistralai/Voxtral-Mini-4B-Realtime-2602
+      IMAGE_REF: zanzara-archive/voxtral:py314-shared
+      BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
+      EVIDENCE_PATH: /evidence/voxtral.json
+      SMOKE_AUDIO_LABEL: "260910-lazanzara.opus [0,10000) ms frozen Italian chunk"
+      SMOKE_AUDIO_PROVENANCE: "real frozen corpus audio; private local excerpt; no synthesis"
   diarization:
     <<: *gpu
     image: zanzara-archive/diarization:py314-shared

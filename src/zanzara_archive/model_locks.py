@@ -81,8 +81,8 @@ def validate_model_lock(
         raise ModelLockError("hardware.vram_total_mib must be the observed RTX 5090 capacity")
 
     models = lock.get("models")
-    if not isinstance(models, list) or len(models) != 7:
-        raise ModelLockError("model lock must contain exactly seven model records")
+    if not isinstance(models, list) or len(models) != 8:
+        raise ModelLockError("model lock must contain exactly eight model records")
     ids: set[str] = set()
     for index, model in enumerate(models):
         if not isinstance(model, dict):
@@ -140,8 +140,8 @@ def validate_model_lock(
         _require_sha256(smoke["evidence_sha256"], f"models[{index}].smoke.evidence_sha256")
 
     services = lock.get("services")
-    if not isinstance(services, list) or len(services) != 7:
-        raise ModelLockError("model lock must contain seven service records")
+    if not isinstance(services, list) or len(services) != 8:
+        raise ModelLockError("model lock must contain eight service records")
     service_ids = {service.get("id") for service in services if isinstance(service, dict)}
     if service_ids != ids:
         raise ModelLockError("service IDs must match model IDs")

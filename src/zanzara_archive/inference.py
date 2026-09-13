@@ -39,6 +39,7 @@ from .model_locks import model_fingerprint_from_lock
 
 PARAKEET_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 WHISPER_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
+VOXTRAL_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 DIARIZATION_PATH = "/v1/diarize"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS = 120.0
@@ -46,6 +47,7 @@ DEFAULT_DIARIZATION_TIMEOUT_SECONDS = 600.0
 MAX_AUDIO_PAYLOAD_BYTES = 25_000_000
 MAX_DIARIZATION_PAYLOAD_BYTES = 50_000_000
 MAX_WHISPER_AUDIO_MS = 30_000
+MAX_VOXTRAL_AUDIO_MS = 30_000
 WHISPER_LANGUAGE = "it"
 WHISPER_TASK = "transcribe"
 WHISPER_DECODING_SETTINGS: Mapping[str, Any] = {
@@ -58,6 +60,14 @@ WHISPER_DECODING_SETTINGS: Mapping[str, Any] = {
     "num_beams": 5,
     "return_timestamps": False,
     "temperature": 0.0,
+}
+VOXTRAL_LANGUAGE = "it"
+VOXTRAL_DECODING_SETTINGS: Mapping[str, Any] = {
+    "do_sample": False,
+    "temperature": 0.0,
+    "transcription_delay_ms": 480,
+    "streaming": False,
+    "max_new_tokens": 1024,
 }
 
 
@@ -884,6 +894,229 @@ class WhisperAdapter:
                 AdapterFailure,
                 "invalid_audio",
                 "WhisperAdapter requires an audio_loader for a validated chunk",
+                request_id,
+            )
+        return self.transcribe_bytes(
+            chunk,
+            self.audio_loader(chunk),
+            request_id=request_id,
+        ).result
+
+
+def parse_voxtral_response(
+    payload: Mapping[str, Any],
+    *,
+    chunk: AudioChunk,
+    model: ModelFingerprint,
+    request_id: str,
+) -> TranscriptionHypothesis:
+    """Validate one text-first Voxtral response without manufacturing timing."""
+
+    data = _unwrap_response(payload, request_id, service_name="Voxtral")
+    reported_model = data.get("model")
+    if reported_model is not None and reported_model != model.repository:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Voxtral response model does not match the locked model",
+            request_id,
+        )
+    reported_revision = data.get("model_revision")
+    if reported_revision is not None and reported_revision != model.revision:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Voxtral response revision does not match the locked model",
+            request_id,
+        )
+    language = data.get("language", VOXTRAL_LANGUAGE)
+    if language != VOXTRAL_LANGUAGE:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Voxtral response language is not the locked Italian setting",
+            request_id,
+        )
+    raw_text = data.get("text")
+    if not isinstance(raw_text, str):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Voxtral response is missing transcript text",
+            request_id,
+        )
+    raw_segments = data.get("segments", [])
+    if not isinstance(raw_segments, list) or any(
+        not isinstance(segment, Mapping) for segment in raw_segments
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Voxtral response segments must be an array of objects",
+            request_id,
+        )
+    raw_metadata = {
+        "model": data.get("model", model.repository),
+        "model_revision": data.get("model_revision", model.revision),
+        "language": language,
+        "decoding": data.get("decoding", dict(VOXTRAL_DECODING_SETTINGS)),
+        "preprocessing": data.get("preprocessing", {}),
+        "capabilities": data.get("capabilities", {"supports_timestamps": False}),
+        "request_id": request_id,
+    }
+    try:
+        json.dumps(raw_metadata, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"Voxtral response provenance is not JSON serializable: {exc}",
+            request_id,
+        ) from exc
+    return TranscriptionHypothesis(
+        chunk_id=chunk.chunk_id,
+        model_fingerprint=model,
+        text=raw_text,
+        segments=tuple(dict(segment) for segment in raw_segments),
+        raw_metadata=raw_metadata,
+        source_sha256=chunk.source_sha256,
+    )
+
+
+class VoxtralAdapter:
+    """Application-side adapter for the local Voxtral text-first service."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioChunk], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = (
+            model_fingerprint_from_lock(model, "voxtral") if isinstance(model, str) else model
+        )
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        return CapabilityDeclaration(
+            model=self.model,
+            supports_timestamps=False,
+            max_audio_ms=MAX_VOXTRAL_AUDIO_MS,
+            max_payload_bytes=MAX_AUDIO_PAYLOAD_BYTES,
+        )
+
+    def transcribe_bytes(
+        self,
+        chunk: AudioChunk,
+        audio_bytes: bytes,
+        *,
+        request_id: str | None = None,
+        language: str = VOXTRAL_LANGUAGE,
+    ) -> ParsedHypothesis:
+        request_id = _request_id(request_id, "voxtral")
+        if language != VOXTRAL_LANGUAGE:
+            raise _failure(
+                AdapterFailure,
+                "invalid_configuration",
+                "Voxtral language is fixed to Italian ('it')",
+                request_id,
+            )
+        if chunk.end_ms - chunk.start_ms > MAX_VOXTRAL_AUDIO_MS:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"Voxtral chunks cannot exceed {MAX_VOXTRAL_AUDIO_MS} ms",
+                request_id,
+            )
+        if not isinstance(audio_bytes, bytes) or not audio_bytes:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio payload must contain bytes",
+                request_id,
+            )
+        if len(audio_bytes) > MAX_AUDIO_PAYLOAD_BYTES:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"audio payload exceeds {MAX_AUDIO_PAYLOAD_BYTES} bytes",
+                request_id,
+            )
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "chunk_id": chunk.chunk_id,
+            "input_audio": {
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": "wav",
+            },
+            "response_format": "json",
+            "language": VOXTRAL_LANGUAGE,
+            "decoding": dict(VOXTRAL_DECODING_SETTINGS),
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{VOXTRAL_TRANSCRIPTION_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "Voxtral transcription request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"Voxtral endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Voxtral endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Voxtral endpoint returned a non-object JSON response",
+                request_id,
+            )
+        result = parse_voxtral_response(
+            response,
+            chunk=chunk,
+            model=self.model,
+            request_id=request_id,
+        )
+        return ParsedHypothesis(result=result, raw_response=response)
+
+    def transcribe(self, chunk: AudioChunk, *, request_id: str) -> TranscriptionHypothesis:
+        if self.audio_loader is None:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "VoxtralAdapter requires an audio_loader for a validated chunk",
                 request_id,
             )
         return self.transcribe_bytes(

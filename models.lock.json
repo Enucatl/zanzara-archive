@@ -87,6 +87,39 @@
       "smoke": {"status": "passed", "shape": [65], "elapsed_ms": 798.84, "peak_vram_mib": 4421.246, "evidence_sha256": "a720be643641c449a126aa4f6eed7eb9324c81beb0b7bbf3a53ea7d8d3976e55"}
     },
     {
+      "id": "voxtral",
+      "role": "text-first Italian ASR benchmark hypothesis",
+      "repository": "mistralai/Voxtral-Mini-4B-Realtime-2602",
+      "revision": "2769294da9567371363522aac9bbcfdd19447add",
+      "license": "Apache-2.0",
+      "preprocessing": "mono 16 kHz audio, source-relative chunk time origin",
+      "dimensions": {"output": "text-only hypothesis; no timestamps"},
+      "precision": "bfloat16 model inference",
+      "runtime": {
+        "python": "3.14.7",
+        "torch": "2.14.0+cu130",
+        "torchaudio": "2.11.0+cu130",
+        "transformers": "5.17.0",
+        "mistral-common": "1.11.5"
+      },
+      "service": "services/voxtral",
+      "approval": {
+        "status": "downloaded and approved",
+        "date": "2026-09-13",
+        "source": "public Hugging Face repository; Apache-2.0 license",
+        "credentials_required": false
+      },
+      "artifacts": [
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/config.json", "size_bytes": 1572, "sha256": "96582f5809ad179531d47f9f89d76c696058fbdeff608d6611dcb7e076ea7e93"},
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/generation_config.json", "size_bytes": 191, "sha256": "1fabdbadf2e0ea9e2c36e2a8460a53caa694c1324136e4158032b0a32ff6beec"},
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/model.safetensors", "size_bytes": 8859446848, "sha256": "e745e4902df6a4c48f29f2f8dc1f6d0fb4cc73c7156bc45923451a5bcdfcd1d6"},
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/params.json", "size_bytes": 1343, "sha256": "2ace010ebf7f0b62c60747d91c6d140e3c7238632d3e9c63d60a2bd2065ea301"},
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/processor_config.json", "size_bytes": 384, "sha256": "5fbc4247e0b3b72c1b501b872c4fd6432b1f0fcc1939dcdf1fa5142c6d2ce070"},
+        {"cache": "huggingface", "path": "models--mistralai--Voxtral-Mini-4B-Realtime-2602/snapshots/2769294da9567371363522aac9bbcfdd19447add/tekken.json", "size_bytes": 14910348, "sha256": "8434af1d39eba99f0ef46cf1450bf1a63fa941a26933a1ef5dbbf4adf0d00e44"}
+      ],
+      "smoke": {"status": "passed", "shape": [54, 174], "elapsed_ms": 4494.114, "peak_vram_mib": 8680.374, "evidence_sha256": "f55315ab362cde798ac2c65841eb680b8fb011d09514988f8a1678d1215a02e6"}
+    },
+    {
       "id": "diarization",
       "role": "speaker diarization",
       "repository": "pyannote/speaker-diarization-community-1",
@@ -235,6 +268,7 @@
   "services": [
     {"id": "parakeet", "directory": "services/parakeet", "image": "zanzara-archive/parakeet:py314-shared", "image_digest": "177e59002ee9c3b3625a2dfc7025e56b422e860b7deb757b9fda50593869449b", "python": "3.14.7", "uv_lock_sha256": "1576b48fac157ab7dc89e4c07660624b4be4beb337a6b95d2489af250259a5a1"},
     {"id": "whisper", "directory": "services/whisper", "image": "zanzara-archive/whisper:py314-shared", "image_digest": "b7a5fa8a510fecae3195151c9126c62e04f5ecdc253fe5188758e96a8f711ae1", "python": "3.14.7", "uv_lock_sha256": "6d74ee75cd258237ff9c7308afbc62640dfa4be8d03ef4732fff0e9cb5eecf38"},
+    {"id": "voxtral", "directory": "services/voxtral", "image": "zanzara-archive/voxtral:py314-shared", "image_digest": "fa186bf54d0c07641c58eaa36baec7bc4d2dd1316dfb50f05c5a8d1b1ac1be16", "python": "3.14.7", "uv_lock_sha256": "8ac4f8df6494f00641744a0d5ecc77b4d2eb6f6cd0f0888d45531c42bbdf865c"},
     {"id": "diarization", "directory": "services/diarization", "image": "zanzara-archive/diarization:py314-shared", "image_digest": "fd5e73a197fde8ecf860dd538940662693b6e7d5bc0f97d722351ea11cb814e3", "python": "3.14.7", "uv_lock_sha256": "935c26b2d7ad7d11f428467b48f47130187c7f0d6ba80a0eb7a8403900cc2760"},
     {"id": "resnet293", "directory": "services/resnet293", "image": "zanzara-archive/resnet293:py314-shared", "image_digest": "452257b5031214e4384dd9bb251194025201ec2ff50feccb1107bbc2f62ffb80", "python": "3.14.7", "uv_lock_sha256": "7b810071ec07525445b08d0f640fcf9bded04678165b3365bf3b3c107fd31090"},
     {"id": "eres2net", "directory": "services/eres2net", "image": "zanzara-archive/eres2net:py314-shared", "image_digest": "41620735648df7410649035e8d406ec61f8357aa9eacf837f650d2f6b4971641", "python": "3.14.7", "uv_lock_sha256": "00ba8bb7be58304a7797fdb6afa0795447a545bb6f42430fe737cf76125c8828"},

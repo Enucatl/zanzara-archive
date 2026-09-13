@@ -711,8 +711,8 @@
       "kind": "Phase",
       "priority": "P0",
       "order": 1500,
-      "blocked_by": ["P0", "P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-16", "P1R-17"],
-      "children": ["P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-15", "P1R-16", "P1R-17"],
+      "blocked_by": ["P0", "P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-16", "P1R-17", "P1R-08B"],
+      "children": ["P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08B", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-15", "P1R-16", "P1R-17"],
       "body": "issues/P1R.md",
       "design_refs": ["D5", "D6", "E1", "E2"],
       "labels": ["phase:P1R", "kind:phase", "executor:human", "priority:P0"],
@@ -751,8 +751,36 @@
       "blocked_by": ["P0", "P1R-03"], "body": "issues/P1R-08.md", "design_refs": ["D5", "D6", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
     },
     {
+      "id": "P1R-08B",
+      "title": "[P1R-08B] Prepare dedicated music calibration review workflow",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P0",
+      "order": 1584,
+      "blocked_by": [
+        "P0",
+        "P1R-03"
+      ],
+      "body": "issues/P1R-08B.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "D11",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P0"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
       "id": "P1R-08A", "title": "[P1R-08A] Classify acoustic conditions with AudioSet AST", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1585,
-      "blocked_by": ["P0", "P1R-03"], "body": "issues/P1R-08A.md", "design_refs": ["D5", "D6", "D11", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+      "blocked_by": ["P0", "P1R-03", "P1R-08B"], "body": "issues/P1R-08A.md", "design_refs": ["D5", "D6", "D11", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
     },
     {
       "id": "P1R-09", "title": "[P1R-09] Add local Qwen annotation-assistance service", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1590,

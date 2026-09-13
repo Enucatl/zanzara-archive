@@ -2,6 +2,10 @@
 
 Section IDs E1–E7 are stable. All reports identify source/annotation/split/model/configuration hashes and the reviewed code commit. A passing test harness is not evidence of real model quality. Missing human references or inadequate sample sizes mean **insufficient evidence**, never an assumed pass.
 
+## P1R replacement status
+
+P1R is the authoritative replacement for P1 transcription evaluation. The P1-specific material in E1/E2 below is retained only as historical evidence until P1R-01/P1R-17 complete their live migration; it must not be used to release P1 or to require manually timed words, a complete golden episode, a five-block split, timing-error metrics, or timestamp-capable ASR output. P1R evaluates frozen, model-independent chunks with human audio-verified references and episode-level development/held-out partitions. Required lexical metrics are conservative versioned Italian WER and CER; multi-speaker truth supports an explicitly locked overlap-aware speaker-independent metric such as ORC-WER, while DER/JER and cpWER/tcpWER remain separate evaluation questions. Representative/stress and overlap/music/degraded/rapid-turn-taking slices always report chunk, duration and word denominators. The complete executable contracts are P1R-02, P1R-11, P1R-H01 and P1R-12 through P1R-17.
+
 ## E1 — Golden reference and transcription split
 
 P1-05 supplies waveform/audio playback, editable words, speaker turns, overlaps and unintelligible regions. Preserve machine-seeded output as `draft`; only an identified human can mark a version `reviewed`. Save immutable exports plus append-only history, reviewer, source checksum and review time. Concurrent edits require revision checks. P1-06 reviews the entire Italian golden episode verbatim, including repeated words, false starts, dialect, names and numbers. Human reference speaker IDs come from listening, not unquestioned diarizer labels. Mark genuinely unintelligible intervals rather than guessing or silently removing difficult speech.

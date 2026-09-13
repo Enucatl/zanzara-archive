@@ -19,19 +19,20 @@ fail(manifest.repository==='Enucatl/zanzara-archive','Unexpected repository');
 fail(manifest.project.visibility==='PRIVATE','Project must be private');
 fail(manifest.project.milestones.length===0,'No milestones');
 assert.deepEqual(manifest.project.fields.Status,['Backlog','Blocked','Ready','In progress','In review','Done']);
-assert.deepEqual(manifest.project.fields.Phase,Array.from({length:9},(_,i)=>`P${i}`));
+const phases=['P0','P1','P1R','P2','P3','P4','P5','P6','P7','P8'];
+assert.deepEqual(manifest.project.fields.Phase,phases);
 assert.deepEqual(manifest.project.fields.Executor,['Luna','Human']);
 fail(manifest.project.views.length===4,'Four project views required');
-const expectedCounts=[6,10,9,7,6,6,4,4,4];
-for(const [phase,count] of expectedCounts.entries()){
- const id=`P${phase}`;const parent=ids.get(id);
+const expectedCounts={P0:6,P1:10,P1R:17,P2:9,P3:7,P4:6,P5:6,P6:4,P7:4,P8:4};
+for(const [id,count] of Object.entries(expectedCounts)){
+ const parent=ids.get(id);
  fail(parent?.parent===null && parent.executor==='Human' && parent.kind==='Phase',`Invalid phase ${id}`);
  for(let n=1;n<=count;n++)fail(ids.has(`${id}-${String(n).padStart(2,'0')}`),`Missing handoff child ${id}-${n}`);
  const children=manifest.issues.filter(i=>i.parent===id).map(i=>i.id);
  assert.deepEqual([...parent.children].sort(),[...children].sort(),`Child listing ${id}`);
- children.forEach(child=>fail(parent.blocked_by.includes(child),`${id} not blocked by child ${child}`));
+ children.filter(child=>ids.get(child).release_blocker!==false).forEach(child=>fail(parent.blocked_by.includes(child),`${id} not blocked by child ${child}`));
 }
-for(const id of ['P1-H01','P3-H01','P5-H01','P1-06','P2-07','P3-06','P6-02','P7-02','P7-03','P8-02']){
+for(const id of ['P1-H01','P1R-H01','P3-H01','P5-H01','P1-06','P2-07','P3-06','P6-02','P7-02','P7-03','P8-02']){
  fail(ids.get(id)?.executor==='Human' && ids.get(id)?.kind==='Operator',`Required human task ${id}`);
 }
 const headings=['Outcome and requirement','Design and interfaces','Bounded steps','Inputs, outputs and failure behavior','Exclusions','Acceptance checklist','Verification commands','Evidence and documentation','Stop conditions and completion rule'];
@@ -49,8 +50,9 @@ for(const i of manifest.issues){
   fail(ids.get(i.parent)?.kind==='Phase' && i.parent===i.phase,`Bad parent ${i.id}`);
   fail(!i.blocked_by.includes(i.parent),`${i.id} depends on own parent`);
  }
- const phase=Number(i.phase.slice(1));
- if(phase>0)fail(i.blocked_by.includes(`P${phase-1}`),`Missing previous phase blocker ${i.id}`);
+ const previousPhase={P1:'P0',P1R:'P0',P2:'P1',P3:'P2',P4:'P3',P5:'P4',P6:'P5',P7:'P6',P8:'P7'}[i.phase];
+ if(previousPhase)fail(i.blocked_by.includes(previousPhase),`Missing previous phase blocker ${i.id}`);
+ if(i.release_blocker!==undefined)fail(typeof i.release_blocker==='boolean',`Invalid release blocker ${i.id}`);
  const body=read(i.body);
  fail((body.match(/<!-- zanzara-plan:/g)??[]).length===1,`Marker count ${i.id}`);
  for(const text of [`<!-- zanzara-plan:${i.id} -->`,`# ${i.title}`,`- Executor: ${i.executor}`,`- Kind: ${i.kind}`,`- Parent: ${i.parent??'none'}`,`- Blocked by: ${i.blocked_by.join(', ')||'none'}`])fail(body.includes(text),`Missing metadata ${text}`);

@@ -66,7 +66,7 @@ Capture IDs from responses; never hardcode them. Stop immediately if privacy can
 | Field | Type | Exact options/order |
 |---|---|---|
 | Status | Existing single select | Backlog, Blocked, Ready, In progress, In review, Done |
-| Phase | Single select | P0, P1, P2, P3, P4, P5, P6, P7, P8 |
+| Phase | Single select | P0, P1, P1R, P2, P3, P4, P5, P6, P7, P8 |
 | Kind | Single select | Phase, Implementation, Evaluation, Operator, Review follow-up |
 | Executor | Single select | Luna, Human |
 | Priority | Single select | P0, P1, P2 |
@@ -75,7 +75,7 @@ Capture IDs from responses; never hardcode them. Stop immediately if privacy can
 Use `gh project field-list ... --format json` and paginate if necessary. Reconcile by exact name/type. Create custom fields with `gh project field-create`; example:
 
 ```bash
-gh project field-create "$ZANZARA_PROJECT_NUMBER" --owner Enucatl --name Phase --data-type SINGLE_SELECT --single-select-options P0,P1,P2,P3,P4,P5,P6,P7,P8 --format json
+gh project field-create "$ZANZARA_PROJECT_NUMBER" --owner Enucatl --name Phase --data-type SINGLE_SELECT --single-select-options P0,P1,P1R,P2,P3,P4,P5,P6,P7,P8 --format json
 ```
 
 Do not create a second Status field. Update its existing options with GraphQL `updateProjectV2Field`. Input JSON has `fieldId` and `singleSelectOptions`, each with `name`, `color`, `description`, and existing option `id` where applicable. Use GRAY/RED/BLUE/YELLOW/PURPLE/GREEN respectively for the six statuses. Preserve IDs for already matching options. In a freshly created project replace default Todo/In Progress/Done with the exact options; for an adopted project, incompatible options or item assignments require a reported conflict rather than silent destructive replacement. Write JSON to a file and use `gh api graphql --input`; do not interpolate multiline JSON or descriptions into shell command text. Snapshot option IDs before setting item fields.
@@ -137,7 +137,7 @@ After all numbers exist, append a managed relationship section with actual paren
 
 ## G5 — Native relationships and project items
 
-For each child, check current parent, then attach to its manifest parent if absent. If it belongs to another parent, report conflict; never send `replace_parent=true` automatically. For each manifest `blocked_by` edge, create it on the **blocked issue** using the prerequisite's database ID. Example templates (variables are populated from the mapping):
+For each child, check current parent, then attach to its manifest parent if absent. If it belongs to another parent, report conflict; never send `replace_parent=true` automatically. For each manifest `blocked_by` edge, create it on the **blocked issue** using the prerequisite's database ID. Parents are blocked by their release-blocking children; a child marked `release_blocker: false` remains a native sub-issue but does not prevent phase release. Example templates (variables are populated from the mapping):
 
 ```bash
 gh api --method POST "repos/Enucatl/zanzara-archive/issues/$ZANZARA_PARENT_NUMBER/sub_issues" -F sub_issue_id="$ZANZARA_CHILD_DATABASE_ID"

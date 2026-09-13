@@ -1,6 +1,6 @@
 # Ordered backlog
 
-[manifest.json](manifest.json) is the machine-readable authority for 68 issues (59 children and nine phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1-H01, P3-H01 and P5-H01 make required operator provisioning explicit; the numbered handoff IDs remain intact.
+[manifest.json](manifest.json) is the machine-readable authority for 87 issues (77 children and ten phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1R replaces legacy P1 transcription evaluation without renumbering P2–P8; P1R-15 is an explicitly non-release-blocking ergonomics study.
 
 Every child depends on the preceding phase plus its listed local prerequisites. A parent is blocked by all children, including future review findings, and closes only after Sol review and user release. No child depends on its own parent. Kind/Executor fields distinguish operator work from implementation; a phase parent has Human executor. Select eligible Luna work by phase, priority, then numeric Order, not table position alone.
 
@@ -25,6 +25,25 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1-07](issues/P1-07.md) | ASR, diarization, attribution and timing evaluation harness | P1 | P0, P1-05 | Luna | Evaluation | P1 | 1070 |
 | [P1-08](issues/P1-08.md) | Execute local baseline and publish measured evidence | P1 | P0, P1-06, P1-07 | Luna | Evaluation | P1 | 1080 |
 | [P1-10](issues/P1-10.md) | Prefer niquests and minimize HTTP client dependencies | P1 | P0 | Luna | Implementation | P1 | 1090 |
+| [P1R](issues/P1R.md) | Chunk-based multi-model transcription benchmark | — | P0 and release-blocking P1R children | Human | Phase | P0 | 1500 |
+| [P1R-01](issues/P1R-01.md) | Supersede legacy evaluation design and migrate planning contracts | P1R | P0 | Luna | Implementation | P0 | 1510 |
+| [P1R-02](issues/P1R-02.md) | Define chunk and hypothesis canonical schemas | P1R | P0, P1R-01 | Luna | Implementation | P0 | 1520 |
+| [P1R-03](issues/P1R-03.md) | Implement deterministic adaptive chunk segmentation | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1530 |
+| [P1R-04](issues/P1R-04.md) | Adapt Parakeet to the chunk-first transcription contract | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1540 |
+| [P1R-05](issues/P1R-05.md) | Add Whisper Large v3 local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1550 |
+| [P1R-06](issues/P1R-06.md) | Add Voxtral Mini 4B Realtime local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1560 |
+| [P1R-07](issues/P1R-07.md) | Orchestrate multi-model chunk inference | P1R | P0, P1R-03–P1R-06 | Luna | Implementation | P1 | 1570 |
+| [P1R-08](issues/P1R-08.md) | Derive diarization and acoustic-condition metadata per chunk | P1R | P0, P1R-03 | Luna | Implementation | P1 | 1580 |
+| [P1R-09](issues/P1R-09.md) | Add local Qwen annotation-assistance service | P1R | P0, P1R-07 | Luna | Implementation | P1 | 1590 |
+| [P1R-10](issues/P1R-10.md) | Replace annotation UI with chunk-centric transcription review | P1R | P0, P1R-07–P1R-09 | Luna | Implementation | P0 | 1600 |
+| [P1R-11](issues/P1R-11.md) | Freeze representative and stress benchmark manifests | P1R | P0, P1R-10 | Luna | Evaluation | P0 | 1610 |
+| [P1R-H01](issues/P1R-H01.md) | Human: review and finalize chunk gold references | P1R | P0, P1R-10, P1R-11 | Human | Operator | P0 | 1620 |
+| [P1R-12](issues/P1R-12.md) | Implement chunk-level ASR scoring harness | P1R | P0, P1R-02 | Luna | Evaluation | P0 | 1630 |
+| [P1R-13](issues/P1R-13.md) | Rebuild diarization evaluation independently of ASR words | P1R | P0, P1R-02, P1R-08 | Luna | Evaluation | P1 | 1640 |
+| [P1R-14](issues/P1R-14.md) | Implement integrated who-said-what scoring | P1R | P0, P1R-02, P1R-12, P1R-13 | Luna | Evaluation | P1 | 1650 |
+| [P1R-15](issues/P1R-15.md) | Evaluate human-review assistance effectiveness (non-blocking) | P1R | P0, P1R-H01 | Luna | Evaluation | P2 | 1660 |
+| [P1R-16](issues/P1R-16.md) | Execute three-model benchmark and publish selection report | P1R | P0, P1R-07, P1R-11, P1R-H01, P1R-12–P1R-14 | Luna | Evaluation | P0 | 1670 |
+| [P1R-17](issues/P1R-17.md) | Rewrite release gates and downstream dependency contracts | P1R | P0, P1R-01, P1R-16 | Luna | Implementation | P0 | 1680 |
 | [P2](issues/P2.md) | Three-model voice retrieval and identity review | — | P1, P2-01, P2-02, P2-03, P2-04, P2-05, P2-06, P2-07, P2-08, P2-09 | Human | Phase | P0 | 2000 |
 | [P2-01](issues/P2-01.md) | Deterministic clean-exemplar extraction | P2 | P1 | Luna | Implementation | P1 | 2010 |
 | [P2-02](issues/P2-02.md) | ResNet293 service adapter and validated embedding fixtures | P2 | P1 | Luna | Implementation | P1 | 2020 |
@@ -85,8 +104,10 @@ R28's setup deliverable is completed by following the runbook before implementat
 | R02 | Frozen exactly-20 corpus, golden episode, readonly NFS source and millisecond metadata | [P0-02](issues/P0-02.md), [P0-03](issues/P0-03.md) |
 | R03 | Local SQLite WAL/FTS5, dedicated Qdrant, atomic artifacts and resumable worker | [P0-04](issues/P0-04.md), [P0-05](issues/P0-05.md), [P2-05](issues/P2-05.md), [P3-03](issues/P3-03.md) |
 | R04 | Locked model revisions/licenses/head and measured RTX 5090 compatibility | [P1-H01](issues/P1-H01.md), [P1-01](issues/P1-01.md), [P2-02](issues/P2-02.md), [P2-03](issues/P2-03.md), [P2-04](issues/P2-04.md), [P3-02](issues/P3-02.md) |
-| R05 | Real ASR word timing, window boundaries, episode-wide standard/exclusive diarization and attribution | [P1-02](issues/P1-02.md), [P1-03](issues/P1-03.md), [P1-04](issues/P1-04.md) |
-| R06 | Human golden annotations, 200 timing samples, frozen 80/20 splits and metrics | [P1-05](issues/P1-05.md), [P1-06](issues/P1-06.md), [P1-07](issues/P1-07.md), [P1-08](issues/P1-08.md) |
+| R05 | Legacy retained: optional word timing, episode-wide standard/exclusive diarization and production attribution | [P1-02](issues/P1-02.md), [P1-03](issues/P1-03.md), [P1-04](issues/P1-04.md), [P1R-04](issues/P1R-04.md) |
+| R06 | Legacy retained: historical golden artifacts are not authoritative transcription evaluation truth | [P1-05](issues/P1-05.md), [P1-06](issues/P1-06.md), [P1-07](issues/P1-07.md), [P1-08](issues/P1-08.md), [P1R-01](issues/P1R-01.md) |
+| R29 | Chunk-first schemas, deterministic model-independent segmentation, multi-model immutable hypotheses and condition metadata | [P1R-02](issues/P1R-02.md), [P1R-03](issues/P1R-03.md), [P1R-04](issues/P1R-04.md), [P1R-05](issues/P1R-05.md), [P1R-06](issues/P1R-06.md), [P1R-07](issues/P1R-07.md), [P1R-08](issues/P1R-08.md) |
+| R30 | Human-reviewed chunk truth, episode-independent representative/stress benchmark and separate ASR/diarization/attribution evidence | [P1R-09](issues/P1R-09.md), [P1R-10](issues/P1R-10.md), [P1R-11](issues/P1R-11.md), [P1R-H01](issues/P1R-H01.md), [P1R-12](issues/P1R-12.md), [P1R-13](issues/P1R-13.md), [P1R-14](issues/P1R-14.md), [P1R-16](issues/P1R-16.md), [P1R-17](issues/P1R-17.md) |
 | R07 | Clean exemplars, three-vector indexes, centroids and deterministic retrieval | [P2-01](issues/P2-01.md), [P2-05](issues/P2-05.md), [P2-06](issues/P2-06.md) |
 | R08 | Human voice truth, valid calibration, host/non-host evaluation and uncertainty | [P2-07](issues/P2-07.md), [P2-08](issues/P2-08.md) |
 | R09 | Human-only global identities, manual names, contradictions, undo and split | [P2-09](issues/P2-09.md), [P4-04](issues/P4-04.md) |
@@ -107,7 +128,7 @@ R28's setup deliverable is completed by following the runbook before implementat
 | R24 | Gated 400 expansion, estimates and 40-total canary | [P6-01](issues/P6-01.md), [P6-02](issues/P6-02.md), [P6-03](issues/P6-03.md), [P6-04](issues/P6-04.md) |
 | R25 | Gated historical voice-only pass, 20 canary and cross-year human labels | [P7-01](issues/P7-01.md), [P7-02](issues/P7-02.md), [P7-03](issues/P7-03.md), [P7-04](issues/P7-04.md) |
 | R26 | Gated prioritized remaining ASR, bounded batches and final audit | [P8-01](issues/P8-01.md), [P8-02](issues/P8-02.md), [P8-03](issues/P8-03.md), [P8-04](issues/P8-04.md) |
-| R27 | Luna implementation, Sol review/remediation, user release of every phase | [P0-06](issues/P0-06.md), [P0](issues/P0.md), [P1](issues/P1.md), [P2](issues/P2.md), [P3](issues/P3.md), [P4](issues/P4.md), [P5](issues/P5.md), [P6](issues/P6.md), [P7](issues/P7.md), [P8](issues/P8.md) |
+| R27 | Luna implementation, Sol review/remediation, user release of every phase | [P0-06](issues/P0-06.md), [P0](issues/P0.md), [P1](issues/P1.md), [P1R](issues/P1R.md), [P2](issues/P2.md), [P3](issues/P3.md), [P4](issues/P4.md), [P5](issues/P5.md), [P6](issues/P6.md), [P7](issues/P7.md), [P8](issues/P8.md) |
 | R28 | Idempotent GitHub setup, native parents/blockers, fields/views and no milestones | [P0-06](issues/P0-06.md) |
 
 ## Review follow-ups

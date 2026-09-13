@@ -30,7 +30,7 @@ The checks validate IDs, issue completeness/metadata, parent/blocker graph, rele
 | Ensemble | Full three-model baseline; centroid union from all three, deterministic one-to-one exemplar matching, conditional logistic calibration | Cascade as initial alternative, vague matching/calibration |
 | Identity | Human-confirmed global membership, manual names, reject/uncertain/undo/split with contradiction checks | Automatic high-confidence linking/clustering |
 | Excerpts/time | >=3 seconds, prefer 8–15, max ten, exclude overlap/250 ms transitions; persisted integer milliseconds | Broader duration guidance and seconds-based examples |
-| Evaluation | Human golden truth, fixed splits, reviewed voice/text labels, measurable release gates | Suggested benchmark without complete annotation/split procedure |
+| Transcription evaluation | P1R model-independent chunks, episode-level splits, human audio-verified truth and separate ASR/diarization/attribution scoring | P1 whole-episode, manually word-timed golden gate |
 | Paid benchmark | Identical stratified 20-minute development subset, MAI and Voxtral, US$10 total including probes/retries | 3–5-hour multi-provider comparison including Scribe |
 | Cloud | shared-inference embeddings plus bounded upstream transcription extension; validated timing and index equivalence | Unspecified cloud replacement interface |
 | Website | Entire website behind Cloudflare Access with origin JWT/CSRF checks; bounded ephemeral uploads | Incomplete runtime/security/search contract |
@@ -39,7 +39,7 @@ The checks validate IDs, issue completeness/metadata, parent/blocker graph, rele
 
 These are fixed initial candidates and acceptance targets, not claims that the models are optimal or will pass. Missing checkpoint access, GPU compatibility or quality evidence becomes a blocker. No silent substitutions, fabricated timing/confidence, vector-space mixing or automatic identity merges.
 
-The specification resolves execution gaps without changing scope: P1-H01/P3-H01/P5-H01 make operator inputs explicit; P7-01 runs the bounded 20 historical canary before its human evaluation; P6-03 obtains human annotations for new canary material as needed. Five contiguous golden blocks fix 80/20 development/held-out membership. Expansion uses the original date cutoff for nested 20/40/400 cohorts. Deterministic defaults and evidentiary minima are documented in D6–D9 and E3; changing them requires a recorded design decision and review, not silent tuning on held-out data.
+P1R replaces P1's transcription-evaluation release semantics without deleting its useful implementation or history. Its migration child is the only work authorized to mark methodology-specific P1 follow-ups not planned and to rewrite affected downstream dependencies. P1R uses frozen multi-episode, approximately 10–15 second adaptive chunks; partitions are independent at episode level. Human listening establishes text/speaker truth, while ASR candidates and a local Qwen helper are drafts only. Word timestamps remain optional artifacts, not gold or a release criterion. Expansion uses the original date cutoff for nested 20/40/400 cohorts. Deterministic defaults and evidentiary minima require a recorded design decision and review, not silent tuning on held-out data.
 
 ## Instructions for the GitHub setup agent
 
@@ -66,4 +66,4 @@ Implement one bounded Luna issue, run its required checks, commit the result dir
 - [x] Sol follow-up selection and user release gates remain extensible.
 - [x] Proposed review skill and all required future README/architecture prompt deliverables specified.
 - [ ] Future setup run: permissions, published planning links, private Project, issues, relationships, views and ID map verified.
-- [ ] Future implementation: P0–P8 executed and individually released by the user.
+- [ ] Future implementation: P0, legacy P1 migration/P1R, then P2–P8 executed and individually released by the user.

@@ -34,9 +34,12 @@ hypotheses, episode partitions and source hashes together.
 
 The P1R chunker records its version, canonical duration configuration and
 boundary-input fingerprints on `ChunkBenchmarkManifest`. Each `AudioChunk`
-also carries the resulting segmentation fingerprint. Chunk boundaries are
-source-relative and are selected from silence/VAD, speaker-turn and acoustic
-evidence only; ASR text and model fingerprints are not inputs to segmentation.
+also carries the resulting segmentation fingerprint. Legacy P1R boundaries are
+source-relative and selected from their declared evidence; the
+`community1-adaptive-v1` path derives all speech gaps and speaker transitions
+from standard Community-1 turns and persists its boundary reason, overlap flag
+and artifact/configuration provenance. ASR text and model outputs are not
+inputs to this path.
 
 The JSON representation is [schemas/contracts.json](../schemas/contracts.json)
 and synthetic, non-private examples live in

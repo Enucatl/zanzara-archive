@@ -19,6 +19,16 @@ ContractStatus = Literal["timed", "text_only", "no_words", "missing_asr"]
 TimestampGranularity = Literal["word", "segment"]
 ReferenceReviewStatus = Literal["draft", "human_truth", "superseded", "rejected"]
 ChunkPartition = Literal["development", "held_out"]
+ChunkBoundaryReason = Literal[
+    "episode_start",
+    "strong_gap_and_speaker_change",
+    "strong_gap",
+    "speaker_change",
+    "short_gap_and_speaker_change",
+    "short_gap",
+    "hard_maximum",
+    "episode_end",
+]
 JobState = Literal["queued", "running", "retry_wait", "succeeded", "failed", "cancelled", "blocked"]
 IdentityAction = Literal["same_person", "different_person", "uncertain"]
 IdentityState = Literal["active", "superseded"]
@@ -1145,6 +1155,15 @@ class AudioChunk:
     duration_ms: int | None = None
     condition: ChunkCondition | None = None
     partition: ChunkPartition | None = None
+    boundary_start_reason: ChunkBoundaryReason | None = None
+    boundary_end_reason: ChunkBoundaryReason | None = None
+    boundary_gap_duration_ms: int | None = None
+    boundary_speaker_change: bool = False
+    boundary_overlap_conflict: bool = False
+    distance_from_target_ms: int | None = None
+    diarization_artifact_id: str | None = None
+    segmentation_version: str | None = None
+    segmentation_configuration_hash: str | None = None
 
     def __post_init__(self) -> None:
         _require_id(self.chunk_id, "chunk_id")
@@ -1156,6 +1175,52 @@ class AudioChunk:
         _interval(self.start_ms, self.end_ms, "chunk", self.duration_ms)
         if self.partition is not None:
             _one_of(self.partition, {"development", "held_out"}, "partition")
+        if self.boundary_start_reason is not None:
+            _one_of(
+                self.boundary_start_reason,
+                {
+                    "episode_start",
+                    "strong_gap_and_speaker_change",
+                    "strong_gap",
+                    "speaker_change",
+                    "short_gap_and_speaker_change",
+                    "short_gap",
+                    "hard_maximum",
+                    "episode_end",
+                },
+                "boundary_start_reason",
+            )
+        if self.boundary_end_reason is not None:
+            _one_of(
+                self.boundary_end_reason,
+                {
+                    "strong_gap_and_speaker_change",
+                    "strong_gap",
+                    "speaker_change",
+                    "short_gap_and_speaker_change",
+                    "short_gap",
+                    "hard_maximum",
+                    "episode_end",
+                },
+                "boundary_end_reason",
+            )
+        if self.boundary_gap_duration_ms is not None:
+            _require_nonnegative_int(self.boundary_gap_duration_ms, "boundary_gap_duration_ms")
+        if not isinstance(self.boundary_speaker_change, bool):
+            raise ContractValidationError("boundary_speaker_change must be boolean")
+        if not isinstance(self.boundary_overlap_conflict, bool):
+            raise ContractValidationError("boundary_overlap_conflict must be boolean")
+        if self.distance_from_target_ms is not None:
+            _require_nonnegative_int(self.distance_from_target_ms, "distance_from_target_ms")
+        if self.diarization_artifact_id is not None:
+            _require_id(self.diarization_artifact_id, "diarization_artifact_id")
+        if self.segmentation_version is not None:
+            _require_text(self.segmentation_version, "segmentation_version")
+        if self.segmentation_configuration_hash is not None:
+            _require_sha256(
+                self.segmentation_configuration_hash,
+                "segmentation_configuration_hash",
+            )
         if self.condition is not None:
             self.condition.validate_bounds(self.start_ms, self.end_ms)
 
@@ -1190,6 +1255,15 @@ class AudioChunk:
         duration_ms: int | None = None,
         condition: ChunkCondition | None = None,
         partition: ChunkPartition | None = None,
+        boundary_start_reason: ChunkBoundaryReason | None = None,
+        boundary_end_reason: ChunkBoundaryReason | None = None,
+        boundary_gap_duration_ms: int | None = None,
+        boundary_speaker_change: bool = False,
+        boundary_overlap_conflict: bool = False,
+        distance_from_target_ms: int | None = None,
+        diarization_artifact_id: str | None = None,
+        segmentation_version: str | None = None,
+        segmentation_configuration_hash: str | None = None,
     ) -> AudioChunk:
         """Create a chunk with its deterministic ID derived from immutable inputs."""
 
@@ -1205,6 +1279,15 @@ class AudioChunk:
             duration_ms=duration_ms,
             condition=condition,
             partition=partition,
+            boundary_start_reason=boundary_start_reason,
+            boundary_end_reason=boundary_end_reason,
+            boundary_gap_duration_ms=boundary_gap_duration_ms,
+            boundary_speaker_change=boundary_speaker_change,
+            boundary_overlap_conflict=boundary_overlap_conflict,
+            distance_from_target_ms=distance_from_target_ms,
+            diarization_artifact_id=diarization_artifact_id,
+            segmentation_version=segmentation_version,
+            segmentation_configuration_hash=segmentation_configuration_hash,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1220,6 +1303,15 @@ class AudioChunk:
             "duration_ms": self.duration_ms,
             "condition": self.condition.to_dict() if self.condition is not None else None,
             "partition": self.partition,
+            "boundary_start_reason": self.boundary_start_reason,
+            "boundary_end_reason": self.boundary_end_reason,
+            "boundary_gap_duration_ms": self.boundary_gap_duration_ms,
+            "boundary_speaker_change": self.boundary_speaker_change,
+            "boundary_overlap_conflict": self.boundary_overlap_conflict,
+            "distance_from_target_ms": self.distance_from_target_ms,
+            "diarization_artifact_id": self.diarization_artifact_id,
+            "segmentation_version": self.segmentation_version,
+            "segmentation_configuration_hash": self.segmentation_configuration_hash,
         }
 
     @classmethod
@@ -2326,6 +2418,7 @@ __all__ = [
     "BudgetBlockedError",
     "CandidateScore",
     "CapabilityDeclaration",
+    "ChunkBoundaryReason",
     "ContractValidationError",
     "DiarizationResult",
     "Diarizer",

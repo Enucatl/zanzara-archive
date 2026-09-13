@@ -131,7 +131,87 @@ class ChunkSegmentationConfig:
     def from_dict(cls, value: Mapping[str, Any]) -> ChunkSegmentationConfig:
         """Restore a policy from JSON-compatible data."""
 
+        if value.get("algorithm") == "community1-adaptive-v1" and cls is ChunkSegmentationConfig:
+            return Community1AdaptiveConfig.from_dict(value)
         return cls(**dict(value))
+
+
+@dataclass(frozen=True, slots=True)
+class Community1AdaptiveConfig(ChunkSegmentationConfig):
+    """Versioned Community-1 standard-diarization boundary policy.
+
+    The parent ``ChunkSegmentationConfig`` remains available for legacy P1R
+    callers.  This policy is intentionally expressed in integer milliseconds:
+    the values are part of the configuration fingerprint and never appear as
+    unversioned literals in the selector.
+    """
+
+    version: str = "community1-adaptive-v1"
+    strong_gap_ms: int = 600
+    short_gap_ms: int = 250
+    speaker_change_tolerance_ms: int = 250
+    overlap_margin_ms: int = 250
+    minimum_chunk_ms: int = 4_000
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        for field_name in (
+            "strong_gap_ms",
+            "short_gap_ms",
+            "speaker_change_tolerance_ms",
+            "overlap_margin_ms",
+            "minimum_chunk_ms",
+        ):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ContractValidationError(f"{field_name} must be a positive integer")
+        if self.strong_gap_ms <= self.short_gap_ms:
+            raise ContractValidationError("strong_gap_ms must exceed short_gap_ms")
+        if self.minimum_chunk_ms > self.preferred_min_ms:
+            raise ContractValidationError("minimum_chunk_ms cannot exceed preferred_min_ms")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize every value that influences Community-1 segmentation."""
+
+        return {
+            "version": self.version,
+            "algorithm": "community1-adaptive-v1",
+            "preferred_min_ms": self.preferred_min_ms,
+            "target_ms": self.target_ms,
+            "preferred_max_ms": self.preferred_max_ms,
+            "hard_max_ms": self.hard_max_ms,
+            "strong_gap_ms": self.strong_gap_ms,
+            "short_gap_ms": self.short_gap_ms,
+            "speaker_change_tolerance_ms": self.speaker_change_tolerance_ms,
+            "overlap_margin_ms": self.overlap_margin_ms,
+            "minimum_chunk_ms": self.minimum_chunk_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> Community1AdaptiveConfig:
+        """Restore the millisecond policy from a manifest."""
+
+        payload = dict(value)
+        for seconds, milliseconds in (
+            ("preferred_min_s", "preferred_min_ms"),
+            ("target_s", "target_ms"),
+            ("preferred_max_s", "preferred_max_ms"),
+            ("hard_max_s", "hard_max_ms"),
+        ):
+            if milliseconds in payload:
+                payload[seconds] = payload.pop(milliseconds) / 1000
+        for key in (
+            "algorithm",
+            "configuration_sha256",
+            "duration_ms",
+            "episode_id",
+            "selected_regions_ms",
+            "diarization_artifact_id",
+            "diarization_fingerprint",
+            "diarization_model_fingerprint",
+        ):
+            payload.pop(key, None)
+        return cls(**payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +264,38 @@ BoundaryCandidate = AcousticBoundary
 
 
 @dataclass(frozen=True, slots=True)
+class _CommunityBoundary:
+    """One boundary derived only from Community-1 standard turns."""
+
+    time_ms: int
+    reason: str
+    gap_duration_ms: int | None = None
+    speaker_change: bool = False
+    overlap_conflict: bool = False
+
+    @property
+    def priority(self) -> int:
+        return {
+            "strong_gap_and_speaker_change": 1,
+            "strong_gap": 2,
+            "speaker_change": 3,
+            "short_gap_and_speaker_change": 4,
+            "short_gap": 5,
+        }[self.reason]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the candidate for private deterministic diagnostics."""
+
+        return {
+            "time_ms": self.time_ms,
+            "reason": self.reason,
+            "gap_duration_ms": self.gap_duration_ms,
+            "speaker_change": self.speaker_change,
+            "overlap_conflict": self.overlap_conflict,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ChunkSegmentationResult:
     """Chunks plus the metadata needed to publish their segmentation."""
 
@@ -192,6 +304,7 @@ class ChunkSegmentationResult:
     configuration: Mapping[str, Any]
     input_fingerprints: tuple[str, ...]
     segmentation_fingerprint: str
+    boundary_diagnostics: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.chunks:
@@ -337,6 +450,218 @@ def _diarization_turns(value: object, *, duration_ms: int) -> tuple[Turn, ...]:
     return _normalize_turns(raw, field_name="diarization.standard_turns", duration_ms=duration_ms)
 
 
+def _diarization_value(value: object, name: str, default: object = None) -> object:
+    if isinstance(value, Mapping):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _community_turns(
+    *,
+    duration_ms: int,
+    diarization: object | None,
+    standard_turns: Sequence[object] | None,
+    diarization_turns: Sequence[object],
+    speaker_turns: Sequence[object],
+    source_sha256: str,
+) -> tuple[tuple[Turn, ...], str | None, str | None]:
+    """Read and validate the Community-1 standard view and its provenance."""
+
+    if diarization is not None:
+        if isinstance(diarization, Mapping) and "standard_turns" not in diarization:
+            raise ContractValidationError("diarization artifact is missing standard_turns")
+        if not isinstance(diarization, Mapping) and not hasattr(diarization, "standard_turns"):
+            raise ContractValidationError("diarization artifact is missing standard_turns")
+        reported_source = _diarization_value(diarization, "source_sha256")
+        if reported_source is not None and reported_source != source_sha256:
+            raise ContractValidationError("diarization source hash does not match the episode")
+        reported_duration = _diarization_value(diarization, "duration_ms")
+        if reported_duration is not None and reported_duration != duration_ms:
+            raise ContractValidationError("diarization duration does not match the episode")
+        artifact_id = _diarization_value(diarization, "artifact_id")
+        model = _diarization_value(diarization, "model")
+        model_fingerprint = (
+            _diarization_value(model, "fingerprint_sha256")
+            if model is not None
+            else _diarization_value(diarization, "model_fingerprint_sha256")
+        )
+        if standard_turns is not None:
+            raw_turns = standard_turns
+        else:
+            raw_turns = _diarization_turns(diarization, duration_ms=duration_ms)
+    elif standard_turns is not None:
+        artifact_id = None
+        model_fingerprint = None
+        raw_turns = standard_turns
+    elif diarization_turns:
+        artifact_id = None
+        model_fingerprint = None
+        raw_turns = diarization_turns
+    else:
+        # ``speaker_turns`` is the P1R-03 name.  It remains accepted as a
+        # standard-turn alias by the explicit Community-1 wrapper.
+        artifact_id = None
+        model_fingerprint = None
+        raw_turns = speaker_turns
+
+    turns = _normalize_turns(
+        raw_turns,
+        field_name="diarization.standard_turns",
+        duration_ms=duration_ms,
+    )
+    previous: tuple[int, int] | None = None
+    for index, turn in enumerate(turns):
+        current = (turn.start_ms, turn.end_ms)
+        if previous is not None and current < previous:
+            raise ContractValidationError(
+                f"diarization.standard_turns[{index}] is not monotonically ordered"
+            )
+        previous = current
+    if artifact_id is not None:
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise ContractValidationError("diarization artifact_id must be non-empty text")
+    if model_fingerprint is not None:
+        _provided_digest(model_fingerprint, field_name="diarization model fingerprint")
+    return turns, artifact_id, model_fingerprint
+
+
+def _active_segments(
+    turns: Sequence[Turn], duration_ms: int
+) -> tuple[tuple[int, int, frozenset[str]], ...]:
+    """Return maximal source intervals with a constant active speaker set."""
+
+    points = sorted(
+        {0, duration_ms, *(point for turn in turns for point in (turn.start_ms, turn.end_ms))}
+    )
+    segments: list[tuple[int, int, frozenset[str]]] = []
+    for start_ms, end_ms in zip(points, points[1:], strict=False):
+        active = frozenset(
+            turn.speaker_id for turn in turns if turn.start_ms < end_ms and turn.end_ms > start_ms
+        )
+        if segments and segments[-1][2] == active and segments[-1][1] == start_ms:
+            segments[-1] = (segments[-1][0], end_ms, active)
+        else:
+            segments.append((start_ms, end_ms, active))
+    return tuple(segments)
+
+
+def _overlap_intervals(segments: Sequence[tuple[int, int, frozenset[str]]]) -> tuple[Interval, ...]:
+    return tuple((start_ms, end_ms) for start_ms, end_ms, active in segments if len(active) >= 2)
+
+
+def _is_overlap_conflicted(
+    time_ms: int,
+    overlaps: Sequence[Interval],
+    margin_ms: int,
+) -> bool:
+    return any(
+        start_ms - margin_ms <= time_ms <= end_ms + margin_ms for start_ms, end_ms in overlaps
+    )
+
+
+def _edge_speaker(turns: Sequence[Turn], *, boundary_ms: int, before: bool) -> str | None:
+    """Choose the deterministic last/first speaker at a speech-gap edge."""
+
+    matching = (
+        [turn for turn in turns if turn.end_ms == boundary_ms]
+        if before
+        else [turn for turn in turns if turn.start_ms == boundary_ms]
+    )
+    if not matching:
+        return None
+    if before:
+        selected = max(matching, key=lambda turn: (turn.start_ms, turn.end_ms, turn.speaker_id))
+    else:
+        selected = min(matching, key=lambda turn: (turn.end_ms, turn.start_ms, turn.speaker_id))
+    return selected.speaker_id
+
+
+def _community_boundaries(
+    turns: Sequence[Turn],
+    *,
+    duration_ms: int,
+    config: Community1AdaptiveConfig,
+) -> tuple[_CommunityBoundary, ...]:
+    """Extract gap and clean-transition candidates from standard diarization."""
+
+    segments = _active_segments(turns, duration_ms)
+    overlaps = _overlap_intervals(segments)
+    candidates: list[_CommunityBoundary] = []
+    for start_ms, end_ms, active in segments:
+        if active:
+            continue
+        gap_duration_ms = end_ms - start_ms
+        if gap_duration_ms < config.short_gap_ms:
+            continue
+        midpoint_ms = (start_ms + end_ms) // 2
+        outgoing = _edge_speaker(turns, boundary_ms=start_ms, before=True)
+        incoming = _edge_speaker(turns, boundary_ms=end_ms, before=False)
+        speaker_change = outgoing is not None and incoming is not None and outgoing != incoming
+        if gap_duration_ms >= config.strong_gap_ms:
+            reason = "strong_gap_and_speaker_change" if speaker_change else "strong_gap"
+        else:
+            reason = "short_gap_and_speaker_change" if speaker_change else "short_gap"
+        candidates.append(
+            _CommunityBoundary(
+                time_ms=midpoint_ms,
+                reason=reason,
+                gap_duration_ms=gap_duration_ms,
+                speaker_change=speaker_change,
+                overlap_conflict=_is_overlap_conflicted(
+                    midpoint_ms, overlaps, config.overlap_margin_ms
+                ),
+            )
+        )
+
+    # A clean change may have a micro-gap, or two near-contiguous turns.  Pair
+    # only turns whose boundaries are within the fixed tolerance, then apply
+    # the active-speaker and overlap checks to the resulting midpoint.
+    for outgoing in turns:
+        for incoming in turns:
+            if outgoing.speaker_id == incoming.speaker_id:
+                continue
+            delta_ms = incoming.start_ms - outgoing.end_ms
+            if abs(delta_ms) > config.speaker_change_tolerance_ms:
+                continue
+            midpoint_ms = (outgoing.end_ms + incoming.start_ms) // 2
+            before_active = frozenset(
+                turn.speaker_id for turn in turns if turn.start_ms < midpoint_ms <= turn.end_ms
+            )
+            after_active = frozenset(
+                turn.speaker_id for turn in turns if turn.start_ms <= midpoint_ms < turn.end_ms
+            )
+            overlap_conflict = _is_overlap_conflicted(
+                midpoint_ms, overlaps, config.overlap_margin_ms
+            )
+            if (
+                len(before_active) != 1
+                or len(after_active) != 1
+                or before_active == after_active
+                or overlap_conflict
+            ):
+                continue
+            candidates.append(
+                _CommunityBoundary(
+                    time_ms=midpoint_ms,
+                    reason="speaker_change",
+                    speaker_change=True,
+                    overlap_conflict=False,
+                )
+            )
+
+    # Distinct extraction paths can describe the same timestamp.  Prefer the
+    # stronger class and retain one deterministic record per timestamp.
+    unique: dict[int, _CommunityBoundary] = {}
+    for candidate in candidates:
+        previous = unique.get(candidate.time_ms)
+        if previous is None or (
+            candidate.priority,
+            candidate.time_ms,
+        ) < (previous.priority, previous.time_ms):
+            unique[candidate.time_ms] = candidate
+    return tuple(sorted(unique.values(), key=lambda item: (item.time_ms, item.priority)))
+
+
 def _candidate_records(
     *,
     vad_boundaries: tuple[AcousticBoundary, ...],
@@ -406,6 +731,210 @@ def _choose_boundary(
     # Reserve a preferred-sized final interval when a hard cut would leave a
     # tiny tail.  This still keeps every emitted interval at or below hard_max.
     return min(current_ms + config.hard_max_ms, region_end_ms - config.preferred_min_ms)
+
+
+def _select_community_boundary(
+    current_ms: int,
+    region_end_ms: int,
+    candidates: Sequence[_CommunityBoundary],
+    config: Community1AdaptiveConfig,
+) -> tuple[int, str, _CommunityBoundary | None]:
+    """Select one Community-1 boundary using the fixed priority policy."""
+
+    remaining_ms = region_end_ms - current_ms
+    if remaining_ms <= config.hard_max_ms:
+        return region_end_ms, "episode_end", None
+
+    preferred_min = current_ms + config.preferred_min_ms
+    preferred_max = current_ms + config.preferred_max_ms
+    hard_max = min(region_end_ms, current_ms + config.hard_max_ms)
+    target = current_ms + config.target_ms
+
+    def in_range(candidate: _CommunityBoundary, lower: int, upper: int) -> bool:
+        return lower <= candidate.time_ms <= upper and candidate.time_ms < region_end_ms
+
+    natural = [
+        candidate
+        for candidate in candidates
+        if in_range(candidate, preferred_min, preferred_max) and not candidate.overlap_conflict
+    ]
+    if natural:
+        selected = min(
+            natural,
+            key=lambda candidate: (
+                candidate.priority,
+                abs(candidate.time_ms - target),
+                candidate.time_ms,
+            ),
+        )
+        return selected.time_ms, selected.reason, selected
+
+    extension = [
+        candidate
+        for candidate in candidates
+        if in_range(candidate, preferred_max + 1, hard_max) and not candidate.overlap_conflict
+    ]
+    if extension:
+        highest_priority = min(candidate.priority for candidate in extension)
+        selected = min(
+            (candidate for candidate in extension if candidate.priority == highest_priority),
+            key=lambda candidate: candidate.time_ms,
+        )
+        return selected.time_ms, selected.reason, selected
+
+    # An overlap-conflicted transition is allowed only when the clean search
+    # would otherwise fall through to hard maximum.  Apply the same priority
+    # rules in the preferred interval and earliest-in-class rule in extension.
+    conflicted_preferred = [
+        candidate
+        for candidate in candidates
+        if in_range(candidate, preferred_min, preferred_max) and candidate.overlap_conflict
+    ]
+    if conflicted_preferred:
+        selected = min(
+            conflicted_preferred,
+            key=lambda candidate: (
+                candidate.priority,
+                abs(candidate.time_ms - target),
+                candidate.time_ms,
+            ),
+        )
+        return selected.time_ms, selected.reason, selected
+
+    conflicted_extension = [
+        candidate
+        for candidate in candidates
+        if in_range(candidate, preferred_max + 1, hard_max) and candidate.overlap_conflict
+    ]
+    if conflicted_extension:
+        highest_priority = min(candidate.priority for candidate in conflicted_extension)
+        selected = min(
+            (
+                candidate
+                for candidate in conflicted_extension
+                if candidate.priority == highest_priority
+            ),
+            key=lambda candidate: candidate.time_ms,
+        )
+        return selected.time_ms, selected.reason, selected
+    return hard_max, "hard_maximum", None
+
+
+def _community_chunk(
+    *,
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    start_ms: int,
+    end_ms: int,
+    reason: str,
+    candidate: _CommunityBoundary | None,
+    start_reason: str | None,
+    partition: Literal["development", "held_out"] | None,
+    fingerprint: str,
+    config: Community1AdaptiveConfig,
+    diarization_artifact_id: str | None,
+) -> AudioChunk:
+    return AudioChunk.create(
+        episode_id=episode_id,
+        source_sha256=source_sha256,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        duration_ms=duration_ms,
+        segmentation_fingerprint=fingerprint,
+        partition=partition,
+        boundary_start_reason=start_reason,
+        boundary_end_reason=reason,  # type: ignore[arg-type]
+        boundary_gap_duration_ms=(candidate.gap_duration_ms if candidate else None),
+        boundary_speaker_change=bool(candidate and candidate.speaker_change),
+        boundary_overlap_conflict=bool(candidate and candidate.overlap_conflict),
+        distance_from_target_ms=abs(end_ms - start_ms - config.target_ms),
+        diarization_artifact_id=diarization_artifact_id,
+        segmentation_version=config.version,
+        segmentation_configuration_hash=config.configuration_sha256,
+    )
+
+
+def _segment_community1(
+    *,
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    config: Community1AdaptiveConfig,
+    turns: tuple[Turn, ...],
+    selected_regions: tuple[Interval, ...],
+    partition: Literal["development", "held_out"] | None,
+    diarization_artifact_id: str | None,
+    fingerprint: str,
+) -> tuple[tuple[AudioChunk, ...], tuple[Mapping[str, Any], ...]]:
+    candidates = _community_boundaries(turns, duration_ms=duration_ms, config=config)
+    chunks: list[AudioChunk] = []
+    diagnostics: list[Mapping[str, Any]] = []
+    for region_start, region_end in selected_regions:
+        current = region_start
+        region_chunks: list[AudioChunk] = []
+        while current < region_end:
+            remaining_ms = region_end - current
+            if remaining_ms < config.preferred_min_ms and region_chunks:
+                previous = region_chunks[-1]
+                if region_end - previous.start_ms <= config.hard_max_ms:
+                    merged = _community_chunk(
+                        episode_id=episode_id,
+                        source_sha256=source_sha256,
+                        duration_ms=duration_ms,
+                        start_ms=previous.start_ms,
+                        end_ms=region_end,
+                        reason="episode_end",
+                        candidate=None,
+                        start_reason=previous.boundary_start_reason,
+                        partition=partition,
+                        fingerprint=fingerprint,
+                        config=config,
+                        diarization_artifact_id=diarization_artifact_id,
+                    )
+                    region_chunks[-1] = merged
+                    diagnostics[-1] = {
+                        **diagnostics[-1],
+                        "end_ms": region_end,
+                        "reason": "episode_end",
+                        "distance_from_target_ms": merged.distance_from_target_ms,
+                    }
+                    current = region_end
+                    continue
+            end_ms, reason, candidate = _select_community_boundary(
+                current, region_end, candidates, config
+            )
+            chunk = _community_chunk(
+                episode_id=episode_id,
+                source_sha256=source_sha256,
+                duration_ms=duration_ms,
+                start_ms=current,
+                end_ms=end_ms,
+                reason=reason,
+                candidate=candidate,
+                start_reason=(
+                    region_chunks[-1].boundary_end_reason if region_chunks else "episode_start"
+                ),
+                partition=partition,
+                fingerprint=fingerprint,
+                config=config,
+                diarization_artifact_id=diarization_artifact_id,
+            )
+            region_chunks.append(chunk)
+            diagnostics.append(
+                {
+                    "start_ms": current,
+                    "end_ms": end_ms,
+                    "reason": reason,
+                    "gap_duration_ms": candidate.gap_duration_ms if candidate else None,
+                    "speaker_change": bool(candidate and candidate.speaker_change),
+                    "overlap_conflict": bool(candidate and candidate.overlap_conflict),
+                    "distance_from_target_ms": chunk.distance_from_target_ms,
+                }
+            )
+            current = end_ms
+        chunks.extend(region_chunks)
+    return tuple(chunks), tuple(diagnostics)
 
 
 def _validate_coverage(
@@ -528,6 +1057,88 @@ def _prepare_inputs(
     return regions, vad, acoustic, turns, all_digests, fingerprint
 
 
+def _prepare_community_inputs(
+    *,
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    config: Community1AdaptiveConfig,
+    standard_turns: Sequence[object] | None,
+    speaker_turns: Sequence[object],
+    diarization_turns: Sequence[object],
+    diarization: object | None,
+    selected_regions: Sequence[object] | None,
+    diarization_fingerprint: str | None,
+    input_fingerprints: Sequence[str],
+    diarization_artifact_id: str | None,
+) -> tuple[
+    tuple[Interval, ...],
+    tuple[Turn, ...],
+    tuple[str, ...],
+    str,
+    str | None,
+    str | None,
+]:
+    if not isinstance(episode_id, str) or not episode_id.strip():
+        raise ContractValidationError("episode_id must be non-empty text")
+    if (
+        not isinstance(source_sha256, str)
+        or len(source_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in source_sha256)
+    ):
+        raise ContractValidationError("source_sha256 must be a lowercase SHA-256")
+    if isinstance(duration_ms, bool) or not isinstance(duration_ms, int) or duration_ms <= 0:
+        raise ContractValidationError("duration_ms must be a positive integer")
+    regions = _normalize_regions(selected_regions, duration_ms)
+    turns, artifact_id, model_fingerprint = _community_turns(
+        duration_ms=duration_ms,
+        diarization=diarization,
+        standard_turns=standard_turns,
+        diarization_turns=diarization_turns,
+        speaker_turns=speaker_turns,
+        source_sha256=source_sha256,
+    )
+    if (
+        diarization_artifact_id is not None
+        and artifact_id is not None
+        and diarization_artifact_id != artifact_id
+    ):
+        raise ContractValidationError(
+            "diarization_artifact_id does not match the supplied artifact"
+        )
+    artifact_id = diarization_artifact_id or artifact_id
+    if artifact_id is not None and (not isinstance(artifact_id, str) or not artifact_id.strip()):
+        raise ContractValidationError("diarization_artifact_id must be non-empty text")
+    normalized_turns = [turn.to_dict() for turn in turns]
+    diarization_values: dict[str, Any] = {
+        "standard_turns": normalized_turns,
+        "artifact_id": artifact_id,
+        "model_fingerprint_sha256": model_fingerprint,
+    }
+    digest = _provided_digest(
+        diarization_fingerprint, field_name="diarization_fingerprint"
+    ) or _input_digest("community1-standard-diarization", diarization_values)
+    extra_digests = tuple(
+        _provided_digest(value, field_name=f"input_fingerprints[{index}]") or value
+        for index, value in enumerate(input_fingerprints)
+    )
+    all_digests = (digest,) + extra_digests
+    fingerprint = stage_fingerprint(
+        "benchmark_chunks",
+        source_sha256=source_sha256,
+        upstream_artifact_hashes=all_digests,
+        configuration={
+            "algorithm": config.version,
+            "duration_ms": duration_ms,
+            "episode_id": episode_id,
+            "selected_regions_ms": [list(region) for region in regions],
+            "segmentation": config.to_dict(),
+        },
+        pipeline_version=config.version,
+    )
+    return regions, turns, all_digests, fingerprint, artifact_id, model_fingerprint
+
+
 def segment_chunks_with_metadata(
     episode_id: str,
     source_sha256: str,
@@ -538,6 +1149,7 @@ def segment_chunks_with_metadata(
     acoustic_boundaries: Sequence[object] = (),
     speaker_turns: Sequence[object] = (),
     diarization_turns: Sequence[object] = (),
+    standard_turns: Sequence[object] | None = None,
     diarization: object | None = None,
     selected_regions: Sequence[object] | None = None,
     partition: Literal["development", "held_out"] | None = None,
@@ -545,14 +1157,96 @@ def segment_chunks_with_metadata(
     acoustic_fingerprint: str | None = None,
     diarization_fingerprint: str | None = None,
     input_fingerprints: Sequence[str] = (),
+    diarization_artifact_id: str | None = None,
+    algorithm: str | None = None,
 ) -> ChunkSegmentationResult:
     """Build deterministic chunks and their publication metadata.
 
     Boundary times are always interpreted in the original episode timeline.
-    ``diarization_turns`` is an alias for supplying Community-1 standard turns;
-    it is combined with ``speaker_turns`` for compatibility with callers that
-    use either name.
+    Supplying ``standard_turns``, ``diarization_turns`` or ``diarization``
+    selects ``community1-adaptive-v1`` and uses only standard Community-1
+    turns. The explicit ``algorithm`` argument can require that path even when
+    the input is absent, which produces a validation error instead of a
+    fallback. Calls without those inputs retain the legacy P1R policy.
     """
+
+    if algorithm not in (None, "p1r-chunk-segmentation-v1", "community1-adaptive-v1"):
+        raise ContractValidationError(f"unsupported chunk segmentation algorithm: {algorithm}")
+    use_community = algorithm == "community1-adaptive-v1" or any(
+        (
+            standard_turns is not None,
+            diarization is not None,
+            bool(diarization_turns),
+            diarization_artifact_id is not None,
+        )
+    )
+    if use_community:
+        community_config = (
+            config
+            if isinstance(config, Community1AdaptiveConfig)
+            else Community1AdaptiveConfig(
+                preferred_min_s=(config.preferred_min_s if config else 8.0),
+                target_s=(config.target_s if config else 12.0),
+                preferred_max_s=(config.preferred_max_s if config else 18.0),
+                hard_max_s=(config.hard_max_s if config else 30.0),
+            )
+        )
+        if (
+            standard_turns is None
+            and diarization is None
+            and not diarization_turns
+            and not speaker_turns
+        ):
+            raise ContractValidationError(
+                "community1-adaptive-v1 requires Community-1 standard diarization"
+            )
+        regions, turns, input_hashes, fingerprint, artifact_id, model_fingerprint = (
+            _prepare_community_inputs(
+                episode_id=episode_id,
+                source_sha256=source_sha256,
+                duration_ms=duration_ms,
+                config=community_config,
+                standard_turns=standard_turns,
+                speaker_turns=speaker_turns,
+                diarization_turns=diarization_turns,
+                diarization=diarization,
+                selected_regions=selected_regions,
+                diarization_fingerprint=diarization_fingerprint,
+                input_fingerprints=input_fingerprints,
+                diarization_artifact_id=diarization_artifact_id,
+            )
+        )
+        chunks, diagnostics = _segment_community1(
+            episode_id=episode_id,
+            source_sha256=source_sha256,
+            duration_ms=duration_ms,
+            config=community_config,
+            turns=turns,
+            selected_regions=regions,
+            partition=partition,
+            diarization_artifact_id=artifact_id,
+            fingerprint=fingerprint,
+        )
+        configuration = {
+            **community_config.to_dict(),
+            "configuration_sha256": community_config.configuration_sha256,
+            "duration_ms": duration_ms,
+            "episode_id": episode_id,
+            "selected_regions_ms": [list(region) for region in regions],
+            "diarization_artifact_id": artifact_id,
+            "diarization_fingerprint": input_hashes[0],
+            "diarization_model_fingerprint": model_fingerprint,
+        }
+        result = ChunkSegmentationResult(
+            chunks=chunks,
+            version=community_config.version,
+            configuration=configuration,
+            input_fingerprints=input_hashes,
+            segmentation_fingerprint=fingerprint,
+            boundary_diagnostics=diagnostics,
+        )
+        _validate_coverage(result.chunks, regions, hard_max_ms=community_config.hard_max_ms)
+        return result
 
     policy = config or ChunkSegmentationConfig()
     regions, vad, acoustic, turns, input_hashes, fingerprint = _prepare_inputs(
@@ -619,6 +1313,36 @@ def segment_chunks(
     return segment_chunks_with_metadata(episode_id, source_sha256, duration_ms, **kwargs).chunks
 
 
+def segment_community1_chunks(
+    episode_id: str,
+    source_sha256: str,
+    duration_ms: int,
+    *,
+    standard_turns: Sequence[object] | None = None,
+    diarization: object | None = None,
+    diarization_artifact_id: str | None = None,
+    config: Community1AdaptiveConfig | None = None,
+    selected_regions: Sequence[object] | None = None,
+    partition: Literal["development", "held_out"] | None = None,
+    diarization_fingerprint: str | None = None,
+) -> tuple[AudioChunk, ...]:
+    """Build chunks from Community-1 standard turns and no other signal."""
+
+    return segment_chunks_with_metadata(
+        episode_id,
+        source_sha256,
+        duration_ms,
+        algorithm="community1-adaptive-v1",
+        config=config,
+        standard_turns=standard_turns,
+        diarization=diarization,
+        diarization_artifact_id=diarization_artifact_id,
+        selected_regions=selected_regions,
+        partition=partition,
+        diarization_fingerprint=diarization_fingerprint,
+    ).chunks
+
+
 def validate_chunk_coverage(
     chunks: Sequence[AudioChunk],
     selected_regions: Sequence[object],
@@ -644,7 +1368,9 @@ __all__ = [
     "BoundaryCandidate",
     "ChunkSegmentationConfig",
     "ChunkSegmentationResult",
+    "Community1AdaptiveConfig",
     "build_audio_chunks",
+    "segment_community1_chunks",
     "segment_audio_chunks",
     "segment_chunks",
     "segment_chunks_with_metadata",

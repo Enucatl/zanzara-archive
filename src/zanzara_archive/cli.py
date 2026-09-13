@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +15,15 @@ from zanzara_archive import __version__
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
 from zanzara_archive.asr import transcribe_windowed
 from zanzara_archive.calibration import build_batch, validate_batch
+from zanzara_archive.chunking import (
+    Community1AdaptiveConfig,
+    segment_chunks_with_metadata,
+    validate_chunk_coverage,
+)
 from zanzara_archive.contracts import (
     AdapterFailure,
     AudioArtifact,
+    AudioChunk,
     DiarizationResult,
     TranscriptResult,
 )
@@ -171,6 +177,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
     )
     export.add_argument("--output", required=True)
+    chunks = commands.add_parser("chunks", help="build and validate benchmark chunk manifests")
+    chunk_commands = chunks.add_subparsers(dest="chunks_command", required=True)
+    chunk_build = chunk_commands.add_parser(
+        "build", help="build Community-1 adaptive chunks from known artifacts"
+    )
+    chunk_build.add_argument("--algorithm", required=True, choices=("community1-adaptive-v1",))
+    chunk_build.add_argument("--manifest", required=True)
+    chunk_build.add_argument("--output", required=True)
+    chunk_build.add_argument(
+        "--artifact-root",
+        default=os.environ.get("ZANZARA_ARTIFACT_ROOT", ".git/zanzara-artifacts"),
+    )
+    chunk_build.add_argument("--model-lock", default="models.lock.json")
+    chunk_build.add_argument("--episode", action="append")
+    chunk_validate = chunk_commands.add_parser(
+        "validate", help="validate a generated benchmark chunk manifest"
+    )
+    chunk_validate.add_argument("--manifest", required=True)
+    chunk_validate.add_argument("--output", help="optional normalized validation output")
+    chunk_validate.add_argument(
+        "--corpus", default="planning/corpus-20.json", help="frozen corpus manifest"
+    )
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
@@ -346,6 +374,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if arguments.command == "chunks":
+        try:
+            result = (
+                _build_chunk_manifest(arguments)
+                if arguments.chunks_command == "build"
+                else _validate_chunk_manifest(arguments)
+            )
+        except (
+            ArtifactPublicationError,
+            CorpusValidationError,
+            OSError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
     if arguments.command == "web":
         if arguments.host not in LOOPBACK_WEB_HOSTS and not arguments.allow_network:
             parser.error(
@@ -482,6 +527,213 @@ def _manifest_digest(manifest: Any) -> str:
         manifest.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _chunk_artifact_path(arguments: argparse.Namespace, episode: Any, corpus: Any) -> Path:
+    """Resolve one deterministic Community-1 artifact without guessing between runs."""
+
+    expected = _default_attribution_input_path(arguments, episode, corpus, stage="diarization")
+    if expected.is_dir() and (expected / "diarization.json").is_file():
+        return expected
+    root = Path(arguments.artifact_root).expanduser().resolve()
+    candidates = sorted(
+        path.parent
+        for path in (root / episode.sha256 / "diarization").glob("*/diarization.json")
+        if path.is_file()
+    )
+    if not candidates:
+        raise ValueError(f"no complete Community-1 artifact found for {episode.relative_filename}")
+    if len(candidates) > 1:
+        raise ValueError(
+            f"multiple Community-1 artifacts found for {episode.relative_filename}; pass one run"
+        )
+    return candidates[0]
+
+
+def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Build a public-safe chunk manifest from private Community-1 artifacts."""
+
+    corpus = load_manifest(arguments.manifest)
+    selected = set(arguments.episode or (item.relative_filename for item in corpus.episodes))
+    known = {item.relative_filename: item for item in corpus.episodes}
+    unknown = selected - known.keys()
+    if unknown:
+        raise CorpusValidationError(f"episode is not present in manifest: {sorted(unknown)[0]}")
+    config = Community1AdaptiveConfig()
+    episode_payloads: list[dict[str, Any]] = []
+    chunks: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    for episode in corpus.episodes:
+        if episode.relative_filename not in selected:
+            continue
+        artifact_path = _chunk_artifact_path(arguments, episode, corpus)
+        artifact_manifest, diarization_payload, _, _ = _load_stage_payload(
+            arguments.artifact_root,
+            artifact_path,
+            expected_stage="diarization",
+            payload_name="diarization.json",
+        )
+        try:
+            diarization = DiarizationResult.from_dict(diarization_payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid Community-1 artifact for {episode.relative_filename}: {exc}"
+            ) from exc
+        _validate_stage_provenance(
+            artifact_manifest,
+            diarization,
+            expected_source_sha256=episode.sha256,
+            stage="diarization",
+        )
+        result = segment_chunks_with_metadata(
+            episode.relative_filename,
+            episode.sha256,
+            episode.duration_ms,
+            algorithm=arguments.algorithm,
+            config=config,
+            diarization=diarization,
+            partition="development",
+        )
+        episode_chunks = [chunk.to_dict() for chunk in result.chunks]
+        episode_diagnostics = [dict(item) for item in result.boundary_diagnostics]
+        chunks.extend(episode_chunks)
+        diagnostics.extend(
+            {"episode_id": episode.relative_filename, **item} for item in episode_diagnostics
+        )
+        episode_payloads.append(
+            {
+                "episode_id": episode.relative_filename,
+                "source_sha256": episode.sha256,
+                "duration_ms": episode.duration_ms,
+                "diarization_artifact_id": diarization.artifact_id,
+                "diarization_model_fingerprint": diarization.model.fingerprint_sha256,
+                "diarization_manifest_sha256": _manifest_digest(artifact_manifest),
+                "chunk_count": len(episode_chunks),
+            }
+        )
+    if not chunks:
+        raise ValueError("chunk manifest requires at least one selected episode")
+    chunks.sort(key=lambda item: (item["episode_id"], item["start_ms"], item["end_ms"]))
+    reason_counts: dict[str, int] = {}
+    hard_maximum_count = 0
+    overlap_conflicted_count = 0
+    short_terminal_count = 0
+    durations: list[int] = []
+    for raw in chunks:
+        durations.append(raw["end_ms"] - raw["start_ms"])
+        reason = raw["boundary_end_reason"]
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        hard_maximum_count += reason == "hard_maximum"
+        overlap_conflicted_count += bool(raw["boundary_overlap_conflict"])
+        short_terminal_count += reason == "episode_end" and durations[-1] < config.minimum_chunk_ms
+    normalized: dict[str, Any] = {
+        "algorithm": arguments.algorithm,
+        "segmentation_version": config.version,
+        "segmentation_configuration": config.to_dict(),
+        "segmentation_configuration_hash": config.configuration_sha256,
+        "corpus_manifest_sha256": corpus.sha256,
+        "episodes": episode_payloads,
+        "chunks": chunks,
+        "boundary_diagnostics": diagnostics,
+        "statistics": {
+            "episode_count": len(episode_payloads),
+            "chunk_count": len(chunks),
+            "mean_duration_ms": sum(durations) / len(durations),
+            "median_duration_ms": sorted(durations)[len(durations) // 2],
+            "p95_duration_ms": sorted(durations)[
+                min(len(durations) - 1, (len(durations) * 95 + 99) // 100 - 1)
+            ],
+            "boundary_reason_counts": reason_counts,
+            "hard_maximum_count": hard_maximum_count,
+            "overlap_conflicted_boundary_count": overlap_conflicted_count,
+            "short_terminal_chunk_count": short_terminal_count,
+        },
+    }
+    normalized["content_sha256"] = hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    output = Path(arguments.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(normalized, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+    return {
+        "path": str(output),
+        "content_sha256": normalized["content_sha256"],
+        "episode_count": len(episode_payloads),
+        "chunk_count": len(chunks),
+    }
+
+
+def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Validate chunk intervals, provenance, ordering and configuration identity."""
+
+    corpus = load_manifest(arguments.corpus)
+    payload = json.loads(Path(arguments.manifest).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("chunk manifest must be a JSON object")
+    if payload.get("algorithm") != "community1-adaptive-v1":
+        raise ValueError("chunk manifest algorithm is not community1-adaptive-v1")
+    if payload.get("corpus_manifest_sha256") != corpus.sha256:
+        raise ValueError("chunk manifest corpus hash does not match the frozen corpus")
+    config = Community1AdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
+    if payload.get("segmentation_version") != config.version:
+        raise ValueError("chunk manifest segmentation version does not match configuration")
+    if payload.get("segmentation_configuration_hash") != config.configuration_sha256:
+        raise ValueError("chunk manifest configuration hash does not match configuration")
+    raw_chunks = payload.get("chunks")
+    if not isinstance(raw_chunks, list) or not raw_chunks:
+        raise ValueError("chunk manifest requires a non-empty chunks array")
+    episodes = {episode.relative_filename: episode for episode in corpus.episodes}
+    parsed = []
+    for index, raw in enumerate(raw_chunks):
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"chunks[{index}] must be an object")
+        chunk = AudioChunk.from_dict(raw)
+        episode = episodes.get(chunk.episode_id)
+        if episode is None or chunk.source_sha256 != episode.sha256:
+            raise ValueError(f"chunks[{index}] has invalid episode/source provenance")
+        if chunk.partition != "development":
+            raise ValueError(f"chunks[{index}] is not a development chunk")
+        if chunk.segmentation_version != config.version:
+            raise ValueError(f"chunks[{index}] has a mismatched segmentation version")
+        if chunk.segmentation_configuration_hash != config.configuration_sha256:
+            raise ValueError(f"chunks[{index}] has a mismatched configuration hash")
+        if chunk.diarization_artifact_id is None:
+            raise ValueError(f"chunks[{index}] is missing Community-1 artifact provenance")
+        parsed.append(chunk)
+    sorted_chunks = sorted(parsed, key=lambda item: (item.episode_id, item.start_ms, item.end_ms))
+    if list(raw_chunks) != [chunk.to_dict() for chunk in sorted_chunks]:
+        raise ValueError("chunk manifest chunks are not stably sorted")
+    for episode_id in sorted({chunk.episode_id for chunk in parsed}):
+        episode = episodes[episode_id]
+        validate_chunk_coverage(
+            [chunk for chunk in parsed if chunk.episode_id == episode_id],
+            ((0, episode.duration_ms),),
+            duration_ms=episode.duration_ms,
+            hard_max_ms=config.hard_max_ms,
+        )
+    expected_content = dict(payload)
+    content_sha256 = expected_content.pop("content_sha256", None)
+    actual_content = hashlib.sha256(
+        json.dumps(
+            expected_content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    if content_sha256 != actual_content:
+        raise ValueError("chunk manifest content hash does not match payload")
+    result = {
+        "valid": True,
+        "content_sha256": actual_content,
+        "episode_count": len({chunk.episode_id for chunk in parsed}),
+        "chunk_count": len(parsed),
+        "algorithm": config.version,
+    }
+    if arguments.output:
+        output = Path(arguments.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return result
 
 
 def _default_attribution_input_path(

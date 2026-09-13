@@ -234,7 +234,16 @@
         "segmentation_fingerprint": {"$ref": "#/$defs/Sha256"},
         "duration_ms": {"anyOf": [{"type": "integer", "exclusiveMinimum": 0}, {"type": "null"}]},
         "condition": {"anyOf": [{"$ref": "#/$defs/ChunkCondition"}, {"type": "null"}]},
-        "partition": {"anyOf": [{"enum": ["development", "held_out"]}, {"type": "null"}]}
+        "partition": {"anyOf": [{"enum": ["development", "held_out"]}, {"type": "null"}]},
+        "boundary_start_reason": {"anyOf": [{"enum": ["episode_start", "strong_gap_and_speaker_change", "strong_gap", "speaker_change", "short_gap_and_speaker_change", "short_gap", "hard_maximum", "episode_end"]}, {"type": "null"}]},
+        "boundary_end_reason": {"anyOf": [{"enum": ["strong_gap_and_speaker_change", "strong_gap", "speaker_change", "short_gap_and_speaker_change", "short_gap", "hard_maximum", "episode_end"]}, {"type": "null"}]},
+        "boundary_gap_duration_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "boundary_speaker_change": {"type": "boolean"},
+        "boundary_overlap_conflict": {"type": "boolean"},
+        "distance_from_target_ms": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "diarization_artifact_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "segmentation_version": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "segmentation_configuration_hash": {"anyOf": [{"$ref": "#/$defs/Sha256"}, {"type": "null"}]}
       },
       "additionalProperties": false
     },

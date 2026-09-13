@@ -1061,6 +1061,9 @@ class ChunkBenchmarkManifest:
     partitions: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     source_hashes: tuple[str, ...] = ()
     source_sha256: str | None = None
+    segmentation_version: str | None = None
+    segmentation_configuration: Mapping[str, Any] = field(default_factory=dict)
+    segmentation_input_fingerprints: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_id(self.manifest_id, "manifest_id")
@@ -1086,6 +1089,24 @@ class ChunkBenchmarkManifest:
                     raise ContractValidationError("manifest source hashes do not match")
         object.__setattr__(self, "source_manifest_sha256", manifest_hash)
         object.__setattr__(self, "source_sha256", manifest_hash)
+        if self.segmentation_version is not None:
+            _require_text(self.segmentation_version, "segmentation_version")
+        if not isinstance(self.segmentation_configuration, Mapping):
+            raise ContractValidationError("segmentation_configuration must be a mapping")
+        try:
+            json.dumps(
+                self.segmentation_configuration,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ContractValidationError(
+                "segmentation_configuration must be JSON serializable"
+            ) from exc
+        input_fingerprints = tuple(self.segmentation_input_fingerprints)
+        for index, digest in enumerate(input_fingerprints):
+            _require_sha256(digest, f"segmentation_input_fingerprints[{index}]")
+        object.__setattr__(self, "segmentation_input_fingerprints", input_fingerprints)
         chunk_by_id = {chunk.chunk_id: chunk for chunk in self.chunks}
         for reference in self.references:
             chunk = chunk_by_id.get(reference.chunk_id)
@@ -1126,6 +1147,9 @@ class ChunkBenchmarkManifest:
             "references": [reference.to_dict() for reference in self.references],
             "hypotheses": [hypothesis.to_dict() for hypothesis in self.hypotheses],
             "partitions": {key: list(value) for key, value in self.partitions.items()},
+            "segmentation_version": self.segmentation_version,
+            "segmentation_configuration": dict(self.segmentation_configuration),
+            "segmentation_input_fingerprints": list(self.segmentation_input_fingerprints),
         }
 
     @classmethod
@@ -1147,6 +1171,10 @@ class ChunkBenchmarkManifest:
             key: tuple(value) for key, value in payload.get("partitions", {}).items()
         }
         payload["source_hashes"] = tuple(payload.get("source_hashes", ()))
+        payload["segmentation_input_fingerprints"] = tuple(
+            payload.get("segmentation_input_fingerprints", ())
+        )
+        payload.setdefault("segmentation_configuration", {})
         if "source_manifest_sha256" not in payload and "source_sha256" in payload:
             payload["source_manifest_sha256"] = payload["source_sha256"]
         return cls(**payload)

@@ -195,7 +195,10 @@
         "chunks": {"type": "array", "items": {"$ref": "#/$defs/AudioChunk"}, "minItems": 1},
         "references": {"type": "array", "items": {"$ref": "#/$defs/TranscriptReference"}},
         "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/TranscriptionHypothesis"}},
-        "partitions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+        "partitions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+        "segmentation_version": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "segmentation_configuration": {"type": "object"},
+        "segmentation_input_fingerprints": {"type": "array", "items": {"$ref": "#/$defs/Sha256"}}
       },
       "additionalProperties": false
     },

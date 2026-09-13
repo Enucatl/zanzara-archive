@@ -29,6 +29,12 @@ are append-only records; only a reviewed `human_truth` revision is reference
 truth. `ChunkBenchmarkManifest` ties the versioned chunks, references,
 hypotheses, episode partitions and source hashes together.
 
+The P1R chunker records its version, canonical duration configuration and
+boundary-input fingerprints on `ChunkBenchmarkManifest`. Each `AudioChunk`
+also carries the resulting segmentation fingerprint. Chunk boundaries are
+source-relative and are selected from silence/VAD, speaker-turn and acoustic
+evidence only; ASR text and model fingerprints are not inputs to segmentation.
+
 The JSON representation is [schemas/contracts.json](../schemas/contracts.json)
 and synthetic, non-private examples live in
 [tests/fixtures/contracts.json](../tests/fixtures/contracts.json). The public

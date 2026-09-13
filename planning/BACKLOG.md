@@ -1,6 +1,6 @@
 # Ordered backlog
 
-[manifest.json](manifest.json) is the machine-readable authority for 87 issues (77 children and ten phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1R replaces legacy P1 transcription evaluation without renumbering P2–P8; P1R-15 is an explicitly non-release-blocking ergonomics study.
+[manifest.json](manifest.json) is the machine-readable authority for 88 issues (78 children and ten phase parents), fields, labels, views and requirement coverage. Each body is ready to publish using the link-rendering procedure in [GITHUB-SETUP](GITHUB-SETUP.md). P1R replaces legacy P1 transcription evaluation without renumbering P2–P8; P1R-15 is an explicitly non-release-blocking ergonomics study.
 
 Every child depends on the preceding phase plus its listed local prerequisites. A parent is blocked by all children, including future review findings, and closes only after Sol review and user release. No child depends on its own parent. Kind/Executor fields distinguish operator work from implementation; a phase parent has Human executor. Select eligible Luna work by phase, priority, then numeric Order, not table position alone.
 
@@ -33,10 +33,11 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1R-05](issues/P1R-05.md) | Add Whisper Large v3 local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1550 |
 | [P1R-06](issues/P1R-06.md) | Add Voxtral Mini 4B Realtime local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1560 |
 | [P1R-07](issues/P1R-07.md) | Orchestrate multi-model chunk inference | P1R | P0, P1R-03–P1R-06 | Luna | Implementation | P1 | 1570 |
-| [P1R-08](issues/P1R-08.md) | Derive diarization and acoustic-condition metadata per chunk | P1R | P0, P1R-03 | Luna | Implementation | P1 | 1580 |
+| [P1R-08](issues/P1R-08.md) | Derive speaker-count and overlap metadata from Community-1 | P1R | P0, P1R-03 | Luna | Implementation | P1 | 1580 |
+| [P1R-08A](issues/P1R-08A.md) | Classify acoustic conditions with AudioSet AST | P1R | P0, P1R-03 | Luna | Implementation | P1 | 1585 |
 | [P1R-09](issues/P1R-09.md) | Add local Qwen annotation-assistance service | P1R | P0, P1R-07 | Luna | Implementation | P1 | 1590 |
-| [P1R-10](issues/P1R-10.md) | Replace annotation UI with chunk-centric transcription review | P1R | P0, P1R-07–P1R-09 | Luna | Implementation | P0 | 1600 |
-| [P1R-11](issues/P1R-11.md) | Freeze representative and stress benchmark manifests | P1R | P0, P1R-10 | Luna | Evaluation | P0 | 1610 |
+| [P1R-10](issues/P1R-10.md) | Replace annotation UI with chunk-centric transcription review | P1R | P0, P1R-07–P1R-09, P1R-08A | Luna | Implementation | P0 | 1600 |
+| [P1R-11](issues/P1R-11.md) | Freeze representative and stress benchmark manifests | P1R | P0, P1R-08, P1R-08A, P1R-10 | Luna | Evaluation | P0 | 1610 |
 | [P1R-H01](issues/P1R-H01.md) | Human: review and finalize chunk gold references | P1R | P0, P1R-10, P1R-11 | Human | Operator | P0 | 1620 |
 | [P1R-12](issues/P1R-12.md) | Implement chunk-level ASR scoring harness | P1R | P0, P1R-02 | Luna | Evaluation | P0 | 1630 |
 | [P1R-13](issues/P1R-13.md) | Rebuild diarization evaluation independently of ASR words | P1R | P0, P1R-02, P1R-08 | Luna | Evaluation | P1 | 1640 |
@@ -106,7 +107,7 @@ R28's setup deliverable is completed by following the runbook before implementat
 | R04 | Locked model revisions/licenses/head and measured RTX 5090 compatibility | [P1-H01](issues/P1-H01.md), [P1-01](issues/P1-01.md), [P2-02](issues/P2-02.md), [P2-03](issues/P2-03.md), [P2-04](issues/P2-04.md), [P3-02](issues/P3-02.md) |
 | R05 | Legacy retained: optional word timing, episode-wide standard/exclusive diarization and production attribution | [P1-02](issues/P1-02.md), [P1-03](issues/P1-03.md), [P1-04](issues/P1-04.md), [P1R-04](issues/P1R-04.md) |
 | R06 | Legacy retained: historical golden artifacts are not authoritative transcription evaluation truth | [P1-05](issues/P1-05.md), [P1-06](issues/P1-06.md), [P1-07](issues/P1-07.md), [P1-08](issues/P1-08.md), [P1R-01](issues/P1R-01.md) |
-| R29 | Chunk-first schemas, deterministic model-independent segmentation, multi-model immutable hypotheses and condition metadata | [P1R-02](issues/P1R-02.md), [P1R-03](issues/P1R-03.md), [P1R-04](issues/P1R-04.md), [P1R-05](issues/P1R-05.md), [P1R-06](issues/P1R-06.md), [P1R-07](issues/P1R-07.md), [P1R-08](issues/P1R-08.md) |
+| R29 | Chunk-first schemas, deterministic model-independent segmentation, multi-model immutable hypotheses and separate speaker/acoustic condition metadata | [P1R-02](issues/P1R-02.md), [P1R-03](issues/P1R-03.md), [P1R-04](issues/P1R-04.md), [P1R-05](issues/P1R-05.md), [P1R-06](issues/P1R-06.md), [P1R-07](issues/P1R-07.md), [P1R-08](issues/P1R-08.md), [P1R-08A](issues/P1R-08A.md) |
 | R30 | Human-reviewed chunk truth, episode-independent representative/stress benchmark and separate ASR/diarization/attribution evidence | [P1R-09](issues/P1R-09.md), [P1R-10](issues/P1R-10.md), [P1R-11](issues/P1R-11.md), [P1R-H01](issues/P1R-H01.md), [P1R-12](issues/P1R-12.md), [P1R-13](issues/P1R-13.md), [P1R-14](issues/P1R-14.md), [P1R-16](issues/P1R-16.md), [P1R-17](issues/P1R-17.md) |
 | R07 | Clean exemplars, three-vector indexes, centroids and deterministic retrieval | [P2-01](issues/P2-01.md), [P2-05](issues/P2-05.md), [P2-06](issues/P2-06.md) |
 | R08 | Human voice truth, valid calibration, host/non-host evaluation and uncertainty | [P2-07](issues/P2-07.md), [P2-08](issues/P2-08.md) |

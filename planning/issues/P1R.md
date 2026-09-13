@@ -5,11 +5,11 @@
 - Executor: Human
 - Kind: Phase
 - Parent: none
-- Blocked by: P0, P1R-01, P1R-02, P1R-03, P1R-04, P1R-05, P1R-06, P1R-07, P1R-08, P1R-09, P1R-10, P1R-11, P1R-H01, P1R-12, P1R-13, P1R-14, P1R-16, P1R-17
+- Blocked by: P0, P1R-01, P1R-02, P1R-03, P1R-04, P1R-05, P1R-06, P1R-07, P1R-08, P1R-08A, P1R-09, P1R-10, P1R-11, P1R-H01, P1R-12, P1R-13, P1R-14, P1R-16, P1R-17
 
 ## Outcome and requirement
 
-Replace the word-timestamp-centric P1 evaluation gate with a frozen, multi-episode, model-independent audio-chunk benchmark. Compare Parakeet, Whisper Large v3 and Voxtral Mini 4B against human-reviewed truth; report lexical, diarization and integrated speaker-attributed quality separately.
+Replace the word-timestamp-centric P1 evaluation gate with a frozen, multi-episode, model-independent audio-chunk benchmark. Compare Parakeet, Whisper Large v3 and Voxtral Mini 4B against human-reviewed truth; report lexical, diarization and integrated speaker-attributed quality separately. Community-1 owns speaker/overlap metadata; local AudioSet AST separately owns acoustic/music evidence.
 
 ## Design and interfaces
 

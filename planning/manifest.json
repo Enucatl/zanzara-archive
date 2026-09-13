@@ -711,8 +711,8 @@
       "kind": "Phase",
       "priority": "P0",
       "order": 1500,
-      "blocked_by": ["P0", "P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-16", "P1R-17"],
-      "children": ["P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-15", "P1R-16", "P1R-17"],
+      "blocked_by": ["P0", "P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-16", "P1R-17"],
+      "children": ["P1R-01", "P1R-02", "P1R-03", "P1R-04", "P1R-05", "P1R-06", "P1R-07", "P1R-08", "P1R-08A", "P1R-09", "P1R-10", "P1R-11", "P1R-H01", "P1R-12", "P1R-13", "P1R-14", "P1R-15", "P1R-16", "P1R-17"],
       "body": "issues/P1R.md",
       "design_refs": ["D5", "D6", "E1", "E2"],
       "labels": ["phase:P1R", "kind:phase", "executor:human", "priority:P0"],
@@ -747,8 +747,12 @@
       "blocked_by": ["P0", "P1R-03", "P1R-04", "P1R-05", "P1R-06"], "body": "issues/P1R-07.md", "design_refs": ["D4", "D5", "D6"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
     },
     {
-      "id": "P1R-08", "title": "[P1R-08] Derive diarization and acoustic-condition metadata per chunk", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1580,
+      "id": "P1R-08", "title": "[P1R-08] Derive speaker-count and overlap metadata from Community-1", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1580,
       "blocked_by": ["P0", "P1R-03"], "body": "issues/P1R-08.md", "design_refs": ["D5", "D6", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-08A", "title": "[P1R-08A] Classify acoustic conditions with AudioSet AST", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1585,
+      "blocked_by": ["P0", "P1R-03"], "body": "issues/P1R-08A.md", "design_refs": ["D5", "D6", "D11", "E2"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P1"], "initial_status": "Blocked"
     },
     {
       "id": "P1R-09", "title": "[P1R-09] Add local Qwen annotation-assistance service", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P1", "order": 1590,
@@ -756,11 +760,11 @@
     },
     {
       "id": "P1R-10", "title": "[P1R-10] Replace annotation UI with chunk-centric transcription review", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Implementation", "priority": "P0", "order": 1600,
-      "blocked_by": ["P0", "P1R-07", "P1R-08", "P1R-09"], "body": "issues/P1R-10.md", "design_refs": ["D10", "E1"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "blocked_by": ["P0", "P1R-07", "P1R-08", "P1R-08A", "P1R-09"], "body": "issues/P1R-10.md", "design_refs": ["D10", "E1"], "labels": ["phase:P1R", "kind:implementation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
     },
     {
       "id": "P1R-11", "title": "[P1R-11] Freeze representative and stress benchmark manifests", "phase": "P1R", "parent": "P1R", "executor": "Luna", "kind": "Evaluation", "priority": "P0", "order": 1610,
-      "blocked_by": ["P0", "P1R-10"], "body": "issues/P1R-11.md", "design_refs": ["D6", "E1", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
+      "blocked_by": ["P0", "P1R-08", "P1R-08A", "P1R-10"], "body": "issues/P1R-11.md", "design_refs": ["D6", "E1", "E2"], "labels": ["phase:P1R", "kind:evaluation", "executor:luna", "priority:P0"], "initial_status": "Blocked"
     },
     {
       "id": "P1R-H01", "title": "[P1R-H01] Human: review and finalize chunk gold references", "phase": "P1R", "parent": "P1R", "executor": "Human", "kind": "Operator", "priority": "P0", "order": 1620,
@@ -2220,7 +2224,8 @@
         "P1R-05",
         "P1R-06",
         "P1R-07",
-        "P1R-08"
+        "P1R-08",
+        "P1R-08A"
       ]
     },
     {

@@ -50,6 +50,19 @@ from .p1r_diarization import (
     DiarizationScoringError,
     score_diarization,
 )
+from .p1r_integrated import (
+    CPWER_VERSION,
+    INTEGRATED_METRIC_DEFINITIONS_VERSION,
+    INTEGRATED_SCORING_SCHEMA_VERSION,
+    TCPWER_STATUS,
+    IntegratedScoringError,
+    IntegratedScoringInput,
+    SpeakerTextStream,
+    score_cpwer,
+    score_integrated,
+    score_integrated_chunks,
+    write_integrated_score_report,
+)
 
 
 class ReferenceValidationError(ValueError):
@@ -228,4 +241,15 @@ __all__ = [
     "DIARIZATION_METRIC_DEFINITIONS_VERSION",
     "DiarizationScoringError",
     "score_diarization",
+    "CPWER_VERSION",
+    "INTEGRATED_METRIC_DEFINITIONS_VERSION",
+    "INTEGRATED_SCORING_SCHEMA_VERSION",
+    "TCPWER_STATUS",
+    "IntegratedScoringError",
+    "IntegratedScoringInput",
+    "SpeakerTextStream",
+    "score_cpwer",
+    "score_integrated",
+    "score_integrated_chunks",
+    "write_integrated_score_report",
 ]

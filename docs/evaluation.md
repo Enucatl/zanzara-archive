@@ -16,6 +16,12 @@ fixtures are documented in
 word-blind: missing interval truth is unscorable and never reconstructed from
 ASR words.
 
+The separate integrated speaker-attributed scorer and its cpWER/tcpWER
+decision are documented in
+[p1r-integrated-scoring.md](p1r-integrated-scoring.md). It consumes explicit
+per-speaker text channels, preserves overlap channels, and keeps the raw
+permutation mapping in private report details.
+
 P1-07 provides a deterministic CPU-only scorer for the JSON reference and
 hypothesis shape exported by P1-05. It has no model, network, credential, or
 paid-provider dependency:

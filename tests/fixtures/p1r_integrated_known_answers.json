@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "metric_definitions_version": "p1r-integrated-v1",
+  "cases": [
+    {
+      "id": "correct-words-wrong-speaker",
+      "reference_streams": [
+        {"speaker_id": "A", "text": "uno"},
+        {"speaker_id": "B", "text": "due"}
+      ],
+      "hypothesis_streams": [
+        {"speaker_id": "X", "text": "due"},
+        {"speaker_id": "Y", "text": "due"}
+      ],
+      "expected": {"value": 0.5, "errors": 1, "substitutions": 1, "deletions": 0, "insertions": 0}
+    },
+    {
+      "id": "wrong-words-correct-speaker",
+      "reference_streams": [
+        {"speaker_id": "A", "text": "uno"},
+        {"speaker_id": "B", "text": "due"}
+      ],
+      "hypothesis_streams": [
+        {"speaker_id": "X", "text": "uno"},
+        {"speaker_id": "Y", "text": "tre"}
+      ],
+      "expected": {"value": 0.5, "errors": 1, "substitutions": 1, "deletions": 0, "insertions": 0}
+    },
+    {
+      "id": "swapped-labels",
+      "reference_streams": [
+        {"speaker_id": "A", "text": "uno"},
+        {"speaker_id": "B", "text": "due"}
+      ],
+      "hypothesis_streams": [
+        {"speaker_id": "X", "text": "due"},
+        {"speaker_id": "Y", "text": "uno"}
+      ],
+      "expected": {"value": 0.0, "errors": 0, "substitutions": 0, "deletions": 0, "insertions": 0,
+        "mapping": {"X": "B", "Y": "A"}}
+    },
+    {
+      "id": "overlap-preserved",
+      "reference_streams": [
+        {"speaker_id": "A", "text": "uno due"},
+        {"speaker_id": "B", "text": "tre quattro"}
+      ],
+      "hypothesis_streams": [
+        {"speaker_id": "X", "text": "uno due"},
+        {"speaker_id": "Y", "text": "tre"}
+      ],
+      "expected": {"value": 0.25, "errors": 1, "substitutions": 0, "deletions": 1, "insertions": 0}
+    }
+  ]
+}

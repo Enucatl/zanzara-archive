@@ -14,7 +14,7 @@ import json
 import os
 import sqlite3
 import urllib.parse
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import get_ident
@@ -34,7 +34,7 @@ from .contracts import (
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -684,6 +684,37 @@ MIGRATIONS: dict[int, str] = {
       SELECT RAISE(ABORT, 'reference revisions are append-only');
     END;
     """,
+    7: """
+    CREATE TABLE IF NOT EXISTS chunk_inference_dispatches (
+        dispatch_id TEXT PRIMARY KEY,
+        manifest_id TEXT NOT NULL REFERENCES chunk_benchmark_manifests(manifest_id)
+            ON DELETE RESTRICT,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        adapter_id TEXT NOT NULL,
+        job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id) ON DELETE RESTRICT,
+        model_fingerprint_sha256 TEXT NOT NULL,
+        model_payload_json TEXT NOT NULL,
+        configuration_json TEXT NOT NULL,
+        preprocessing_json TEXT NOT NULL,
+        preprocessing_sha256 TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL,
+        start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
+        end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
+        request_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed')),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        input_audio_sha256 TEXT,
+        raw_artifact_id TEXT,
+        hypothesis_id TEXT,
+        runtime_json TEXT NOT NULL DEFAULT '{}',
+        error_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (manifest_id, chunk_id, adapter_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_chunk_inference_dispatches_manifest
+      ON chunk_inference_dispatches(manifest_id, status, adapter_id, chunk_id);
+    """,
 }
 
 
@@ -1061,6 +1092,332 @@ class SQLiteRepository:
             if row is not None
             else None
         )
+
+    def find_transcription_hypothesis(
+        self, *, chunk_id: str, model_fingerprint_sha256: str
+    ) -> TranscriptionHypothesis | None:
+        """Find the immutable hypothesis for one chunk/model pair."""
+
+        row = self.connection.execute(
+            """SELECT payload_json FROM transcription_hypotheses
+            WHERE chunk_id = ? AND model_fingerprint_sha256 = ?""",
+            (chunk_id, model_fingerprint_sha256),
+        ).fetchone()
+        return (
+            TranscriptionHypothesis.from_dict(json.loads(row["payload_json"]))
+            if row is not None
+            else None
+        )
+
+    @staticmethod
+    def _chunk_inference_dispatch_from_row(row: sqlite3.Row) -> dict[str, object]:
+        error_payload = row["error_json"]
+        return {
+            "dispatch_id": row["dispatch_id"],
+            "manifest_id": row["manifest_id"],
+            "chunk_id": row["chunk_id"],
+            "adapter_id": row["adapter_id"],
+            "job_id": row["job_id"],
+            "model_fingerprint_sha256": row["model_fingerprint_sha256"],
+            "model_payload": json.loads(row["model_payload_json"]),
+            "configuration": json.loads(row["configuration_json"]),
+            "preprocessing": json.loads(row["preprocessing_json"]),
+            "preprocessing_sha256": row["preprocessing_sha256"],
+            "source_sha256": row["source_sha256"],
+            "start_ms": row["start_ms"],
+            "end_ms": row["end_ms"],
+            "request_id": row["request_id"],
+            "status": row["status"],
+            "attempts": row["attempts"],
+            "input_audio_sha256": row["input_audio_sha256"],
+            "raw_artifact_id": row["raw_artifact_id"],
+            "hypothesis_id": row["hypothesis_id"],
+            "runtime": json.loads(row["runtime_json"]),
+            "error": ApiError.from_dict(json.loads(error_payload)) if error_payload else None,
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def register_chunk_inference_dispatch(
+        self,
+        *,
+        dispatch_id: str,
+        manifest_id: str,
+        chunk_id: str,
+        adapter_id: str,
+        job_id: str,
+        model_fingerprint_sha256: str,
+        model_payload: Mapping[str, object],
+        configuration: Mapping[str, object],
+        preprocessing: Mapping[str, object],
+        preprocessing_sha256: str,
+        source_sha256: str,
+        start_ms: int,
+        end_ms: int,
+        request_id: str,
+    ) -> dict[str, object]:
+        """Register one idempotent per-adapter chunk dispatch."""
+
+        model_json = _json(dict(model_payload))
+        configuration_json = _json(dict(configuration))
+        preprocessing_json = _json(dict(preprocessing))
+        now = _now()
+        with self.transaction() as connection:
+            existing = connection.execute(
+                """SELECT * FROM chunk_inference_dispatches
+                WHERE dispatch_id = ? OR (manifest_id = ? AND chunk_id = ? AND adapter_id = ?)""",
+                (dispatch_id, manifest_id, chunk_id, adapter_id),
+            ).fetchone()
+            if existing is not None:
+                immutable = (
+                    existing["dispatch_id"],
+                    existing["manifest_id"],
+                    existing["chunk_id"],
+                    existing["adapter_id"],
+                    existing["job_id"],
+                    existing["model_fingerprint_sha256"],
+                    existing["model_payload_json"],
+                    existing["configuration_json"],
+                    existing["preprocessing_json"],
+                    existing["preprocessing_sha256"],
+                    existing["source_sha256"],
+                    existing["start_ms"],
+                    existing["end_ms"],
+                    existing["request_id"],
+                )
+                expected = (
+                    dispatch_id,
+                    manifest_id,
+                    chunk_id,
+                    adapter_id,
+                    job_id,
+                    model_fingerprint_sha256,
+                    model_json,
+                    configuration_json,
+                    preprocessing_json,
+                    preprocessing_sha256,
+                    source_sha256,
+                    start_ms,
+                    end_ms,
+                    request_id,
+                )
+                if immutable != expected:
+                    raise StorageConflictError(
+                        "chunk inference dispatch identity already refers to different content"
+                    )
+            else:
+                connection.execute(
+                    """INSERT INTO chunk_inference_dispatches (
+                        dispatch_id, manifest_id, chunk_id, adapter_id, job_id,
+                        model_fingerprint_sha256, model_payload_json, configuration_json,
+                        preprocessing_json, preprocessing_sha256, source_sha256,
+                        start_ms, end_ms, request_id, status, attempts,
+                        input_audio_sha256, raw_artifact_id, hypothesis_id, runtime_json,
+                        error_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0,
+                        NULL, NULL, NULL, '{}', NULL, ?, ?)""",
+                    (
+                        dispatch_id,
+                        manifest_id,
+                        chunk_id,
+                        adapter_id,
+                        job_id,
+                        model_fingerprint_sha256,
+                        model_json,
+                        configuration_json,
+                        preprocessing_json,
+                        preprocessing_sha256,
+                        source_sha256,
+                        start_ms,
+                        end_ms,
+                        request_id,
+                        now,
+                        now,
+                    ),
+                )
+            row = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        return self._chunk_inference_dispatch_from_row(row)
+
+    def fetch_chunk_inference_dispatch(self, dispatch_id: str) -> dict[str, object] | None:
+        """Read one dispatch row, including its typed visible failure if present."""
+
+        row = self.connection.execute(
+            "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+            (dispatch_id,),
+        ).fetchone()
+        return self._chunk_inference_dispatch_from_row(row) if row is not None else None
+
+    def list_chunk_inference_dispatches(self, manifest_id: str) -> tuple[dict[str, object], ...]:
+        """Read all dispatches for a manifest in stable model/chunk order."""
+
+        rows = self.connection.execute(
+            """SELECT * FROM chunk_inference_dispatches
+            WHERE manifest_id = ? ORDER BY adapter_id, chunk_id""",
+            (manifest_id,),
+        ).fetchall()
+        return tuple(self._chunk_inference_dispatch_from_row(row) for row in rows)
+
+    def start_chunk_inference_dispatch(
+        self,
+        dispatch_id: str,
+        job: JobStatus,
+        *,
+        input_audio_sha256: str | None,
+        now: datetime | str | None = None,
+    ) -> dict[str, object]:
+        """Fence and mark a dispatch running after common audio identity is known."""
+
+        with self.transaction() as connection:
+            self._assert_job_fence(connection, job, now=now)
+            row = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+            if row is None:
+                raise StorageConflictError(f"unknown chunk inference dispatch: {dispatch_id}")
+            previous_audio_hash = row["input_audio_sha256"]
+            if previous_audio_hash is not None and previous_audio_hash != input_audio_sha256:
+                raise StorageConflictError("common chunk audio identity changed across reruns")
+            connection.execute(
+                """UPDATE chunk_inference_dispatches
+                SET status='running', attempts=?, input_audio_sha256=?, updated_at=?
+                WHERE dispatch_id = ?""",
+                (job.attempts, input_audio_sha256, _now(), dispatch_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        return self._chunk_inference_dispatch_from_row(updated)
+
+    def publish_chunk_inference_success(
+        self,
+        dispatch_id: str,
+        job: JobStatus,
+        hypothesis: TranscriptionHypothesis,
+        *,
+        raw_artifact_id: str,
+        input_audio_sha256: str | None,
+        runtime: Mapping[str, object],
+        now: datetime | str | None = None,
+    ) -> dict[str, object]:
+        """Publish a hypothesis and its dispatch result under one worker fence."""
+
+        with self.transaction() as connection:
+            self._assert_job_fence(connection, job, now=now)
+            row = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+            if row is None:
+                raise StorageConflictError(f"unknown chunk inference dispatch: {dispatch_id}")
+            if row["input_audio_sha256"] not in {None, input_audio_sha256}:
+                raise StorageConflictError("common chunk audio identity changed across reruns")
+            self._record_transcription_hypothesis(connection, hypothesis)
+            if row["status"] == "succeeded" and row["hypothesis_id"] not in {
+                None,
+                hypothesis.hypothesis_id,
+            }:
+                raise StorageConflictError("dispatch already has a different hypothesis")
+            connection.execute(
+                """UPDATE chunk_inference_dispatches SET
+                    status='succeeded', attempts=?, input_audio_sha256=?,
+                    raw_artifact_id=?, hypothesis_id=?, runtime_json=?,
+                    error_json=NULL, updated_at=?
+                WHERE dispatch_id = ?""",
+                (
+                    job.attempts,
+                    input_audio_sha256,
+                    raw_artifact_id,
+                    hypothesis.hypothesis_id,
+                    _json(dict(runtime)),
+                    _now(),
+                    dispatch_id,
+                ),
+            )
+            updated = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        return self._chunk_inference_dispatch_from_row(updated)
+
+    def record_chunk_inference_failure(
+        self,
+        dispatch_id: str,
+        job: JobStatus,
+        error: ApiError,
+        *,
+        input_audio_sha256: str | None,
+        runtime: Mapping[str, object],
+        now: datetime | str | None = None,
+    ) -> dict[str, object]:
+        """Persist a typed model-specific failure without affecting peer dispatches."""
+
+        with self.transaction() as connection:
+            self._assert_job_fence(connection, job, now=now)
+            row = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+            if row is None:
+                raise StorageConflictError(f"unknown chunk inference dispatch: {dispatch_id}")
+            if row["input_audio_sha256"] not in {None, input_audio_sha256}:
+                raise StorageConflictError("common chunk audio identity changed across reruns")
+            connection.execute(
+                """UPDATE chunk_inference_dispatches SET
+                    status='failed', attempts=?, input_audio_sha256=?, runtime_json=?,
+                    error_json=?, updated_at=? WHERE dispatch_id = ?""",
+                (
+                    job.attempts,
+                    input_audio_sha256,
+                    _json(dict(runtime)),
+                    _json(error.to_dict()),
+                    _now(),
+                    dispatch_id,
+                ),
+            )
+            updated = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        return self._chunk_inference_dispatch_from_row(updated)
+
+    def reconcile_chunk_inference_success(
+        self,
+        dispatch_id: str,
+        *,
+        hypothesis_id: str,
+        raw_artifact_id: str | None,
+        input_audio_sha256: str | None,
+    ) -> dict[str, object]:
+        """Repair a durable dispatch after a crash between publication steps."""
+
+        with self.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+            if row is None:
+                raise StorageConflictError(f"unknown chunk inference dispatch: {dispatch_id}")
+            if row["hypothesis_id"] not in {None, hypothesis_id}:
+                raise StorageConflictError("dispatch reconciliation found a different hypothesis")
+            if row["input_audio_sha256"] not in {None, input_audio_sha256}:
+                raise StorageConflictError("dispatch reconciliation found different audio bytes")
+            connection.execute(
+                """UPDATE chunk_inference_dispatches SET status='succeeded',
+                    hypothesis_id=?, raw_artifact_id=COALESCE(?, raw_artifact_id),
+                    input_audio_sha256=COALESCE(?, input_audio_sha256),
+                    error_json=NULL, updated_at=? WHERE dispatch_id=?""",
+                (hypothesis_id, raw_artifact_id, input_audio_sha256, _now(), dispatch_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM chunk_inference_dispatches WHERE dispatch_id = ?",
+                (dispatch_id,),
+            ).fetchone()
+        return self._chunk_inference_dispatch_from_row(updated)
 
     @staticmethod
     def _record_transcript_reference(

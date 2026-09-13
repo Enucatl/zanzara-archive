@@ -71,12 +71,16 @@ def build_batch(
             )
             selected = tuple(selected[position] for position in positions)
         chunks.extend(chunk.to_dict() for chunk in selected)
+    normalized_split: dict[str, Any] = {"development": development, "held_out": held_out}
+    for key in ("method", "seed"):
+        if key in split:
+            normalized_split[key] = split[key]
     payload: dict[str, Any] = {
         "batch_id": batch_id,
         "manifest_sha256": corpus.sha256,
         "partition": "development",
         "segmentation_version": config.version,
-        "split": {"development": development, "held_out": held_out},
+        "split": normalized_split,
         "chunks": chunks,
     }
     payload["content_sha256"] = content_sha256(payload)
@@ -147,12 +151,16 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
         if chunk.partition != "development":
             raise ContractValidationError(f"calibration chunk {chunk.chunk_id} is not development")
         normalized.append(chunk.to_dict())
+    normalized_split: dict[str, Any] = {"development": development, "held_out": held_out}
+    for key in ("method", "seed"):
+        if key in split:
+            normalized_split[key] = split[key]
     result = {
         "batch_id": payload["batch_id"],
         "manifest_sha256": corpus.sha256,
         "partition": "development",
         "segmentation_version": payload["segmentation_version"],
-        "split": {"development": development, "held_out": held_out},
+        "split": normalized_split,
         "chunks": normalized,
     }
     result["content_sha256"] = content_sha256(result)

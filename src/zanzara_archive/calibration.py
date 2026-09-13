@@ -13,6 +13,20 @@ from .corpus import CorpusManifest
 
 MUSIC_LEVELS = ("none", "background", "dominant", "uncertain")
 
+# The general P1R chunk policy permits a 30-second hard fallback when no
+# boundary evidence is available.  Calibration listening needs shorter clips,
+# so its deterministic fallback is explicitly capped at 15 seconds while
+# retaining the shared 8-second minimum and 12-second target.
+CALIBRATION_CHUNK_CONFIG = ChunkSegmentationConfig(
+    version="p1r-calibration-chunk-segmentation-v1",
+    preferred_min_s=8.0,
+    target_s=12.0,
+    preferred_max_s=15.0,
+    hard_max_s=15.0,
+)
+CALIBRATION_MIN_DURATION_MS = CALIBRATION_CHUNK_CONFIG.preferred_min_ms
+CALIBRATION_MAX_DURATION_MS = CALIBRATION_CHUNK_CONFIG.hard_max_ms
+
 
 def canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -47,7 +61,7 @@ def build_batch(
     development_set, held_out_set = set(development), set(held_out)
     if development_set | held_out_set != expected or development_set & held_out_set:
         raise ContractValidationError("split must assign every corpus episode exactly once")
-    config = ChunkSegmentationConfig()
+    config = CALIBRATION_CHUNK_CONFIG
     chunks: list[dict[str, Any]] = []
     by_name = {episode.relative_filename: episode for episode in corpus.episodes}
     for episode_name in development:
@@ -80,6 +94,7 @@ def build_batch(
         "manifest_sha256": corpus.sha256,
         "partition": "development",
         "segmentation_version": config.version,
+        "segmentation_configuration": config.to_dict(),
         "split": normalized_split,
         "chunks": chunks,
     }
@@ -124,6 +139,24 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
         or not payload["segmentation_version"].strip()
     ):
         raise ContractValidationError("calibration batch segmentation_version must be non-empty")
+    raw_configuration = payload.get("segmentation_configuration")
+    normalized_configuration: dict[str, Any] | None = None
+    if raw_configuration is not None:
+        if not isinstance(raw_configuration, Mapping):
+            raise ContractValidationError(
+                "calibration batch segmentation_configuration must be an object"
+            )
+        try:
+            configuration = ChunkSegmentationConfig.from_dict(raw_configuration)
+        except (TypeError, ValueError, ContractValidationError) as exc:
+            raise ContractValidationError(
+                "calibration batch segmentation_configuration is invalid"
+            ) from exc
+        if configuration.version != payload["segmentation_version"]:
+            raise ContractValidationError(
+                "calibration batch segmentation_version does not match configuration"
+            )
+        normalized_configuration = configuration.to_dict()
     raw_chunks = payload["chunks"]
     if not isinstance(raw_chunks, list) or not raw_chunks:
         raise ContractValidationError("calibration batch requires at least one chunk")
@@ -150,6 +183,11 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
             )
         if chunk.partition != "development":
             raise ContractValidationError(f"calibration chunk {chunk.chunk_id} is not development")
+        duration_ms = chunk.end_ms - chunk.start_ms
+        if not CALIBRATION_MIN_DURATION_MS <= duration_ms <= CALIBRATION_MAX_DURATION_MS:
+            raise ContractValidationError(
+                f"calibration chunk {chunk.chunk_id} duration must be between 8 and 15 seconds"
+            )
         normalized.append(chunk.to_dict())
     normalized_split: dict[str, Any] = {"development": development, "held_out": held_out}
     for key in ("method", "seed"):
@@ -163,6 +201,8 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
         "split": normalized_split,
         "chunks": normalized,
     }
+    if normalized_configuration is not None:
+        result["segmentation_configuration"] = normalized_configuration
     result["content_sha256"] = content_sha256(result)
     return result
 

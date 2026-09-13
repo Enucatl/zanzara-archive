@@ -59,6 +59,10 @@ def test_build_batch_selects_deterministic_development_clips() -> None:
     assert first == second
     assert len(first["chunks"]) == 3
     assert all(chunk["partition"] == "development" for chunk in first["chunks"])
+    durations = [chunk["end_ms"] - chunk["start_ms"] for chunk in first["chunks"]]
+    assert min(durations) >= 8_000
+    assert max(durations) <= 15_000
+    assert first["segmentation_configuration"]["hard_max_s"] == 15.0
 
 
 def test_calibration_page_decision_resume_conflict_and_export(tmp_path: Path) -> None:

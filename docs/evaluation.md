@@ -8,6 +8,9 @@ golden-episode, five-block, 200-manually-timed-word and timing-error clauses
 below are not active release gates. See `planning/P1R-01-MIGRATION.md` and the
 P1R issue bodies for the current contracts.
 
+The independent chunk-level lexical scorer and its versioned private/sanitized
+report contract are documented in [p1r-asr-scoring.md](p1r-asr-scoring.md).
+
 P1-07 provides a deterministic CPU-only scorer for the JSON reference and
 hypothesis shape exported by P1-05. It has no model, network, credential, or
 paid-provider dependency:

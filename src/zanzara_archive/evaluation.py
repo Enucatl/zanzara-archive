@@ -29,6 +29,20 @@ from .evaluation_metrics import (
     parse_evaluation_document,
     write_evaluation_artifacts,
 )
+from .p1r_asr import (
+    ASR_METRIC_DEFINITIONS_VERSION,
+    ASR_SCORING_SCHEMA_VERSION,
+    ITALIAN_NORMALIZATION_VERSION,
+    MASK_POLICY_VERSION,
+    ORC_WER_VERSION,
+    ASRScoringValidationError,
+    ChunkScoringInput,
+    ScoringTextStream,
+    score_chunks,
+    score_manifest,
+    score_text_pair,
+    write_asr_score_report,
+)
 
 
 class ReferenceValidationError(ValueError):
@@ -190,4 +204,16 @@ __all__ = [
     "parse_evaluation_document",
     "validate_reference",
     "write_evaluation_artifacts",
+    "ASR_METRIC_DEFINITIONS_VERSION",
+    "ASR_SCORING_SCHEMA_VERSION",
+    "ASRScoringValidationError",
+    "ChunkScoringInput",
+    "ITALIAN_NORMALIZATION_VERSION",
+    "MASK_POLICY_VERSION",
+    "ORC_WER_VERSION",
+    "ScoringTextStream",
+    "score_chunks",
+    "score_manifest",
+    "score_text_pair",
+    "write_asr_score_report",
 ]

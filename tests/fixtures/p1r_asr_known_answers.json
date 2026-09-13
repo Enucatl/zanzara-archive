@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "normalization_version": "it-v1",
+  "cases": [
+    {
+      "reference": "uno due tre",
+      "hypothesis": "uno due quattro",
+      "expected": {"substitutions": 1, "deletions": 0, "insertions": 0}
+    },
+    {
+      "reference": "uno due tre",
+      "hypothesis": "uno due",
+      "expected": {"substitutions": 0, "deletions": 1, "insertions": 0}
+    },
+    {
+      "reference": "uno due",
+      "hypothesis": "uno due tre",
+      "expected": {"substitutions": 0, "deletions": 0, "insertions": 1}
+    }
+  ]
+}

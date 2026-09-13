@@ -43,6 +43,13 @@ from .p1r_asr import (
     score_text_pair,
     write_asr_score_report,
 )
+from .p1r_diarization import (
+    DIARIZATION_EVALUATION_SCHEMA_VERSION,
+    DIARIZATION_EVALUATOR_VERSION,
+    DIARIZATION_METRIC_DEFINITIONS_VERSION,
+    DiarizationScoringError,
+    score_diarization,
+)
 
 
 class ReferenceValidationError(ValueError):
@@ -216,4 +223,9 @@ __all__ = [
     "score_manifest",
     "score_text_pair",
     "write_asr_score_report",
+    "DIARIZATION_EVALUATION_SCHEMA_VERSION",
+    "DIARIZATION_EVALUATOR_VERSION",
+    "DIARIZATION_METRIC_DEFINITIONS_VERSION",
+    "DiarizationScoringError",
+    "score_diarization",
 ]

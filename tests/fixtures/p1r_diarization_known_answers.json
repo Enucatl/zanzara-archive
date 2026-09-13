@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "overlap-missed",
+      "reference": {
+        "episode_id": "fixture-overlap.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "A", "start_ms": 0, "end_ms": 1000},
+          {"speaker_id": "B", "start_ms": 0, "end_ms": 1000}
+        ],
+        "overlap_intervals": [
+          {"speaker_ids": ["A", "B"], "start_ms": 0, "end_ms": 1000}
+        ]
+      },
+      "hypothesis": {
+        "episode_id": "fixture-overlap.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "A", "start_ms": 0, "end_ms": 1000}
+        ],
+        "overlap_intervals": []
+      },
+      "expected": {
+        "der": 0.5,
+        "jer": 0.5,
+        "speaker_count_signed": -1,
+        "overlap_precision": null,
+        "overlap_recall": 0.0,
+        "overlap_f1": null
+      }
+    },
+    {
+      "id": "speaker-confusion",
+      "reference": {
+        "episode_id": "fixture-confusion.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "A", "start_ms": 0, "end_ms": 1000},
+          {"speaker_id": "B", "start_ms": 1000, "end_ms": 2000}
+        ],
+        "overlap_intervals": []
+      },
+      "hypothesis": {
+        "episode_id": "fixture-confusion.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "X", "start_ms": 0, "end_ms": 2000}
+        ],
+        "overlap_intervals": []
+      },
+      "expected": {
+        "der": 0.5,
+        "jer": 0.75,
+        "speaker_count_signed": -1,
+        "overlap_precision": null,
+        "overlap_recall": null,
+        "overlap_f1": null
+      }
+    },
+    {
+      "id": "overlap-duration-pr",
+      "reference": {
+        "episode_id": "fixture-overlap-pr.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "A", "start_ms": 0, "end_ms": 1000},
+          {"speaker_id": "B", "start_ms": 0, "end_ms": 1000}
+        ],
+        "overlap_intervals": [
+          {"speaker_ids": ["A", "B"], "start_ms": 0, "end_ms": 1000}
+        ]
+      },
+      "hypothesis": {
+        "episode_id": "fixture-overlap-pr.opus",
+        "duration_ms": 2000,
+        "turns": [
+          {"speaker_id": "X", "start_ms": 500, "end_ms": 1500},
+          {"speaker_id": "Y", "start_ms": 500, "end_ms": 1500}
+        ],
+        "overlap_intervals": [
+          {"speaker_ids": ["X", "Y"], "start_ms": 500, "end_ms": 1500}
+        ]
+      },
+      "expected": {
+        "overlap_precision": 0.5,
+        "overlap_recall": 0.5,
+        "overlap_f1": 0.5
+      }
+    }
+  ]
+}

@@ -10,6 +10,11 @@ P1R issue bodies for the current contracts.
 
 The independent chunk-level lexical scorer and its versioned private/sanitized
 report contract are documented in [p1r-asr-scoring.md](p1r-asr-scoring.md).
+The independent interval-only diarization scorer and its known-answer
+fixtures are documented in
+[p1r-diarization-scoring.md](p1r-diarization-scoring.md). It is deliberately
+word-blind: missing interval truth is unscorable and never reconstructed from
+ASR words.
 
 P1-07 provides a deterministic CPU-only scorer for the JSON reference and
 hypothesis shape exported by P1-05. It has no model, network, credential, or

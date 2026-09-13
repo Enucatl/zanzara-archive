@@ -5,12 +5,22 @@ import json
 import niquests
 import pytest
 
-from zanzara_archive.contracts import AudioArtifact, ModelFingerprint, UnsupportedCapabilityError
+from zanzara_archive.contracts import (
+    AudioArtifact,
+    AudioChunk,
+    ModelFingerprint,
+    UnsupportedCapabilityError,
+)
 from zanzara_archive.inference import (
+    PARAKEET_CHUNK_CONFIGURATION,
+    PARAKEET_CHUNK_PREPROCESSING,
     ParakeetAdapter,
+    ParakeetChunkAdapter,
     _default_http_post,
+    parse_parakeet_chunk_response,
     parse_parakeet_response,
 )
+from zanzara_archive.p1r_asr import score_text_pair
 
 MODEL = ModelFingerprint(
     name="parakeet",
@@ -26,6 +36,15 @@ AUDIO = AudioArtifact(
     duration_ms=2_000,
     sample_rate_hz=16_000,
     channels=1,
+)
+CHUNK = AudioChunk.create(
+    episode_id="episode-p1r",
+    source_sha256="c" * 64,
+    start_ms=1_000,
+    end_ms=11_000,
+    segmentation_fingerprint="d" * 64,
+    duration_ms=20_000,
+    partition="development",
 )
 
 
@@ -57,6 +76,60 @@ def test_missing_word_timestamps_are_an_explicit_unsupported_capability() -> Non
             model=MODEL,
             request_id="request-2",
         )
+
+
+def test_chunk_parser_accepts_text_without_timestamps_and_keeps_provenance() -> None:
+    result = parse_parakeet_chunk_response(
+        {
+            "model": MODEL.repository,
+            "model_revision": MODEL.revision,
+            "chunk_id": CHUNK.chunk_id,
+            "text": "ciao mondo",
+            "words": [],
+            "segments": [],
+            "timestamp_granularities": [],
+            "preprocessing": dict(PARAKEET_CHUNK_PREPROCESSING),
+            "configuration": dict(PARAKEET_CHUNK_CONFIGURATION),
+        },
+        chunk=CHUNK,
+        model=MODEL,
+        request_id="chunk-request-1",
+    )
+
+    assert result.text == "ciao mondo"
+    assert result.words == ()
+    assert result.source_sha256 == CHUNK.source_sha256
+    assert result.raw_metadata["chunk"]["start_ms"] == CHUNK.start_ms
+    assert result.raw_metadata["preprocessing"] == dict(PARAKEET_CHUNK_PREPROCESSING)
+    assert score_text_pair("ciao mondo", result.text)["normalized_wer"]["value"] == 0.0
+
+
+def test_chunk_parser_retains_optional_native_words() -> None:
+    result = parse_parakeet_chunk_response(
+        {
+            "model": MODEL.repository,
+            "model_revision": MODEL.revision,
+            "chunk_id": CHUNK.chunk_id,
+            "text": "ciao mondo",
+            "words": [
+                {"word": "ciao", "start": 0.125, "end": 0.5},
+                {"word": "mondo", "start": 0.501, "end": 1.25},
+            ],
+            "timestamp_granularities": ["word"],
+            "preprocessing": dict(PARAKEET_CHUNK_PREPROCESSING),
+            "configuration": dict(PARAKEET_CHUNK_CONFIGURATION),
+        },
+        chunk=CHUNK,
+        model=MODEL,
+        request_id="chunk-request-2",
+    )
+
+    assert [(word.text, word.start_ms, word.end_ms) for word in result.words] == [
+        ("ciao", 125, 500),
+        ("mondo", 501, 1250),
+    ]
+    assert result.timestamp_granularities == ("word",)
+    assert result.raw_metadata["native_word_count"] == 2
 
 
 def test_adapter_sends_the_bounded_local_json_subset() -> None:
@@ -91,6 +164,49 @@ def test_adapter_sends_the_bounded_local_json_subset() -> None:
     assert payload["response_format"] == "verbose_json"
     assert payload["timestamp_granularities"] == ["word", "segment"]
     assert parsed.result.words[0].end_ms == 250
+
+
+def test_chunk_adapter_sends_interval_and_returns_raw_response() -> None:
+    seen: dict[str, object] = {}
+
+    def post(url: str, body: bytes, timeout: float) -> bytes:
+        seen.update(url=url, timeout=timeout, payload=json.loads(body))
+        return json.dumps(
+            {
+                "request_id": "chunk-request-3",
+                "status": "ok",
+                "data": {
+                    "model": MODEL.repository,
+                    "model_revision": MODEL.revision,
+                    "chunk_id": CHUNK.chunk_id,
+                    "text": "ciao",
+                    "words": [],
+                    "segments": [],
+                    "timestamp_granularities": [],
+                    "preprocessing": dict(PARAKEET_CHUNK_PREPROCESSING),
+                    "configuration": dict(PARAKEET_CHUNK_CONFIGURATION),
+                },
+            }
+        ).encode()
+
+    parsed = ParakeetChunkAdapter(
+        "http://parakeet",
+        MODEL,
+        http_post=post,
+        timeout_seconds=9,
+    ).transcribe_bytes(CHUNK, b"wav", request_id="chunk-request-3")
+
+    payload = seen["payload"]
+    assert seen["url"] == "http://parakeet/v1/audio/transcriptions"
+    assert seen["timeout"] == 9
+    assert isinstance(payload, dict)
+    assert payload["model"] == MODEL.repository
+    assert payload["chunk_id"] == CHUNK.chunk_id
+    assert payload["chunk"]["start_ms"] == CHUNK.start_ms
+    assert payload["chunk"]["end_ms"] == CHUNK.end_ms
+    assert payload["preprocessing"] == dict(PARAKEET_CHUNK_PREPROCESSING)
+    assert parsed.raw_response["status"] == "ok"
+    assert parsed.result.text == "ciao"
 
 
 def test_default_http_post_uses_niquests_streaming_and_preserves_error_bodies(

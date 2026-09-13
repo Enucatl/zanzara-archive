@@ -266,7 +266,7 @@
     }
   ],
   "services": [
-    {"id": "parakeet", "directory": "services/parakeet", "image": "zanzara-archive/parakeet:py314-shared", "image_digest": "177e59002ee9c3b3625a2dfc7025e56b422e860b7deb757b9fda50593869449b", "python": "3.14.7", "uv_lock_sha256": "1576b48fac157ab7dc89e4c07660624b4be4beb337a6b95d2489af250259a5a1"},
+    {"id": "parakeet", "directory": "services/parakeet", "image": "zanzara-archive/parakeet:py314-shared", "image_digest": "958b7c037c8dac0ff3230c18455aca36c463abc78d70d26a7fc57c8b7e786986", "python": "3.14.7", "uv_lock_sha256": "1576b48fac157ab7dc89e4c07660624b4be4beb337a6b95d2489af250259a5a1"},
     {"id": "whisper", "directory": "services/whisper", "image": "zanzara-archive/whisper:py314-shared", "image_digest": "b7a5fa8a510fecae3195151c9126c62e04f5ecdc253fe5188758e96a8f711ae1", "python": "3.14.7", "uv_lock_sha256": "6d74ee75cd258237ff9c7308afbc62640dfa4be8d03ef4732fff0e9cb5eecf38"},
     {"id": "voxtral", "directory": "services/voxtral", "image": "zanzara-archive/voxtral:py314-shared", "image_digest": "fa186bf54d0c07641c58eaa36baec7bc4d2dd1316dfb50f05c5a8d1b1ac1be16", "python": "3.14.7", "uv_lock_sha256": "8ac4f8df6494f00641744a0d5ecc77b4d2eb6f6cd0f0888d45531c42bbdf865c"},
     {"id": "diarization", "directory": "services/diarization", "image": "zanzara-archive/diarization:py314-shared", "image_digest": "fd5e73a197fde8ecf860dd538940662693b6e7d5bc0f97d722351ea11cb814e3", "python": "3.14.7", "uv_lock_sha256": "935c26b2d7ad7d11f428467b48f47130187c7f0d6ba80a0eb7a8403900cc2760"},

@@ -8,6 +8,7 @@ it can become a canonical transcript artifact.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -69,6 +70,18 @@ VOXTRAL_DECODING_SETTINGS: Mapping[str, Any] = {
     "streaming": False,
     "max_new_tokens": 1024,
 }
+PARAKEET_CHUNK_PREPROCESSING: Mapping[str, Any] = {
+    "sample_rate_hz": 16_000,
+    "channels": 1,
+    "time_origin": "source chunk start",
+}
+PARAKEET_CHUNK_CONFIGURATION: Mapping[str, Any] = {
+    "dtype": "bfloat16",
+    "inference_mode": True,
+    "decoder": "native Parakeet token spans grouped by decoder whitespace",
+    "timestamp_interpolation": False,
+}
+MAX_PARAKEET_CHUNK_AUDIO_MS = 30_000
 
 
 def _request_id(value: str | None, prefix: str = "parakeet") -> str:
@@ -93,6 +106,16 @@ def _as_json_bytes(payload: Mapping[str, Any]) -> bytes:
         raise ContractValidationError(
             f"transcription request is not JSON serializable: {exc}"
         ) from exc
+
+
+def _json_sha256(value: object) -> str:
+    """Hash JSON configuration without including request-specific state."""
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError(f"configuration is not JSON serializable: {exc}") from exc
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _seconds_to_ms(value: object, field_name: str) -> int:
@@ -294,6 +317,233 @@ def parse_parakeet_response(
         request_id=request_id,
         duration_ms=audio.duration_ms,
     )
+
+
+def _parse_parakeet_chunk_words(
+    data: Mapping[str, Any], *, chunk: AudioChunk, request_id: str
+) -> tuple[TimedWord, ...]:
+    """Parse optional chunk-local native words without making them required."""
+
+    raw_words = data.get("words")
+    if raw_words is None:
+        return ()
+    if not isinstance(raw_words, list):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet chunk response words must be an array when supplied",
+            request_id,
+        )
+    duration_ms = chunk.end_ms - chunk.start_ms
+    words: list[TimedWord] = []
+    for index, raw_word in enumerate(raw_words):
+        if not isinstance(raw_word, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Parakeet chunk response words[{index}] is not an object",
+                request_id,
+            )
+        text = raw_word.get("word", raw_word.get("text"))
+        if not isinstance(text, str) or not text.strip():
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Parakeet chunk response words[{index}] is missing text",
+                request_id,
+            )
+        try:
+            start_ms, end_ms = _word_offsets(raw_word, index)
+        except ContractValidationError as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Parakeet chunk response words[{index}] has no genuine offsets: {exc}",
+                request_id,
+            ) from exc
+        if start_ms < 0 or end_ms <= start_ms or end_ms > duration_ms:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Parakeet chunk response words[{index}] has an out-of-bounds interval "
+                f"({start_ms},{end_ms}) for chunk duration {duration_ms}",
+                request_id,
+            )
+        confidence = raw_word.get("confidence")
+        if confidence is not None and (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 <= confidence <= 1
+        ):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                f"Parakeet chunk response words[{index}] has invalid confidence",
+                request_id,
+            )
+        words.append(
+            TimedWord(
+                word_id=f"service-word-{index:06d}",
+                text=text,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                confidence=float(confidence) if confidence is not None else None,
+            )
+        )
+    for previous, current in zip(words, words[1:], strict=False):
+        if current.start_ms < previous.start_ms:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Parakeet chunk response word timestamps are not monotonic",
+                request_id,
+            )
+    return tuple(words)
+
+
+def parse_parakeet_chunk_response(
+    payload: Mapping[str, Any],
+    *,
+    chunk: AudioChunk,
+    model: ModelFingerprint,
+    request_id: str,
+) -> TranscriptionHypothesis:
+    """Validate Parakeet's text-first response for one frozen chunk.
+
+    Native word spans are retained when the service returns them, but the
+    resulting hypothesis is valid with text alone.  This keeps P1R scoring
+    independent of the legacy production timestamp capability.
+    """
+
+    data = _unwrap_response(payload, request_id, service_name="Parakeet")
+    reported_chunk_id = data.get("chunk_id")
+    if reported_chunk_id is not None and reported_chunk_id != chunk.chunk_id:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response chunk ID does not match the request",
+            request_id,
+        )
+    reported_model = data.get("model")
+    if reported_model is not None and reported_model != model.repository:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response model does not match the locked model",
+            request_id,
+        )
+    reported_revision = data.get("model_revision")
+    if reported_revision is not None and reported_revision != model.revision:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response revision does not match the locked model",
+            request_id,
+        )
+    raw_text = data.get("text")
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet chunk response must contain non-empty transcript text",
+            request_id,
+        )
+
+    preprocessing = data.get("preprocessing", PARAKEET_CHUNK_PREPROCESSING)
+    if not isinstance(preprocessing, Mapping):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response preprocessing must be an object",
+            request_id,
+        )
+    expected_preprocessing = PARAKEET_CHUNK_PREPROCESSING
+    if any(preprocessing.get(key) != value for key, value in expected_preprocessing.items()):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response preprocessing does not match the common chunk contract",
+            request_id,
+        )
+    configuration = data.get("configuration", PARAKEET_CHUNK_CONFIGURATION)
+    if not isinstance(configuration, Mapping):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response configuration must be an object",
+            request_id,
+        )
+    words = _parse_parakeet_chunk_words(data, chunk=chunk, request_id=request_id)
+    raw_segments = data.get("segments", [])
+    if not isinstance(raw_segments, list) or any(
+        not isinstance(segment, Mapping) for segment in raw_segments
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet chunk response segments must be an array of objects",
+            request_id,
+        )
+    declared_granularities = data.get("timestamp_granularities")
+    if declared_granularities is not None and (
+        not isinstance(declared_granularities, list)
+        or any(value not in {"word", "segment"} for value in declared_granularities)
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response timestamp granularities are invalid",
+            request_id,
+        )
+    if data.get("timestamp_interpolation", False) is not False:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "Parakeet response must not interpolate timestamps",
+            request_id,
+        )
+    try:
+        metadata = {
+            "model": data.get("model", model.repository),
+            "model_revision": data.get("model_revision", model.revision),
+            "chunk": {
+                "chunk_id": chunk.chunk_id,
+                "episode_id": chunk.episode_id,
+                "source_sha256": chunk.source_sha256,
+                "start_ms": chunk.start_ms,
+                "end_ms": chunk.end_ms,
+                "duration_ms": chunk.duration_ms,
+                "interval_duration_ms": chunk.end_ms - chunk.start_ms,
+                "segmentation_fingerprint": chunk.segmentation_fingerprint,
+                "partition": chunk.partition,
+            },
+            "configuration": dict(configuration),
+            "configuration_sha256": _json_sha256(configuration),
+            "preprocessing": dict(preprocessing),
+            "preprocessing_sha256": _json_sha256(preprocessing),
+            "native_word_count": len(words),
+            "timestamp_interpolation": data.get("timestamp_interpolation", False),
+        }
+        hypothesis = TranscriptionHypothesis(
+            chunk_id=chunk.chunk_id,
+            model_fingerprint=model,
+            text=raw_text,
+            words=words,
+            segments=tuple(dict(segment) for segment in raw_segments),
+            raw_metadata=metadata,
+            timestamp_granularities=(
+                tuple(declared_granularities) if declared_granularities is not None else None
+            ),
+            source_sha256=chunk.source_sha256,
+        )
+    except (ContractValidationError, TypeError, ValueError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"Parakeet chunk response provenance is invalid: {exc}",
+            request_id,
+        ) from exc
+    return hypothesis
 
 
 def parse_whisper_response(
@@ -757,6 +1007,158 @@ class ParsedHypothesis:
 
     result: TranscriptionHypothesis
     raw_response: Mapping[str, Any]
+
+
+class ParakeetChunkAdapter:
+    """Application-side adapter for Parakeet's P1R text-first chunk endpoint."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioChunk], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model_fingerprint_from_lock(model) if isinstance(model, str) else model
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        return CapabilityDeclaration(
+            model=self.model,
+            supports_timestamps=True,
+            timestamp_granularities=("word",),
+            max_audio_ms=MAX_PARAKEET_CHUNK_AUDIO_MS,
+            max_payload_bytes=MAX_AUDIO_PAYLOAD_BYTES,
+        )
+
+    def transcribe_bytes(
+        self,
+        chunk: AudioChunk,
+        audio_bytes: bytes,
+        *,
+        request_id: str | None = None,
+        audio_format: str = "wav",
+    ) -> ParsedHypothesis:
+        request_id = _request_id(request_id)
+        interval_duration_ms = chunk.end_ms - chunk.start_ms
+        if interval_duration_ms > MAX_PARAKEET_CHUNK_AUDIO_MS:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"Parakeet benchmark chunks cannot exceed {MAX_PARAKEET_CHUNK_AUDIO_MS} ms",
+                request_id,
+            )
+        if not isinstance(audio_bytes, bytes) or not audio_bytes:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio payload must contain bytes",
+                request_id,
+            )
+        if len(audio_bytes) > MAX_AUDIO_PAYLOAD_BYTES:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                f"audio payload exceeds {MAX_AUDIO_PAYLOAD_BYTES} bytes",
+                request_id,
+            )
+        if not isinstance(audio_format, str) or not audio_format.strip():
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "audio format must be non-empty text",
+                request_id,
+            )
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "chunk_id": chunk.chunk_id,
+            "chunk": {
+                "episode_id": chunk.episode_id,
+                "source_sha256": chunk.source_sha256,
+                "start_ms": chunk.start_ms,
+                "end_ms": chunk.end_ms,
+                "interval_duration_ms": interval_duration_ms,
+                "segmentation_fingerprint": chunk.segmentation_fingerprint,
+                "partition": chunk.partition,
+            },
+            "input_audio": {
+                "data": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": audio_format,
+            },
+            "response_format": "json",
+            "preprocessing": dict(PARAKEET_CHUNK_PREPROCESSING),
+            "configuration": dict(PARAKEET_CHUNK_CONFIGURATION),
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{PARAKEET_TRANSCRIPTION_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "Parakeet chunk transcription request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"Parakeet endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Parakeet endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "Parakeet endpoint returned a non-object JSON response",
+                request_id,
+            )
+        result = parse_parakeet_chunk_response(
+            response,
+            chunk=chunk,
+            model=self.model,
+            request_id=request_id,
+        )
+        return ParsedHypothesis(result=result, raw_response=response)
+
+    def transcribe(self, chunk: AudioChunk, *, request_id: str) -> TranscriptionHypothesis:
+        if self.audio_loader is None:
+            raise _failure(
+                AdapterFailure,
+                "invalid_audio",
+                "ParakeetChunkAdapter requires an audio_loader for a validated chunk",
+                request_id,
+            )
+        return self.transcribe_bytes(
+            chunk,
+            self.audio_loader(chunk),
+            request_id=request_id,
+        ).result
 
 
 class WhisperAdapter:
@@ -1254,21 +1656,29 @@ class DiarizerAdapter:
 Community1Adapter = DiarizerAdapter
 LocalDiarizerAdapter = DiarizerAdapter
 LocalParakeetAdapter = ParakeetAdapter
+LocalParakeetChunkAdapter = ParakeetChunkAdapter
+ChunkParakeetAdapter = ParakeetChunkAdapter
 
 __all__ = [
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_DIARIZATION_TIMEOUT_SECONDS",
+    "ChunkParakeetAdapter",
     "DIARIZATION_PATH",
     "DiarizerAdapter",
     "Community1Adapter",
     "LocalParakeetAdapter",
+    "LocalParakeetChunkAdapter",
     "LocalDiarizerAdapter",
     "MAX_AUDIO_PAYLOAD_BYTES",
     "MAX_DIARIZATION_PAYLOAD_BYTES",
+    "MAX_PARAKEET_CHUNK_AUDIO_MS",
     "MAX_WHISPER_AUDIO_MS",
+    "PARAKEET_CHUNK_CONFIGURATION",
+    "PARAKEET_CHUNK_PREPROCESSING",
     "PARAKEET_TRANSCRIPTION_PATH",
     "ParakeetAdapter",
+    "ParakeetChunkAdapter",
     "ParsedHypothesis",
     "ParsedDiarization",
     "ParsedTranscription",
@@ -1279,6 +1689,7 @@ __all__ = [
     "WhisperAdapter",
     "derive_overlap_intervals",
     "parse_diarization_response",
+    "parse_parakeet_chunk_response",
     "parse_parakeet_response",
     "parse_whisper_response",
     "render_rttm",

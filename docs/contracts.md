@@ -7,7 +7,9 @@ arbitrary filesystem paths.
 
 All persisted intervals use integer milliseconds and half-open `[start_ms,
 end_ms)` bounds. `TranscriptResult(status="timed")` is the only transcript
-status that can carry production `TimedWord` records. A `text_only`,
+status that can carry production `TimedWord` records. P1R benchmark hypotheses
+may be `text_only`; their optional words/segments are immutable metadata, not
+human gold or a release prerequisite. A `text_only`,
 `missing_asr`, or `no_words` result stays explicit and fails
 `require_production()`; text-only cloud comparisons therefore cannot be used
 for attribution.

@@ -57,15 +57,22 @@ Persist job states `queued`, `running`, `retry_wait`, `succeeded`, `failed`, `ca
 
 Model lock records registry/repository, immutable revision, every checkpoint checksum including heads, preprocessing, precision, dimensions, license/terms evidence, Python/runtime versions, container image digest and hardware smoke result. P1-01 acquires and smoke-tests all six candidates on the RTX 5090 before adapters integrate them. Human model-access acceptance is P1-H01. A broken download, unavailable checkpoint, incompatible CUDA kernel or unverified license is a blocker; no silent architecture substitution. Published benchmark scores do not establish archive performance.
 
-Define immutable typed records in P0-03: `AudioArtifact`, `ModelFingerprint`, `TimedWord`, `Turn`, `Overlap`, `TranscriptResult`, `DiarizationResult`, `EmbeddingBatch`, `ArtifactManifest`, `JobStatus`, `CandidateScore`, `IdentityDecision`, `EvaluationReport`. Audio artifacts carry checksum, format and time origin; internal service access uses a constrained shared artifact ID or validated audio bytes, never an arbitrary URL/path. Vectors must be finite, nonzero, dimension-correct, and preserve input ordering. Return typed failures such as `unsupported_capability`, `invalid_audio`, `model_unavailable`, `timeout`, `budget_blocked`, `generation_mismatch`; API errors include code, message, retryable and request ID.
+Define immutable typed records in P0-03: `AudioArtifact`, `ModelFingerprint`, `TimedWord`, `Turn`, `Overlap`, `TranscriptResult`, `DiarizationResult`, `EmbeddingBatch`, `ArtifactManifest`, `JobStatus`, `CandidateScore`, `IdentityDecision`, `EvaluationReport`. Audio artifacts carry checksum, format and time origin; internal service access uses a constrained shared artifact ID or validated audio bytes, never an arbitrary URL/path. Vectors must be finite, nonzero, dimension-correct, and preserve input ordering. `TimedWord` remains a production transcript artifact when a consumer needs real word timing; P1R benchmark hypotheses may be text-only and treat words/segments as optional immutable metadata. Return typed failures such as `unsupported_capability`, `invalid_audio`, `model_unavailable`, `timeout`, `budget_blocked`, `generation_mismatch`; API errors include code, message, retryable and request ID.
 
 A service exposes internal `/health`, `/ready`, and its typed `/v1/diarize` or `/v1/embed-speakers` endpoint; text uses OpenAI-compatible `/v1/embeddings`, and local transcription matches D8's `/v1/audio/transcriptions`. Fingerprint/capability metadata accompanies responses. Requests have bounded timeouts and payloads. Health distinguishes process liveness from loaded-model readiness. Genuine GPU fixtures are private artifacts; CPU contract tests use synthetic vectors and handcrafted timing, without claiming model quality.
 
 ## D6 — Transcript production
 
+Production transcript timing and attribution remain separate from P1R quality
+evaluation. P1R uses deterministic audio chunks and human-reviewed text/
+speaker references; a model's word timestamps are optional evidence and are not
+used to define chunk boundaries or human gold. Production playback and
+attribution may still require genuine timed words, and must fail explicitly
+when they are unavailable.
+
 Start Parakeet with 300-second ownership windows and five seconds of left/right context, clipped at episode boundaries. Decode/infer each expanded interval, convert model-local times to original offsets, and retain only words whose midpoint belongs to that window's half-open ownership interval. Assign a midpoint exactly at a boundary to the later window. Persist window offsets and settings. Adjacent repeated words may be real speech: do not deduplicate by text alone. Test both duplicated boundary output and omitted words with known fixtures; benchmark changes on development data only. Window parameters are fingerprints, not silent runtime tuning.
 
-Run Community-1 with episode-wide clustering. Internal segmentation is allowed, but never concatenate independently numbered chunk speakers. Preserve standard and exclusive outputs separately. Derive intervals with at least two active standard speakers as overlap; retain all active IDs.
+Run Community-1 with episode-wide clustering. Internal segmentation is allowed, but never concatenate independently numbered chunk speakers. Preserve standard and exclusive outputs separately. Derive intervals with at least two active standard speakers as overlap; retain all active IDs. P1R intersects these episode-wide outputs with its frozen chunk intervals for independent diarization and overlap-condition scoring.
 
 Attribute each word to the exclusive turn with the greatest temporal intersection. On equal intersection prefer the turn containing the word midpoint; otherwise use stable speaker ID. With no intersection, leave unassigned. Attach overlap flags from standard diarization independently of exclusive attribution. Retain word references in JSON, text chunks and exports. TXT/SRT/VTT are derived views; no renderer changes canonical times or speaker identities.
 
@@ -92,6 +99,11 @@ Model or provider changes create a new index generation by default. Any reuse re
 Initial paid benchmark total is US$10, including paid capability probes, cloud text probes and retries. Human P3-H01 supplies an OpenRouter key with a non-resetting US$10 credit limit and confirms balance; never publish secrets. A local SQLite ledger atomically reserves a conservative upper-bound USD cost for every attempt before network I/O and enforces `spent + reserved <= 10`. Unknown pricing, missing credentials, insufficient balance or an unbounded cost estimate blocks dispatch. Reconcile usage and failed-request charges when exposed. Keep unknown/ambiguous charges reserved at their upper bound until reconciled; a timeout cannot free budget and trigger a free retry. Disable opaque SDK retries or route every retry through the ledger. P6–P8 are local by default; this budget does not authorize later spending.
 
 ## D9 — Text retrieval
+
+The production text-index chunking below is distinct from P1R benchmark
+chunks. It may use attributed timed words and its own 200-word/60-second
+presentation limits; those limits are not a transcription-quality gold split
+or release gate.
 
 Make chunks from consecutive attributed words, breaking at episode-speaker changes, 200 words, or a 60-second span, whichever comes first. Unassigned runs stay distinct. Keep exact ordered word IDs and original times, and preserve overlap flags. Derive a stable chunk ID from attribution artifact and word range. Do not silently truncate text at the embedding tokenizer; reject/report a model-limit violation.
 

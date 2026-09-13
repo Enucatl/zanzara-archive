@@ -4,9 +4,16 @@ Section IDs E1–E7 are stable. All reports identify source/annotation/split/mod
 
 ## P1R replacement status
 
-P1R is the authoritative replacement for P1 transcription evaluation. The P1-specific material in E1/E2 below is retained only as historical evidence until P1R-01/P1R-17 complete their live migration; it must not be used to release P1 or to require manually timed words, a complete golden episode, a five-block split, timing-error metrics, or timestamp-capable ASR output. P1R evaluates frozen, model-independent chunks with human audio-verified references and episode-level development/held-out partitions. Required lexical metrics are conservative versioned Italian WER and CER; multi-speaker truth supports an explicitly locked overlap-aware speaker-independent metric such as ORC-WER, while DER/JER and cpWER/tcpWER remain separate evaluation questions. Representative/stress and overlap/music/degraded/rapid-turn-taking slices always report chunk, duration and word denominators. The complete executable contracts are P1R-02, P1R-11, P1R-H01 and P1R-12 through P1R-17.
+P1R is the authoritative replacement for P1 transcription evaluation. The P1-specific material in E1/E2 below is retained as historical evidence and implementation history; it must not be used to release P1 or to require manually timed words, a complete golden episode, a five-block split, timing-error metrics, or timestamp-capable ASR output. P1R evaluates frozen, model-independent chunks with human audio-verified references and episode-level development/held-out partitions. Required lexical metrics are conservative versioned Italian WER and CER; multi-speaker truth supports an explicitly locked overlap-aware speaker-independent metric such as ORC-WER, while DER/JER and cpWER/tcpWER remain separate evaluation questions. Representative/stress and overlap/music/degraded/rapid-turn-taking slices always report chunk, duration and word denominators. The complete executable contracts are P1R-02, P1R-11, P1R-H01 and P1R-12 through P1R-17. See [P1R-01-MIGRATION](P1R-01-MIGRATION.md) for the before/after map and live issue decisions.
 
 ## E1 — Golden reference and transcription split
+
+### Historical P1 contract — retained, not authoritative
+
+The following paragraphs preserve the original P1 annotation and split
+contract for reproducibility of completed artifacts. They are not active P1R
+release requirements. P1R gold is chunk-based, human audio-reviewed and
+episode-partitioned as described above and in P1R-02/P1R-11/P1R-H01.
 
 P1-05 supplies waveform/audio playback, editable words, speaker turns, overlaps and unintelligible regions. Preserve machine-seeded output as `draft`; only an identified human can mark a version `reviewed`. Save immutable exports plus append-only history, reviewer, source checksum and review time. Concurrent edits require revision checks. P1-06 reviews the entire Italian golden episode verbatim, including repeated words, false starts, dialect, names and numbers. Human reference speaker IDs come from listening, not unquestioned diarizer labels. Mark genuinely unintelligible intervals rather than guessing or silently removing difficult speech.
 
@@ -17,6 +24,22 @@ Manually verify at least 200 word boundaries (start **and** end for at least 200
 Italian normalization version `it-v1`: Unicode NFC, Unicode casefold, replace each Unicode punctuation-category character with a space, then collapse whitespace and trim. Raw WER uses whitespace tokens with case and punctuation intact. Normalized WER uses `it-v1` tokens; CER uses Unicode code points including single normalized interword spaces. Do not expand digits into words, remove disfluencies or rewrite lexical content. Mask reference and hypothesis regions annotated unintelligible before scoring, using time when available; for a text-only hypothesis use an explicitly documented reference alignment and exclude ambiguous mask boundaries from paired comparisons. If masking cannot be aligned reliably, report the comparison as unscorable rather than favoring that model. Implement known-answer normalization and masking fixtures before measuring model output.
 
 ## E2 — ASR, diarization, attribution and timing metrics
+
+### Current P1R interpretation
+
+P1R reports lexical WER/CER and its locked overlap-aware ASR metric from chunk
+hypotheses, interval-based DER/JER and speaker-count/overlap measures from
+Community-1, and separate integrated speaker-attributed measures. These
+reports use human-reviewed chunk truth and report chunk, duration and word
+denominators for every applicable slice. Timing metadata may be reported when
+present, but missing timing is not a transcription-quality failure. Production
+attribution remains a separate consumer that can require genuine timed words.
+
+### Historical P1 contract — retained, not authoritative
+
+The timing-error calculations and P1 thresholds below remain available for
+historical report interpretation only. They do not gate P1R or any current
+transcription-quality release.
 
 Report raw/normalized WER `(S+D+I)/N`, normalized CER, denominator counts, and slices for overlap and difficult audio. Freeze slice intervals during human annotation, including telephone/degraded audio, music and rapid exchanges where present. Report a slice with zero reference tokens as not applicable.
 
@@ -50,7 +73,7 @@ Compare lexical, dense and hybrid against exactly the same chunk generation and 
 
 ## E5 — Local/cloud comparisons and budget
 
-Compare local Parakeet, `microsoft/mai-transcribe-2` and `mistralai/voxtral-mini-transcribe` on identical source intervals totaling **20 minutes**, selected before provider comparisons from reviewed golden development material. Select ten disjoint two-minute windows stratified over clean speech, rapid exchanges, overlap, names/numbers and difficult audio; allow multi-label strata and document absent strata. Held-out golden material remains sealed. Use the same decoded bytes, language setting, scored-region masks and normalization for each system. Preserve exact source offsets and response capabilities.
+Compare local Parakeet, `microsoft/mai-transcribe-2` and `mistralai/voxtral-mini-transcribe` on identical source intervals totaling **20 minutes**, selected before provider comparisons from reviewed P1R development chunks. Select ten disjoint two-minute windows stratified over clean speech, rapid exchanges, overlap, names/numbers and difficult audio; allow multi-label strata and document absent strata. Held-out P1R episodes remain sealed. Use the same decoded bytes, language setting, scored-region masks and normalization for each system. Preserve exact source offsets and response capabilities.
 
 Immediately before any paid request verify current model/provider availability, Italian support, timestamp support and pricing; record dated source/provider evidence. Compare text-only outputs for WER only and list missing timing as a capability limitation. OpenRouter provider diarization is a probe, not a replacement for the fixed Community-1 baseline. If models are unavailable, create a blocker; do not silently choose another model. Report coverage for failed/unsupported calls alongside successful results.
 
@@ -67,7 +90,8 @@ Each immutable run directory contains `run.json`, `metrics.json`, `coverage.json
 | Gate | Required evidence |
 |---|---|
 | P0 | Reproducible package/fixtures, available frozen 20, local-state/crash recovery tests, review skill |
-| P1 | Human golden reference/split, real baseline, E2 targets, CUDA and model locks |
+| P1 | Reusable model/service artifacts, operational provenance and non-methodology follow-ups; no transcription-quality release gate |
+| P1R | Human-reviewed chunk truth, episode-level partitions, three-model ASR/diarization/integrated reports and current transcription-quality release evidence |
 | P2 | Full ensemble run, E3 retrieval target or explicit blocker, split audit, identity reversal/contradiction evidence |
 | P3 | Pinned upstream integration, budget ledger, cloud comparison, E4 hybrid target, no mixed vector spaces |
 | P4 | Browser journeys for search/playback/uploads/review/dashboard; protected local deployment boundary |
@@ -76,6 +100,6 @@ Each immutable run directory contains `run.json`, `metrics.json`, `coverage.json
 | P7 | Stratified 20 historical voice-only canary, human cross-year labels/metrics, user approval, historical coverage |
 | P8 | Approved queue/resources; ten-episode batches; complete transcription/index coverage and final recovery/quality audit |
 
-A canary re-runs relevant frozen checks: WER/DER targets and <=1 pp unexplained regression where ASR is present; voice Recall@10 >=80% on eligible reviewed canary queries; hybrid >= lexical where transcription/search is present; zero contradictory/incorrect fixture merges; no unrecoverable jobs; complete accounting of voice-unsearchable speakers and excluded audio. Annotate representative new canary material before declaring quality stable. P6-03 owns requesting human review of the new canary slices/identity labels as a blocking operator follow-up when required; Luna cannot self-certify human truth. P7-02 owns historical review explicitly. Report year/channel/quality-stratum coverage and compare distributions; a detected shift requires measurement/remediation rather than an invented automatic drift threshold.
+A canary re-runs the current applicable frozen checks: P1R lexical/diarization/integrated measures where ASR is present, voice Recall@10 >=80% on eligible reviewed canary queries, hybrid >= lexical where transcription/search is present, zero contradictory/incorrect fixture merges, no unrecoverable jobs, and complete accounting of voice-unsearchable speakers and excluded audio. Annotate representative new canary material before declaring quality stable. P6-03 owns requesting human review of the new canary slices/identity labels as a blocking operator follow-up when required; Luna cannot self-certify human truth. P7-02 owns historical review explicitly. Report year/channel/quality-stratum coverage and compare distributions; a detected shift requires measurement/remediation rather than an invented automatic drift threshold.
 
 Each phase stays open until every child/follow-up is complete, linked implementation PRs are merged, Sol has reviewed the integrated commit and current evidence, and the user explicitly releases that phase. A failed target creates bounded remediation sub-issues. An insufficient-evidence report documents the blocker; it is not permission to skip the gate. Newly merged code affecting the phase invalidates the prior review until Sol reruns it. See [REVIEW-SKILL](REVIEW-SKILL.md) for the exact review contract.

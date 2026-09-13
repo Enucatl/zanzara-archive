@@ -1300,6 +1300,7 @@
       "priority": "P1",
       "order": 3070,
       "blocked_by": [
+        "P1R",
         "P2",
         "P3-05",
         "P3-06"
@@ -1721,6 +1722,7 @@
       "priority": "P1",
       "order": 5060,
       "blocked_by": [
+        "P1R",
         "P4",
         "P5-05"
       ],
@@ -2373,9 +2375,10 @@
     },
     {
       "id": "R23",
-      "requirement": "20-episode acceptance and quality/regression gates",
+      "requirement": "20-episode acceptance and quality/regression gates, with P1R transcription evidence",
       "issues": [
-        "P1-08",
+        "P1R-16",
+        "P1R-17",
         "P2-08",
         "P3-07",
         "P5-06"

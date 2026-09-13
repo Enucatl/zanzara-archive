@@ -56,7 +56,12 @@ list every reviewed word. Private exports are atomically written
 under the ignored artifact root with `reference.json`, exact transcript views,
 manual timing, and the deterministic five-block split manifest.
 
-P1-06 can validate a private revision without validating human judgment:
+The original P1 editor also exported a five-block split and a 200-word timing
+sample. Those fields remain readable for historical P1 artifacts, but they are
+not current transcription-quality release requirements. P1R uses frozen audio
+chunks and human-reviewed chunk references; word timing is optional benchmark
+metadata. P1-06 can validate a private legacy revision without validating
+human judgment:
 
 ```bash
 uv run zanzara evaluation validate-reference \

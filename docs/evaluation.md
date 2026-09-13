@@ -1,4 +1,12 @@
-# ASR, diarization, attribution and timing evaluation
+# Legacy P1 ASR, diarization, attribution and timing evaluation
+
+This document describes the retained P1-07/P1-08 implementation and historical
+artifacts. P1R is the current transcription-quality methodology: it evaluates
+human-reviewed, model-independent audio chunks with episode-level partitions
+and reports ASR, diarization and integrated attribution separately. The old
+golden-episode, five-block, 200-manually-timed-word and timing-error clauses
+below are not active release gates. See `planning/P1R-01-MIGRATION.md` and the
+P1R issue bodies for the current contracts.
 
 P1-07 provides a deterministic CPU-only scorer for the JSON reference and
 hypothesis shape exported by P1-05. It has no model, network, credential, or

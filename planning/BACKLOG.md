@@ -125,7 +125,7 @@ R28's setup deliverable is completed by following the runbook before implementat
 | R20 | Cloudflare Access on entire website, origin JWT and CSRF, operator deployment configuration | [P5-H01](issues/P5-H01.md), [P5-02](issues/P5-02.md) |
 | R21 | Backups, Qdrant rebuild, interrupted job recovery and private evidence storage | [P5-03](issues/P5-03.md) |
 | R22 | Public README, screenshots and three implementation-grounded architecture prompts | [P5-05](issues/P5-05.md), [P8-04](issues/P8-04.md) |
-| R23 | 20-episode acceptance and quality/regression gates | [P1-08](issues/P1-08.md), [P2-08](issues/P2-08.md), [P3-07](issues/P3-07.md), [P5-06](issues/P5-06.md) |
+| R23 | 20-episode acceptance and quality/regression gates | [P1R-16](issues/P1R-16.md), [P1R-17](issues/P1R-17.md), [P2-08](issues/P2-08.md), [P3-07](issues/P3-07.md), [P5-06](issues/P5-06.md) |
 | R24 | Gated 400 expansion, estimates and 40-total canary | [P6-01](issues/P6-01.md), [P6-02](issues/P6-02.md), [P6-03](issues/P6-03.md), [P6-04](issues/P6-04.md) |
 | R25 | Gated historical voice-only pass, 20 canary and cross-year human labels | [P7-01](issues/P7-01.md), [P7-02](issues/P7-02.md), [P7-03](issues/P7-03.md), [P7-04](issues/P7-04.md) |
 | R26 | Gated prioritized remaining ASR, bounded batches and final audit | [P8-01](issues/P8-01.md), [P8-02](issues/P8-02.md), [P8-03](issues/P8-03.md), [P8-04](issues/P8-04.md) |

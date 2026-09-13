@@ -30,6 +30,11 @@ from .annotations import (
 from .artifacts import ArtifactPublicationError
 from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError
 from .corpus import CorpusValidationError, load_manifest, resolve_source
+from .qwen_assistance import (
+    AnnotationAssistanceRequest,
+    AnnotationAssistanceService,
+    AnnotationAssistanceValidationError,
+)
 from .storage import SQLiteRepository, StorageConflictError, StorageError
 
 TEMPLATE_ROOT = Path(__file__).with_name("templates")
@@ -94,6 +99,7 @@ def create_app(
     archive_root: str | Path | None = None,
     manifest_path: str | Path | None = None,
     network_access: bool = False,
+    annotation_assistant: AnnotationAssistanceService | None = None,
 ) -> FastAPI:
     """Create the local annotation app for one canonical SQLite state path."""
 
@@ -102,6 +108,7 @@ def create_app(
     database_path = Path(database).expanduser()
     artifact_path = Path(artifact_root).expanduser()
     source_root = Path(archive_root).expanduser() if archive_root is not None else None
+    assistance_service = annotation_assistant or AnnotationAssistanceService()
     frozen_manifest = load_manifest(manifest_path) if manifest_path is not None else None
     if frozen_manifest is not None:
         current = SQLiteRepository.open(database_path)
@@ -232,6 +239,55 @@ def create_app(
         except (StorageError, ValueError, TypeError, KeyError) as exc:
             return _error(request_id, "invalid_condition_correction", str(exc), 422)
         return JSONResponse(content=ApiEnvelope(request_id, "ok", data=data).to_dict())
+
+    @app.post("/api/v1/chunks/{chunk_id:path}/annotation-assistance")
+    def annotation_assistance(chunk_id: str, body: dict[str, Any]) -> JSONResponse:
+        """Create a non-authoritative current-chunk Qwen review draft."""
+
+        request_id = _request_id()
+        try:
+            with repository() as current:
+                chunk = current.fetch_audio_chunk(chunk_id)
+                if chunk is None:
+                    return _error(request_id, "unknown_chunk", "chunk was not found", 404)
+                raw_ids = body.get("hypothesis_ids")
+                if (
+                    not isinstance(raw_ids, list)
+                    or not raw_ids
+                    or any(not isinstance(value, str) for value in raw_ids)
+                ):
+                    raise AnnotationAssistanceValidationError(
+                        "hypothesis_ids must be a non-empty list of IDs"
+                    )
+                hypotheses = []
+                for hypothesis_id in raw_ids:
+                    hypothesis = current.fetch_transcription_hypothesis(hypothesis_id)
+                    if hypothesis is None:
+                        return _error(
+                            request_id,
+                            "unknown_hypothesis",
+                            f"hypothesis was not found: {hypothesis_id}",
+                            404,
+                        )
+                    hypotheses.append(hypothesis)
+                preceding = body.get("preceding_chunks", ())
+                if not isinstance(preceding, list):
+                    raise AnnotationAssistanceValidationError("preceding_chunks must be a list")
+                request = AnnotationAssistanceRequest.from_payload(chunk, hypotheses, preceding)
+                draft = assistance_service.generate(current, request)
+        except StorageConflictError as exc:
+            return _error(request_id, "annotation_assistance_conflict", str(exc), 409)
+        except AnnotationAssistanceValidationError as exc:
+            return _error(request_id, "invalid_annotation_assistance", str(exc), 422)
+        except StorageError as exc:
+            return _error(request_id, "storage_unavailable", str(exc), 503)
+        return JSONResponse(
+            content=ApiEnvelope(
+                request_id,
+                "ok",
+                data={"draft": draft.to_dict(), "reference_unchanged": True},
+            ).to_dict()
+        )
 
     @app.post("/api/v1/annotations/{episode_id}")
     def save_annotation(episode_id: str, body: dict[str, Any]) -> JSONResponse:

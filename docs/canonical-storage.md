@@ -31,3 +31,9 @@ provenance, reviewer/review time, exact word/turn/overlap edits,
 unintelligible spans, and the deterministic E1 split. Filesystem exports are
 private immutable artifacts;
 SQLite remains authoritative for revision and optimistic-conflict state.
+
+Schema version 9 adds the append-only `annotation_assistance_drafts` table.
+It stores local-helper prompt/model hashes, candidate presentation order,
+bounded inputs, draft text or a typed unavailable error, and provenance. These
+records are deliberately separate from transcript references and cannot be
+updated or deleted.

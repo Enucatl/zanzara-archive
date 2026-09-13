@@ -57,6 +57,7 @@ def test_fresh_database_has_all_d3_canonical_tables(tmp_path: Path) -> None:
         "upload_jobs",
         "cost_reservations",
         "evaluation_reports",
+        "annotation_assistance_drafts",
     }
     actual = {
         row[0]

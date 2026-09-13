@@ -36,7 +36,7 @@ from .contracts import (
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -737,6 +737,36 @@ MIGRATIONS: dict[int, str] = {
       SELECT RAISE(ABORT, 'acoustic condition corrections are append-only');
     END;
     """,
+    9: """
+    CREATE TABLE IF NOT EXISTS annotation_assistance_drafts (
+        draft_id TEXT PRIMARY KEY,
+        chunk_id TEXT NOT NULL REFERENCES audio_chunks(chunk_id) ON DELETE RESTRICT,
+        source_sha256 TEXT NOT NULL,
+        request_sha256 TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        prompt_sha256 TEXT NOT NULL,
+        model_fingerprint_sha256 TEXT NOT NULL,
+        model_fingerprint_json TEXT NOT NULL,
+        candidate_order_json TEXT NOT NULL,
+        input_payload_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('succeeded','unavailable')),
+        draft_text TEXT,
+        error_json TEXT,
+        provenance_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (chunk_id, request_sha256, model_fingerprint_sha256)
+    );
+    CREATE INDEX IF NOT EXISTS idx_annotation_assistance_drafts_chunk
+      ON annotation_assistance_drafts(chunk_id, created_at, draft_id);
+    CREATE TRIGGER annotation_assistance_drafts_immutable_update
+    BEFORE UPDATE ON annotation_assistance_drafts BEGIN
+      SELECT RAISE(ABORT, 'annotation assistance drafts are append-only');
+    END;
+    CREATE TRIGGER annotation_assistance_drafts_immutable_delete
+    BEFORE DELETE ON annotation_assistance_drafts BEGIN
+      SELECT RAISE(ABORT, 'annotation assistance drafts are append-only');
+    END;
+    """,
 }
 
 
@@ -1218,6 +1248,169 @@ class SQLiteRepository:
             if row is not None
             else None
         )
+
+    @staticmethod
+    def _annotation_assistance_draft_from_row(row: sqlite3.Row) -> dict[str, object]:
+        return {
+            "draft_id": row["draft_id"],
+            "chunk_id": row["chunk_id"],
+            "source_sha256": row["source_sha256"],
+            "request_sha256": row["request_sha256"],
+            "prompt_version": row["prompt_version"],
+            "prompt_sha256": row["prompt_sha256"],
+            "model_fingerprint_sha256": row["model_fingerprint_sha256"],
+            "model_fingerprint": json.loads(row["model_fingerprint_json"]),
+            "candidate_order": json.loads(row["candidate_order_json"]),
+            "input_payload": json.loads(row["input_payload_json"]),
+            "status": row["status"],
+            "draft_text": row["draft_text"],
+            "error": json.loads(row["error_json"]) if row["error_json"] else None,
+            "provenance": json.loads(row["provenance_json"]),
+            "created_at": row["created_at"],
+        }
+
+    def record_annotation_assistance_draft(self, draft: Mapping[str, object]) -> None:
+        """Append one helper result without touching canonical human references."""
+
+        required = (
+            "draft_id",
+            "chunk_id",
+            "source_sha256",
+            "request_sha256",
+            "prompt_version",
+            "prompt_sha256",
+            "model_fingerprint_sha256",
+            "model_fingerprint",
+            "candidate_order",
+            "input_payload",
+            "status",
+            "draft_text",
+            "error",
+            "provenance",
+        )
+        missing = [key for key in required if key not in draft]
+        if missing:
+            raise StorageConflictError(
+                "annotation assistance draft is missing fields: " + ", ".join(missing)
+            )
+        draft_id = draft["draft_id"]
+        chunk_id = draft["chunk_id"]
+        status = draft["status"]
+        if not isinstance(draft_id, str) or not isinstance(chunk_id, str):
+            raise StorageConflictError("annotation assistance draft IDs must be text")
+        if status not in {"succeeded", "unavailable"}:
+            raise StorageConflictError("annotation assistance draft has an invalid status")
+        source_sha256 = draft["source_sha256"]
+        request_sha256 = draft["request_sha256"]
+        prompt_sha256 = draft["prompt_sha256"]
+        model_hash = draft["model_fingerprint_sha256"]
+        if not all(
+            isinstance(value, str) and len(value) == 64
+            for value in (source_sha256, request_sha256, prompt_sha256, model_hash)
+        ):
+            raise StorageConflictError("annotation assistance hashes must be SHA-256 text")
+        if status == "succeeded" and not isinstance(draft["draft_text"], str):
+            raise StorageConflictError("successful assistance drafts require draft_text")
+        if status == "unavailable" and not isinstance(draft["error"], Mapping):
+            raise StorageConflictError("unavailable assistance drafts require an error")
+        chunk = self.connection.execute(
+            "SELECT source_sha256 FROM audio_chunks WHERE chunk_id = ?", (chunk_id,)
+        ).fetchone()
+        if chunk is None:
+            raise StorageConflictError(f"assistance chunk is not registered: {chunk_id}")
+        if chunk["source_sha256"] != source_sha256:
+            raise StorageConflictError("assistance source hash does not match its chunk")
+        fields = {
+            "draft_id": draft_id,
+            "chunk_id": chunk_id,
+            "source_sha256": source_sha256,
+            "request_sha256": request_sha256,
+            "prompt_version": draft["prompt_version"],
+            "prompt_sha256": prompt_sha256,
+            "model_fingerprint_sha256": model_hash,
+            "model_fingerprint_json": _json(draft["model_fingerprint"]),
+            "candidate_order_json": _json(draft["candidate_order"]),
+            "input_payload_json": _json(draft["input_payload"]),
+            "status": status,
+            "draft_text": draft["draft_text"],
+            "error_json": _json(draft["error"]) if draft["error"] is not None else None,
+            "provenance_json": _json(draft["provenance"]),
+        }
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM annotation_assistance_drafts WHERE draft_id = ?", (draft_id,)
+            ).fetchone()
+            if existing is not None:
+                persisted = self._annotation_assistance_draft_from_row(existing)
+                if all(
+                    persisted[key] == draft[key]
+                    for key in (
+                        "draft_id",
+                        "chunk_id",
+                        "source_sha256",
+                        "request_sha256",
+                        "prompt_version",
+                        "prompt_sha256",
+                        "model_fingerprint_sha256",
+                        "status",
+                        "draft_text",
+                    )
+                ):
+                    return
+                raise StorageConflictError(
+                    "annotation assistance draft identity already refers to different content"
+                )
+            try:
+                connection.execute(
+                    """INSERT INTO annotation_assistance_drafts (
+                        draft_id, chunk_id, source_sha256, request_sha256,
+                        prompt_version, prompt_sha256, model_fingerprint_sha256,
+                        model_fingerprint_json, candidate_order_json, input_payload_json,
+                        status, draft_text, error_json, provenance_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        fields["draft_id"],
+                        fields["chunk_id"],
+                        fields["source_sha256"],
+                        fields["request_sha256"],
+                        fields["prompt_version"],
+                        fields["prompt_sha256"],
+                        fields["model_fingerprint_sha256"],
+                        fields["model_fingerprint_json"],
+                        fields["candidate_order_json"],
+                        fields["input_payload_json"],
+                        fields["status"],
+                        fields["draft_text"],
+                        fields["error_json"],
+                        fields["provenance_json"],
+                        _now(),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise StorageConflictError(
+                    "annotation assistance draft conflicts with an existing request"
+                ) from exc
+
+    def fetch_annotation_assistance_draft(self, draft_id: str) -> dict[str, object] | None:
+        """Fetch one immutable helper result."""
+
+        row = self.connection.execute(
+            "SELECT * FROM annotation_assistance_drafts WHERE draft_id = ?", (draft_id,)
+        ).fetchone()
+        return self._annotation_assistance_draft_from_row(row) if row is not None else None
+
+    def find_annotation_assistance_draft(
+        self, *, chunk_id: str, request_sha256: str, model_hash: str
+    ) -> dict[str, object] | None:
+        """Find the immutable result for one chunk/input/model tuple."""
+
+        row = self.connection.execute(
+            """SELECT * FROM annotation_assistance_drafts
+            WHERE chunk_id = ? AND request_sha256 = ? AND model_fingerprint_sha256 = ?
+            ORDER BY created_at DESC, draft_id DESC LIMIT 1""",
+            (chunk_id, request_sha256, model_hash),
+        ).fetchone()
+        return self._annotation_assistance_draft_from_row(row) if row is not None else None
 
     @staticmethod
     def _chunk_inference_dispatch_from_row(row: sqlite3.Row) -> dict[str, object]:

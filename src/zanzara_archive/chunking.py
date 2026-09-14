@@ -223,7 +223,7 @@ class Community1AdaptiveConfig(ChunkSegmentationConfig):
 
 @dataclass(frozen=True, slots=True)
 class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
-    """Fixed native ``speaker_counting`` adaptive chunk policy."""
+    """Fixed native ``speaker_counting`` policy using 12 seconds as a score reference."""
 
     version: str = "community1-native-adaptive-v1"
     preferred_min_s: float = 8.0
@@ -1416,7 +1416,6 @@ class _NativeCandidate:
 
 
 _NATIVE_TYPE_ADJUSTMENTS = {
-    "target": 0.0,
     "strong_pause": -2.0,
     "short_pause": -1.0,
     "speaker_change": -1.5,
@@ -1509,9 +1508,7 @@ def _native_candidates(
     if target_ms >= region_end_ms:
         return ()
     transitions = _native_transitions(exclusive_turns)
-    candidates: list[_NativeCandidate] = [
-        _NativeCandidate(target_ms, "target", _NATIVE_TYPE_ADJUSTMENTS["target"])
-    ]
+    candidates: list[_NativeCandidate] = []
     for interval in activity.intervals:
         if interval.speaker_count != 0:
             continue
@@ -1592,6 +1589,22 @@ def _select_native_candidate(
         config=config,
     )
     target_ms = start_ms + config.target_ms
+
+    if not candidates:
+        end_ms = min(start_ms + config.hard_max_ms, region_end_ms)
+        reason = "episode_end" if end_ms == region_end_ms else "hard_maximum"
+        distance_cost = abs(end_ms - target_ms) / 1000.0
+        return (
+            end_ms,
+            reason,
+            None,
+            {
+                "distance_cost": distance_cost,
+                "type_adjustment": 0.0,
+                "overlap_adjustment": 0.0,
+                "total_score": distance_cost,
+            },
+        )
 
     def scored(candidate: _NativeCandidate) -> tuple[float, float, float, float, int]:
         distance_cost = abs(candidate.time_ms - target_ms) / 1000.0
@@ -1751,6 +1764,7 @@ def _segment_native_activity(
                     "start_ms": current,
                     "end_ms": end_ms,
                     "reason": reason,
+                    "ideal_target_timestamp_ms": current + config.target_ms,
                     "selected_candidate_type": chunk.selected_candidate_type,
                     "selected_candidate_timestamp_ms": chunk.selected_candidate_timestamp_ms,
                     **score,

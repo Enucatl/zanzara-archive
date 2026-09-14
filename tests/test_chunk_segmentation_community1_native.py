@@ -61,10 +61,13 @@ def _segment(
     )
 
 
-def test_case_1_continuous_speech_uses_target() -> None:
+def test_case_1_continuous_speech_uses_hard_maximum_without_target_candidate() -> None:
     result = _segment(40_000)
-    assert result.chunks[0].end_ms == 12_000
-    assert result.chunks[0].boundary_end_reason == "target"
+    assert result.chunks[0].end_ms == 18_000
+    assert result.chunks[0].boundary_end_reason == "hard_maximum"
+    assert result.chunks[0].selected_candidate_type == "hard_maximum"
+    assert result.boundary_diagnostics[0]["ideal_target_timestamp_ms"] == 12_000
+    assert result.boundary_diagnostics[0]["reason"] == "hard_maximum"
     assert result.chunks[0].end_ms <= 18_000
 
 
@@ -74,9 +77,10 @@ def test_case_2_transition_at_11_4_wins() -> None:
     assert result.chunks[0].selected_candidate_type == "speaker_change"
 
 
-def test_case_3_late_transition_loses_to_target() -> None:
+def test_case_3_late_transition_is_selected_as_the_only_structural_candidate() -> None:
     result = _segment(40_000, exclusive=(Turn("A", 0, 15_500), Turn("B", 15_500, 40_000)))
-    assert result.chunks[0].end_ms == 12_000
+    assert result.chunks[0].end_ms == 15_500
+    assert result.chunks[0].selected_candidate_type == "speaker_change"
 
 
 def test_case_4_strong_native_pause_wins() -> None:
@@ -94,8 +98,8 @@ def test_case_5_short_native_pause_is_a_candidate() -> None:
 
 def test_case_6_micro_gap_is_ignored() -> None:
     result = _segment(40_000, zero_intervals=((11_960, 12_040),))
-    assert result.chunks[0].end_ms == 12_000
-    assert result.chunks[0].boundary_end_reason == "target"
+    assert result.chunks[0].end_ms == 18_000
+    assert result.chunks[0].boundary_end_reason == "hard_maximum"
 
 
 def test_case_7_pause_and_transition_use_combined_adjustment() -> None:
@@ -108,7 +112,7 @@ def test_case_7_pause_and_transition_use_combined_adjustment() -> None:
     assert result.chunks[0].selected_candidate_type == "strong_pause_and_speaker_change"
 
 
-def test_case_8_clean_transition_beats_overlap_target() -> None:
+def test_case_8_clean_transition_is_selected_without_an_exact_target_candidate() -> None:
     result = _segment(
         40_000,
         overlap=((11_800, 13_000),),
@@ -117,14 +121,15 @@ def test_case_8_clean_transition_beats_overlap_target() -> None:
     assert result.chunks[0].end_ms == 11_500
 
 
-def test_case_9_target_can_beat_a_late_pause() -> None:
+def test_case_9_late_pause_is_selected_when_it_is_the_only_structural_candidate() -> None:
     result = _segment(40_000, zero_intervals=((15_800, 16_200),), overlap=((11_900, 12_100),))
-    assert result.chunks[0].end_ms == 12_000
+    assert result.chunks[0].end_ms == 16_000
+    assert result.chunks[0].selected_candidate_type == "strong_pause"
 
 
 def test_case_10_music_metadata_does_not_change_native_activity() -> None:
     result = _segment(40_000)
-    assert result.chunks[0].selected_candidate_type == "target"
+    assert result.chunks[0].selected_candidate_type == "hard_maximum"
 
 
 def test_case_11_final_short_remainder_merges() -> None:

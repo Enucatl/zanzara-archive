@@ -21,7 +21,6 @@ ReferenceReviewStatus = Literal["draft", "human_truth", "superseded", "rejected"
 ChunkPartition = Literal["development", "held_out"]
 ChunkBoundaryReason = Literal[
     "episode_start",
-    "target",
     "strong_pause_and_speaker_change",
     "strong_pause",
     "short_pause_and_speaker_change",
@@ -1289,7 +1288,6 @@ class AudioChunk:
                 self.boundary_start_reason,
                 {
                     "episode_start",
-                    "target",
                     "strong_pause_and_speaker_change",
                     "strong_pause",
                     "short_pause_and_speaker_change",
@@ -1308,7 +1306,6 @@ class AudioChunk:
             _one_of(
                 self.boundary_end_reason,
                 {
-                    "target",
                     "strong_pause_and_speaker_change",
                     "strong_pause",
                     "short_pause_and_speaker_change",

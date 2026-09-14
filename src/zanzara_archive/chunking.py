@@ -229,7 +229,9 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
     preferred_min_s: float = 8.0
     target_s: float = 12.0
     preferred_max_s: float = 16.0
-    hard_max_s: float = 18.0
+    relaxation_start_s: float = 18.0
+    relaxed_clean_max_s: float = 24.0
+    hard_max_s: float = 30.0
     strong_pause_ms: int = 400
     short_pause_ms: int = 150
     overlap_margin_ms: int = 250
@@ -237,6 +239,17 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        for field_name in ("relaxation_start_s", "relaxed_clean_max_s"):
+            _positive_number(getattr(self, field_name), field_name)
+        if not (
+            self.preferred_max_s
+            <= self.relaxation_start_s
+            <= self.relaxed_clean_max_s
+            <= self.hard_max_s
+        ):
+            raise ContractValidationError(
+                "relaxation thresholds must be ordered after preferred_max_s"
+            )
         for field_name in (
             "strong_pause_ms",
             "short_pause_ms",
@@ -258,6 +271,8 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
             "preferred_min_ms": self.preferred_min_ms,
             "target_ms": self.target_ms,
             "preferred_max_ms": self.preferred_max_ms,
+            "relaxation_start_ms": self.relaxation_start_ms,
+            "relaxed_clean_max_ms": self.relaxed_clean_max_ms,
             "hard_max_ms": self.hard_max_ms,
             "strong_pause_ms": self.strong_pause_ms,
             "short_pause_ms": self.short_pause_ms,
@@ -272,6 +287,8 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
             ("preferred_min_s", "preferred_min_ms"),
             ("target_s", "target_ms"),
             ("preferred_max_s", "preferred_max_ms"),
+            ("relaxation_start_s", "relaxation_start_ms"),
+            ("relaxed_clean_max_s", "relaxed_clean_max_ms"),
             ("hard_max_s", "hard_max_ms"),
         ):
             if milliseconds in payload:
@@ -288,6 +305,18 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
         ):
             payload.pop(key, None)
         return cls(**payload)
+
+    @property
+    def relaxation_start_ms(self) -> int:
+        """Return the first duration at which relaxed selection begins."""
+
+        return _milliseconds(self.relaxation_start_s, "relaxation_start_s")
+
+    @property
+    def relaxed_clean_max_ms(self) -> int:
+        """Return the inclusive end of the clean relaxation phase."""
+
+        return _milliseconds(self.relaxed_clean_max_s, "relaxed_clean_max_s")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1422,6 +1451,13 @@ _NATIVE_TYPE_ADJUSTMENTS = {
     "strong_pause_and_speaker_change": -2.5,
     "short_pause_and_speaker_change": -1.75,
 }
+_NATIVE_TYPE_PRIORITIES = {
+    "strong_pause_and_speaker_change": 0,
+    "strong_pause": 1,
+    "short_pause_and_speaker_change": 2,
+    "speaker_change": 3,
+    "short_pause": 4,
+}
 
 
 def _native_activity_value(
@@ -1504,7 +1540,7 @@ def _native_candidates(
 ) -> tuple[_NativeCandidate, ...]:
     target_ms = start_ms + config.target_ms
     lower = start_ms + config.preferred_min_ms
-    upper = min(start_ms + config.preferred_max_ms, region_end_ms)
+    upper = min(start_ms + config.hard_max_ms, region_end_ms)
     if target_ms >= region_end_ms:
         return ()
     transitions = _native_transitions(exclusive_turns)
@@ -1567,12 +1603,13 @@ def _select_native_candidate(
     activity: NativeActivityArtifact,
     exclusive_turns: Sequence[Turn],
     config: Community1NativeAdaptiveConfig,
-) -> tuple[int, str, _NativeCandidate | None, dict[str, float]]:
+) -> tuple[int, str, str, _NativeCandidate | None, dict[str, float]]:
     remaining_ms = region_end_ms - start_ms
     if remaining_ms <= config.target_ms:
         return (
             region_end_ms,
             "episode_end",
+            "preferred",
             None,
             {
                 "distance_cost": abs(remaining_ms - config.target_ms) / 1000.0,
@@ -1590,47 +1627,89 @@ def _select_native_candidate(
     )
     target_ms = start_ms + config.target_ms
 
-    if not candidates:
-        end_ms = min(start_ms + config.hard_max_ms, region_end_ms)
-        reason = "episode_end" if end_ms == region_end_ms else "hard_maximum"
-        distance_cost = abs(end_ms - target_ms) / 1000.0
-        return (
-            end_ms,
-            reason,
-            None,
-            {
-                "distance_cost": distance_cost,
-                "type_adjustment": 0.0,
-                "overlap_adjustment": 0.0,
-                "total_score": distance_cost,
-            },
-        )
-
-    def scored(candidate: _NativeCandidate) -> tuple[float, float, float, float, int]:
+    def details(candidate: _NativeCandidate) -> dict[str, float]:
         distance_cost = abs(candidate.time_ms - target_ms) / 1000.0
         overlap_adjustment = _native_overlap_adjustment(
             candidate.time_ms, activity.intervals, margin_ms=config.overlap_margin_ms
         )
+        return {
+            "distance_cost": distance_cost,
+            "type_adjustment": candidate.type_adjustment,
+            "overlap_adjustment": overlap_adjustment,
+            "total_score": distance_cost + candidate.type_adjustment + overlap_adjustment,
+        }
+
+    def scored(candidate: _NativeCandidate) -> tuple[float, float, float, float, int]:
+        score = details(candidate)
         return (
-            distance_cost + candidate.type_adjustment + overlap_adjustment,
+            score["total_score"],
             abs(candidate.time_ms - target_ms),
             candidate.type_adjustment,
-            overlap_adjustment,
+            score["overlap_adjustment"],
             candidate.time_ms,
         )
 
-    selected = min(candidates, key=scored)
-    distance_cost = abs(selected.time_ms - target_ms) / 1000.0
-    overlap_adjustment = _native_overlap_adjustment(
-        selected.time_ms, activity.intervals, margin_ms=config.overlap_margin_ms
+    preferred_end = start_ms + config.relaxation_start_ms
+    relaxed_clean_end = start_ms + config.relaxed_clean_max_ms
+    preferred = tuple(candidate for candidate in candidates if candidate.time_ms <= preferred_end)
+    if preferred:
+        selected = min(preferred, key=scored)
+        return selected.time_ms, selected.candidate_type, "preferred", selected, details(selected)
+
+    relaxed_clean = tuple(
+        candidate
+        for candidate in candidates
+        if candidate.time_ms <= relaxed_clean_end
+        and _native_overlap_adjustment(
+            candidate.time_ms, activity.intervals, margin_ms=config.overlap_margin_ms
+        )
+        <= 0.75
     )
-    details = {
-        "distance_cost": distance_cost,
-        "type_adjustment": selected.type_adjustment,
-        "overlap_adjustment": overlap_adjustment,
-        "total_score": distance_cost + selected.type_adjustment + overlap_adjustment,
-    }
-    return selected.time_ms, selected.candidate_type, selected, details
+    if relaxed_clean:
+        selected = min(
+            relaxed_clean,
+            key=lambda candidate: (
+                candidate.time_ms,
+                _NATIVE_TYPE_PRIORITIES[candidate.candidate_type],
+            ),
+        )
+        return (
+            selected.time_ms,
+            selected.candidate_type,
+            "relaxed_clean",
+            selected,
+            details(selected),
+        )
+
+    relaxed_any = tuple(
+        candidate for candidate in candidates if candidate.time_ms <= start_ms + config.hard_max_ms
+    )
+    if relaxed_any:
+        selected = min(
+            relaxed_any,
+            key=lambda candidate: (
+                candidate.time_ms,
+                _NATIVE_TYPE_PRIORITIES[candidate.candidate_type],
+            ),
+        )
+        return selected.time_ms, selected.candidate_type, "relaxed_any", selected, details(selected)
+
+    end_ms = min(start_ms + config.hard_max_ms, region_end_ms)
+    reason = "episode_end" if end_ms == region_end_ms else "hard_maximum"
+    phase = "relaxed_any" if reason == "episode_end" else "hard_maximum"
+    distance_cost = abs(end_ms - target_ms) / 1000.0
+    return (
+        end_ms,
+        reason,
+        phase,
+        None,
+        {
+            "distance_cost": distance_cost,
+            "type_adjustment": 0.0,
+            "overlap_adjustment": 0.0,
+            "total_score": distance_cost,
+        },
+    )
 
 
 def _native_chunk(
@@ -1641,6 +1720,7 @@ def _native_chunk(
     start_ms: int,
     end_ms: int,
     reason: str,
+    selection_phase: str,
     candidate: _NativeCandidate | None,
     score: Mapping[str, float],
     start_reason: str | None,
@@ -1660,7 +1740,9 @@ def _native_chunk(
         partition=partition,
         boundary_start_reason=start_reason,  # type: ignore[arg-type]
         boundary_end_reason=reason,  # type: ignore[arg-type]
+        selection_phase=selection_phase,  # type: ignore[arg-type]
         boundary_speaker_change=bool(candidate and candidate.exclusive_speaker_before),
+        boundary_overlap_conflict=bool(score.get("overlap_adjustment", 0.0)),
         distance_from_target_ms=abs(end_ms - start_ms - config.target_ms),
         diarization_artifact_id=community1_artifact_id,
         community1_artifact_id=community1_artifact_id,
@@ -1709,6 +1791,7 @@ def _segment_native_activity(
                         start_ms=previous.start_ms,
                         end_ms=region_end,
                         reason="episode_end",
+                        selection_phase=previous.selection_phase or "preferred",
                         candidate=None,
                         score={
                             "distance_cost": abs(region_end - previous.start_ms - config.target_ms)
@@ -1733,7 +1816,7 @@ def _segment_native_activity(
                     }
                     current = region_end
                     continue
-            end_ms, reason, candidate, score = _select_native_candidate(
+            end_ms, reason, selection_phase, candidate, score = _select_native_candidate(
                 start_ms=current,
                 region_end_ms=region_end,
                 activity=activity,
@@ -1747,6 +1830,7 @@ def _segment_native_activity(
                 start_ms=current,
                 end_ms=end_ms,
                 reason=reason,
+                selection_phase=selection_phase,
                 candidate=candidate,
                 score=score,
                 start_reason=(
@@ -1764,6 +1848,7 @@ def _segment_native_activity(
                     "start_ms": current,
                     "end_ms": end_ms,
                     "reason": reason,
+                    "selection_phase": selection_phase,
                     "ideal_target_timestamp_ms": current + config.target_ms,
                     "selected_candidate_type": chunk.selected_candidate_type,
                     "selected_candidate_timestamp_ms": chunk.selected_candidate_timestamp_ms,

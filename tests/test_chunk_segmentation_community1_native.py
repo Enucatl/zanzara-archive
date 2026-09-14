@@ -63,12 +63,13 @@ def _segment(
 
 def test_case_1_continuous_speech_uses_hard_maximum_without_target_candidate() -> None:
     result = _segment(40_000)
-    assert result.chunks[0].end_ms == 18_000
+    assert result.chunks[0].end_ms == 30_000
     assert result.chunks[0].boundary_end_reason == "hard_maximum"
     assert result.chunks[0].selected_candidate_type == "hard_maximum"
+    assert result.chunks[0].selection_phase == "hard_maximum"
     assert result.boundary_diagnostics[0]["ideal_target_timestamp_ms"] == 12_000
     assert result.boundary_diagnostics[0]["reason"] == "hard_maximum"
-    assert result.chunks[0].end_ms <= 18_000
+    assert result.chunks[0].end_ms <= 30_000
 
 
 def test_case_2_transition_at_11_4_wins() -> None:
@@ -98,7 +99,7 @@ def test_case_5_short_native_pause_is_a_candidate() -> None:
 
 def test_case_6_micro_gap_is_ignored() -> None:
     result = _segment(40_000, zero_intervals=((11_960, 12_040),))
-    assert result.chunks[0].end_ms == 18_000
+    assert result.chunks[0].end_ms == 30_000
     assert result.chunks[0].boundary_end_reason == "hard_maximum"
 
 
@@ -130,6 +131,7 @@ def test_case_9_late_pause_is_selected_when_it_is_the_only_structural_candidate(
 def test_case_10_music_metadata_does_not_change_native_activity() -> None:
     result = _segment(40_000)
     assert result.chunks[0].selected_candidate_type == "hard_maximum"
+    assert result.chunks[0].selection_phase == "hard_maximum"
 
 
 def test_case_11_final_short_remainder_merges() -> None:
@@ -153,3 +155,68 @@ def test_case_12_identical_inputs_have_identical_manifest_hash() -> None:
         chunk.end_ms - chunk.start_ms <= Community1NativeAdaptiveConfig().hard_max_ms
         for chunk in first.chunks
     )
+
+
+def test_relaxation_clean_candidate_at_18_2_seconds_wins() -> None:
+    result = _segment(
+        40_000,
+        exclusive=(Turn("A", 0, 18_200), Turn("B", 18_200, 40_000)),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (18_200, "relaxed_clean")
+
+
+def test_relaxation_clean_skips_overlap_conflicted_18_2_for_19_seconds() -> None:
+    result = _segment(
+        40_000,
+        overlap=((18_100, 18_400),),
+        exclusive=(
+            Turn("A", 0, 18_200),
+            Turn("B", 18_200, 19_000),
+            Turn("C", 19_000, 40_000),
+        ),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (19_000, "relaxed_clean")
+    assert chunk.overlap_adjustment == 0.0
+
+
+def test_relaxation_clean_uses_23_seconds_over_earlier_overlap() -> None:
+    result = _segment(
+        40_000,
+        overlap=((20_900, 21_100),),
+        exclusive=(
+            Turn("A", 0, 21_000),
+            Turn("B", 21_000, 23_000),
+            Turn("C", 23_000, 40_000),
+        ),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (23_000, "relaxed_clean")
+
+
+def test_relaxation_any_accepts_overlap_conflicted_24_4_seconds() -> None:
+    result = _segment(
+        40_000,
+        overlap=((24_300, 24_500),),
+        exclusive=(Turn("A", 0, 24_400), Turn("B", 24_400, 40_000)),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (24_400, "relaxed_any")
+    assert chunk.overlap_adjustment == 1.5
+
+
+def test_relaxation_any_selects_natural_27_second_candidate() -> None:
+    result = _segment(
+        40_000,
+        exclusive=(Turn("A", 0, 27_000), Turn("B", 27_000, 40_000)),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (27_000, "relaxed_any")
+
+
+def test_relaxation_hard_maximum_is_exact_30_seconds_without_natural_candidate() -> None:
+    result = _segment(40_000)
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (30_000, "hard_maximum")
+    assert chunk.selected_candidate_type == "hard_maximum"

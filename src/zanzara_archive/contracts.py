@@ -19,6 +19,7 @@ ContractStatus = Literal["timed", "text_only", "no_words", "missing_asr"]
 TimestampGranularity = Literal["word", "segment"]
 ReferenceReviewStatus = Literal["draft", "human_truth", "superseded", "rejected"]
 ChunkPartition = Literal["development", "held_out"]
+ChunkSelectionPhase = Literal["preferred", "relaxed_clean", "relaxed_any", "hard_maximum"]
 ChunkBoundaryReason = Literal[
     "episode_start",
     "strong_pause_and_speaker_change",
@@ -1254,6 +1255,7 @@ class AudioChunk:
     partition: ChunkPartition | None = None
     boundary_start_reason: ChunkBoundaryReason | None = None
     boundary_end_reason: ChunkBoundaryReason | None = None
+    selection_phase: ChunkSelectionPhase | None = None
     boundary_gap_duration_ms: int | None = None
     boundary_speaker_change: bool = False
     boundary_overlap_conflict: bool = False
@@ -1319,6 +1321,12 @@ class AudioChunk:
                     "episode_end",
                 },
                 "boundary_end_reason",
+            )
+        if self.selection_phase is not None:
+            _one_of(
+                self.selection_phase,
+                {"preferred", "relaxed_clean", "relaxed_any", "hard_maximum"},
+                "selection_phase",
             )
         if self.boundary_gap_duration_ms is not None:
             _require_nonnegative_int(self.boundary_gap_duration_ms, "boundary_gap_duration_ms")
@@ -1393,6 +1401,7 @@ class AudioChunk:
         partition: ChunkPartition | None = None,
         boundary_start_reason: ChunkBoundaryReason | None = None,
         boundary_end_reason: ChunkBoundaryReason | None = None,
+        selection_phase: ChunkSelectionPhase | None = None,
         boundary_gap_duration_ms: int | None = None,
         boundary_speaker_change: bool = False,
         boundary_overlap_conflict: bool = False,
@@ -1428,6 +1437,7 @@ class AudioChunk:
             partition=partition,
             boundary_start_reason=boundary_start_reason,
             boundary_end_reason=boundary_end_reason,
+            selection_phase=selection_phase,
             boundary_gap_duration_ms=boundary_gap_duration_ms,
             boundary_speaker_change=boundary_speaker_change,
             boundary_overlap_conflict=boundary_overlap_conflict,
@@ -1463,6 +1473,7 @@ class AudioChunk:
             "partition": self.partition,
             "boundary_start_reason": self.boundary_start_reason,
             "boundary_end_reason": self.boundary_end_reason,
+            "selection_phase": self.selection_phase,
             "boundary_gap_duration_ms": self.boundary_gap_duration_ms,
             "boundary_speaker_change": self.boundary_speaker_change,
             "boundary_overlap_conflict": self.boundary_overlap_conflict,
@@ -2603,6 +2614,7 @@ __all__ = [
     "CandidateScore",
     "CapabilityDeclaration",
     "ChunkBoundaryReason",
+    "ChunkSelectionPhase",
     "ContractValidationError",
     "DiarizationResult",
     "Diarizer",

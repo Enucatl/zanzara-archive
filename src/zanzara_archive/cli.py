@@ -661,6 +661,7 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
     hard_maximum_count = 0
     overlap_conflicted_count = 0
     short_terminal_count = 0
+    selection_phase_counts: dict[str, int] = {}
     durations: list[int] = []
     for raw in chunks:
         durations.append(raw["end_ms"] - raw["start_ms"])
@@ -669,6 +670,9 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         hard_maximum_count += reason == "hard_maximum"
         overlap_conflicted_count += bool(raw["boundary_overlap_conflict"])
         short_terminal_count += reason == "episode_end" and durations[-1] < config.minimum_chunk_ms
+        phase = raw.get("selection_phase")
+        if phase is not None:
+            selection_phase_counts[phase] = selection_phase_counts.get(phase, 0) + 1
     normalized: dict[str, Any] = {
         "algorithm": arguments.algorithm,
         "segmentation_version": config.version,
@@ -694,9 +698,13 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
                 "10-12s": sum(10_000 <= value < 12_000 for value in durations),
                 "12-14s": sum(12_000 <= value < 14_000 for value in durations),
                 "14-16s": sum(14_000 <= value < 16_000 for value in durations),
-                "16-18s": sum(16_000 <= value <= 18_000 for value in durations),
+                "16-18s": sum(16_000 <= value < 18_000 for value in durations),
+                "18-20s": sum(18_000 <= value < 20_000 for value in durations),
+                "20-25s": sum(20_000 <= value < 25_000 for value in durations),
+                "25-30s": sum(25_000 <= value <= 30_000 for value in durations),
             },
             "boundary_reason_counts": reason_counts,
+            "selection_phase_counts": selection_phase_counts,
             "hard_maximum_count": hard_maximum_count,
             "overlap_conflicted_boundary_count": overlap_conflicted_count,
             "short_terminal_chunk_count": short_terminal_count,
@@ -873,11 +881,15 @@ def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("chunk manifest contains a non-object chunk")
     reasons: dict[str, int] = {}
     candidate_types: dict[str, int] = {}
+    selection_phases: dict[str, int] = {}
     for item in raw_chunks:
         reason = str(item.get("boundary_end_reason"))
         reasons[reason] = reasons.get(reason, 0) + 1
         candidate = str(item.get("selected_candidate_type") or reason)
         candidate_types[candidate] = candidate_types.get(candidate, 0) + 1
+        phase = item.get("selection_phase")
+        if phase is not None:
+            selection_phases[str(phase)] = selection_phases.get(str(phase), 0) + 1
 
     def percentile(fraction: float) -> int:
         index = min(len(durations) - 1, max(0, int(len(durations) * fraction + 0.999999) - 1))
@@ -888,7 +900,10 @@ def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
         "10-12s": sum(10_000 <= value < 12_000 for value in durations),
         "12-14s": sum(12_000 <= value < 14_000 for value in durations),
         "14-16s": sum(14_000 <= value < 16_000 for value in durations),
-        "16-18s": sum(16_000 <= value <= 18_000 for value in durations),
+        "16-18s": sum(16_000 <= value < 18_000 for value in durations),
+        "18-20s": sum(18_000 <= value < 20_000 for value in durations),
+        "20-25s": sum(20_000 <= value < 25_000 for value in durations),
+        "25-30s": sum(25_000 <= value <= 30_000 for value in durations),
     }
     return {
         "chunk_count": len(durations),
@@ -899,6 +914,7 @@ def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
         "duration_bins": bins,
         "boundary_reason_counts": reasons,
         "boundary_type_counts": candidate_types,
+        "selection_phase_counts": selection_phases,
         "hard_maximum_count": reasons.get("hard_maximum", 0),
     }
 

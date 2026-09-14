@@ -556,6 +556,7 @@ class NativeActivityArtifact:
     frame_step_ms: int
     frame_duration_ms: int
     time_origin: str = "original episode"
+    capture_version: str = "unknown"
 
     def __post_init__(self) -> None:
         _require_id(self.artifact_id, "native activity artifact_id")
@@ -566,6 +567,7 @@ class NativeActivityArtifact:
         _require_positive_int(self.frame_step_ms, "native activity frame_step_ms")
         _require_positive_int(self.frame_duration_ms, "native activity frame_duration_ms")
         _require_text(self.time_origin, "native activity time_origin")
+        _require_text(self.capture_version, "native activity capture_version")
         if not self.intervals:
             raise ContractValidationError("native activity requires at least one interval")
         expected_start = self.intervals[0].start_ms
@@ -596,6 +598,7 @@ class NativeActivityArtifact:
                 "frame_step_ms": self.frame_step_ms,
                 "frame_duration_ms": self.frame_duration_ms,
                 "time_origin": self.time_origin,
+                "capture_version": self.capture_version,
             },
         }
 

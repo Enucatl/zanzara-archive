@@ -225,7 +225,7 @@ class Community1AdaptiveConfig(ChunkSegmentationConfig):
 class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
     """Fixed native ``speaker_counting`` policy using 12 seconds as a score reference."""
 
-    version: str = "community1-native-adaptive-v1"
+    version: str = "community1-native-adaptive-v2"
     preferred_min_s: float = 8.0
     target_s: float = 12.0
     preferred_max_s: float = 16.0
@@ -278,6 +278,25 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
             "short_pause_ms": self.short_pause_ms,
             "overlap_margin_ms": self.overlap_margin_ms,
             "minimum_chunk_ms": self.minimum_chunk_ms,
+            "candidate_definitions": {
+                "exclusive_transition": (
+                    "adjacent A->B where A != B; timestamp=successor.start; "
+                    "inclusive phase endpoints"
+                ),
+                "native_pause": (
+                    "speaker_count=0; duration>=threshold; timestamp=floor(midpoint); "
+                    "inclusive phase endpoints"
+                ),
+            },
+            "score_constants": dict(_NATIVE_TYPE_ADJUSTMENTS),
+            "selection_policy": {
+                "8-18": "best_score",
+                "18-24": "earliest_native_overlap_adjustment_le_0.75",
+                "24-30": "earliest_any",
+                "hard_max": "only_without_candidate_18_30",
+                "overlap": "standard turns, half-open [start,end), active_count>=2",
+                "tie_breaking": "timestamp_then_type_priority",
+            },
         }
 
     @classmethod
@@ -302,6 +321,9 @@ class Community1NativeAdaptiveConfig(ChunkSegmentationConfig):
             "community1_artifact_id",
             "native_activity_artifact_id",
             "diarization_fingerprint",
+            "candidate_definitions",
+            "score_constants",
+            "selection_policy",
         ):
             payload.pop(key, None)
         return cls(**payload)
@@ -1282,10 +1304,10 @@ def segment_chunks_with_metadata(
         None,
         "p1r-chunk-segmentation-v1",
         "community1-adaptive-v1",
-        "community1-native-adaptive-v1",
+        "community1-native-adaptive-v2",
     ):
         raise ContractValidationError(f"unsupported chunk segmentation algorithm: {algorithm}")
-    if algorithm == "community1-native-adaptive-v1" or native_activity is not None:
+    if algorithm == "community1-native-adaptive-v2" or native_activity is not None:
         native_config = (
             config
             if isinstance(config, Community1NativeAdaptiveConfig)
@@ -1476,6 +1498,10 @@ def _native_activity_value(
         raise ContractValidationError("native activity source hash does not match the episode")
     if artifact.duration_ms != duration_ms:
         raise ContractValidationError("native activity duration does not match the episode")
+    if artifact.capture_version != "community1-speaker-count-snapshot-v1":
+        raise ContractValidationError(
+            "native activity was captured by an obsolete mutable hook path"
+        )
     return artifact
 
 
@@ -1813,6 +1839,8 @@ def _segment_native_activity(
                         **diagnostics[-1],
                         "end_ms": region_end,
                         "reason": "episode_end",
+                        "selected_candidate_type": "episode_end",
+                        "selected_candidate_timestamp_ms": region_end,
                     }
                     current = region_end
                     continue
@@ -1852,6 +1880,35 @@ def _segment_native_activity(
                     "ideal_target_timestamp_ms": current + config.target_ms,
                     "selected_candidate_type": chunk.selected_candidate_type,
                     "selected_candidate_timestamp_ms": chunk.selected_candidate_timestamp_ms,
+                    "candidate_timestamps_types": [
+                        {"timestamp_ms": item.time_ms, "type": item.candidate_type}
+                        for item in _native_candidates(
+                            start_ms=current,
+                            region_end_ms=region_end,
+                            activity=activity,
+                            exclusive_turns=exclusive_turns,
+                            config=config,
+                        )
+                    ],
+                    "exclusive_transition_count_18_30": sum(
+                        current + config.relaxation_start_ms
+                        <= item[0]
+                        <= current + config.hard_max_ms
+                        for item in _native_transitions(exclusive_turns)
+                    ),
+                    "native_pause_count_18_30": sum(
+                        current + config.relaxation_start_ms
+                        <= item.time_ms
+                        <= current + config.hard_max_ms
+                        and "pause" in item.candidate_type
+                        for item in _native_candidates(
+                            start_ms=current,
+                            region_end_ms=region_end,
+                            activity=activity,
+                            exclusive_turns=exclusive_turns,
+                            config=config,
+                        )
+                    ),
                     **score,
                 }
             )
@@ -1892,16 +1949,16 @@ def segment_native_activity_with_metadata(
             _diarization_value(diarization, "artifact_id") if diarization else None
         )
     if artifact is None:
-        raise ContractValidationError("community1-native-adaptive-v1 requires native activity")
+        raise ContractValidationError("community1-native-adaptive-v2 requires native activity")
     native = _native_activity_value(artifact, source_sha256=source_sha256, duration_ms=duration_ms)
     if standard is None:
-        raise ContractValidationError("community1-native-adaptive-v1 requires standard diarization")
+        raise ContractValidationError("community1-native-adaptive-v2 requires standard diarization")
     standard_normalized = _normalize_turns(
         standard, field_name="diarization.standard_turns", duration_ms=duration_ms
     )
     if not exclusive:
         raise ContractValidationError(
-            "community1-native-adaptive-v1 requires exclusive diarization"
+            "community1-native-adaptive-v2 requires exclusive diarization"
         )
     regions = _normalize_regions(selected_regions, duration_ms)
     artifact_id = community1_artifact_id or default_artifact_id

@@ -186,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     chunk_build.add_argument(
         "--algorithm",
         required=True,
-        choices=("community1-adaptive-v1", "community1-native-adaptive-v1"),
+        choices=("community1-adaptive-v1", "community1-native-adaptive-v2"),
     )
     chunk_build.add_argument("--manifest", required=True)
     chunk_build.add_argument("--output", required=True)
@@ -595,7 +595,7 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         raise CorpusValidationError(f"episode is not present in manifest: {sorted(unknown)[0]}")
     config = (
         Community1NativeAdaptiveConfig()
-        if arguments.algorithm == "community1-native-adaptive-v1"
+        if arguments.algorithm == "community1-native-adaptive-v2"
         else Community1AdaptiveConfig()
     )
     episode_payloads: list[dict[str, Any]] = []
@@ -701,11 +701,21 @@ def _build_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
                 "16-18s": sum(16_000 <= value < 18_000 for value in durations),
                 "18-20s": sum(18_000 <= value < 20_000 for value in durations),
                 "20-25s": sum(20_000 <= value < 25_000 for value in durations),
-                "25-30s": sum(25_000 <= value <= 30_000 for value in durations),
+                "25-<30s": sum(25_000 <= value < 30_000 for value in durations),
+                "exactly-30s": sum(value == 30_000 for value in durations),
             },
             "boundary_reason_counts": reason_counts,
             "selection_phase_counts": selection_phase_counts,
             "hard_maximum_count": hard_maximum_count,
+            "acceptance_percentages": {
+                "8-16s": 100
+                * sum(8_000 <= value <= 16_000 for value in durations)
+                / len(durations),
+                ">16s": 100 * sum(value > 16_000 for value in durations) / len(durations),
+                "exact_hard_maximum": 100
+                * sum(value == config.hard_max_ms for value in durations)
+                / len(durations),
+            },
             "overlap_conflicted_boundary_count": overlap_conflicted_count,
             "short_terminal_chunk_count": short_terminal_count,
         },
@@ -735,14 +745,14 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("chunk manifest must be a JSON object")
     if payload.get("algorithm") not in {
         "community1-adaptive-v1",
-        "community1-native-adaptive-v1",
+        "community1-native-adaptive-v2",
     }:
         raise ValueError("chunk manifest algorithm is not a supported Community-1 algorithm")
     if payload.get("corpus_manifest_sha256") != corpus.sha256:
         raise ValueError("chunk manifest corpus hash does not match the frozen corpus")
     config = (
         Community1NativeAdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
-        if payload.get("algorithm") == "community1-native-adaptive-v1"
+        if payload.get("algorithm") == "community1-native-adaptive-v2"
         else Community1AdaptiveConfig.from_dict(payload.get("segmentation_configuration", {}))
     )
     if payload.get("segmentation_version") != config.version:
@@ -769,7 +779,7 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"chunks[{index}] has a mismatched configuration hash")
         if chunk.diarization_artifact_id is None:
             raise ValueError(f"chunks[{index}] is missing Community-1 artifact provenance")
-        if payload.get("algorithm") == "community1-native-adaptive-v1":
+        if payload.get("algorithm") == "community1-native-adaptive-v2":
             if chunk.community1_artifact_id is None or chunk.native_activity_artifact_id is None:
                 raise ValueError(f"chunks[{index}] is missing native Community-1 provenance")
         parsed.append(chunk)
@@ -784,6 +794,31 @@ def _validate_chunk_manifest(arguments: argparse.Namespace) -> dict[str, Any]:
             duration_ms=episode.duration_ms,
             hard_max_ms=config.hard_max_ms,
         )
+    if payload.get("algorithm") == "community1-native-adaptive-v2":
+        diagnostics = payload.get("boundary_diagnostics")
+        if not isinstance(diagnostics, list):
+            raise ValueError("native chunk manifest requires boundary diagnostics")
+        by_boundary = {
+            (str(item.get("episode_id")), item.get("start_ms")): item
+            for item in diagnostics
+            if isinstance(item, Mapping)
+        }
+        for chunk in parsed:
+            diagnostic = by_boundary.get((chunk.episode_id, chunk.start_ms))
+            if not isinstance(diagnostic, Mapping):
+                raise ValueError("native chunk is missing its boundary diagnostic")
+            if (
+                diagnostic.get("end_ms") != chunk.end_ms
+                or diagnostic.get("reason") != chunk.boundary_end_reason
+            ):
+                raise ValueError("native boundary diagnostic disagrees with chunk selection")
+            if diagnostic.get("selected_candidate_timestamp_ms") != chunk.end_ms:
+                raise ValueError("selected candidate timestamp must equal chunk end")
+            if chunk.boundary_end_reason == "hard_maximum" and (
+                diagnostic.get("exclusive_transition_count_18_30") != 0
+                or diagnostic.get("native_pause_count_18_30") != 0
+            ):
+                raise ValueError("hard maximum has a natural candidate in [18,30]")
     expected_content = dict(payload)
     content_sha256 = expected_content.pop("content_sha256", None)
     actual_content = hashlib.sha256(
@@ -837,6 +872,11 @@ def _export_native_activity(arguments: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(
                 f"Community-1 artifact for {episode.relative_filename} has no native "
                 "speaker-count activity"
+            )
+        if diarization.native_activity.capture_version != "community1-speaker-count-snapshot-v1":
+            raise ValueError(
+                f"Community-1 artifact for {episode.relative_filename} lacks current native "
+                "speaker-count capture provenance"
             )
         episodes.append(
             {
@@ -903,7 +943,8 @@ def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
         "16-18s": sum(16_000 <= value < 18_000 for value in durations),
         "18-20s": sum(18_000 <= value < 20_000 for value in durations),
         "20-25s": sum(20_000 <= value < 25_000 for value in durations),
-        "25-30s": sum(25_000 <= value <= 30_000 for value in durations),
+        "25-<30s": sum(25_000 <= value < 30_000 for value in durations),
+        "exactly-30s": sum(value == 30_000 for value in durations),
     }
     return {
         "chunk_count": len(durations),
@@ -916,6 +957,13 @@ def _chunk_distribution(payload: Mapping[str, Any]) -> dict[str, Any]:
         "boundary_type_counts": candidate_types,
         "selection_phase_counts": selection_phases,
         "hard_maximum_count": reasons.get("hard_maximum", 0),
+        "acceptance_percentages": {
+            "8-16s": 100 * sum(8_000 <= value <= 16_000 for value in durations) / len(durations),
+            ">16s": 100 * sum(value > 16_000 for value in durations) / len(durations),
+            "exact_hard_maximum": 100
+            * sum(value == 30_000 for value in durations)
+            / len(durations),
+        },
     }
 
 

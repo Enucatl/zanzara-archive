@@ -386,7 +386,8 @@
         "P1-06",
         "P1-07",
         "P1-08",
-        "P1-10"
+        "P1-10",
+        "P1R-03D"
       ],
       "body": "issues/P1.md",
       "children": [
@@ -716,7 +717,8 @@
         "P1R-01",
         "P1R-02",
         "P1R-03",
-        "P1R-03A",
+        "P1R-03C",
+        "P1R-03D",
         "P1R-04",
         "P1R-05",
         "P1R-06",
@@ -740,6 +742,9 @@
         "P1R-02",
         "P1R-03",
         "P1R-03A",
+        "P1R-03B",
+        "P1R-03C",
+        "P1R-03D",
         "P1R-04",
         "P1R-05",
         "P1R-06",
@@ -870,6 +875,97 @@
         "P1-03"
       ],
       "body": "issues/P1R-03A.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "release_blocker": false,
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-03B",
+      "title": "[P1R-03B] Use exclusive diarization turn boundaries to reduce hard-max chunking",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1536,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1R-03A",
+        "P1-03"
+      ],
+      "body": "issues/P1R-03B.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "release_blocker": false,
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-03C",
+      "title": "[P1R-03C] Use exclusive diarization turn boundaries to reduce hard-max chunking",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1537,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1R-03A",
+        "P1-03"
+      ],
+      "body": "issues/P1R-03C.md",
+      "design_refs": [
+        "D5",
+        "D6",
+        "E1",
+        "E2"
+      ],
+      "labels": [
+        "phase:P1R",
+        "kind:implementation",
+        "executor:luna",
+        "priority:P1"
+      ],
+      "initial_status": "Blocked"
+    },
+    {
+      "id": "P1R-03D",
+      "title": "[P1R-03D] Native Community-1 speech-activity adaptive chunking",
+      "phase": "P1R",
+      "parent": "P1R",
+      "executor": "Luna",
+      "kind": "Implementation",
+      "priority": "P1",
+      "order": 1538,
+      "blocked_by": [
+        "P0",
+        "P1R-02",
+        "P1-03"
+      ],
+      "body": "issues/P1R-03D.md",
       "design_refs": [
         "D5",
         "D6",

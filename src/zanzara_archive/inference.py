@@ -1775,6 +1775,7 @@ class DiarizerAdapter:
             "request_id": request_id,
             "model": self.model.repository,
             "source_sha256": audio.source_sha256,
+            "duration_ms": audio.duration_ms,
             "input_audio": {
                 "data": base64.b64encode(audio_bytes).decode("ascii"),
                 "format": audio.audio_format,

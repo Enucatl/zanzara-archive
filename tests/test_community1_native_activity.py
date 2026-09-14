@@ -44,6 +44,7 @@ def _native() -> dict[str, object]:
             "frame_step_ms": 100,
             "frame_duration_ms": 100,
             "time_origin": "original episode",
+            "capture_version": "community1-speaker-count-snapshot-v1",
         },
     }
 

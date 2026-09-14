@@ -13,7 +13,7 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P0-04](issues/P0-04.md) | SQLite migrations, canonical entities and artifact publication | P0 | P0-03 | Luna | Implementation | P1 | 40 |
 | [P0-05](issues/P0-05.md) | Resumable worker, stage fingerprints and crash recovery | P0 | P0-04 | Luna | Implementation | P1 | 50 |
 | [P0-06](issues/P0-06.md) | Repository Sol phase-review skill and Luna handoff | P0 | P0-01 | Luna | Implementation | P1 | 60 |
-| [P1](issues/P1.md) | Measured transcription and diarization baseline | — | P0, P1-H01, P1-09, P1-01, P1-02, P1-03, P1-04, P1-05, P1-06, P1-07, P1-08, P1-10 | Human | Phase | P0 | 1000 |
+| [P1](issues/P1.md) | Measured transcription and diarization baseline | — | P0, P1-H01, P1-09, P1-01, P1-02, P1-03, P1-04, P1-05, P1-06, P1-07, P1-08, P1-10, P1R-03D | Human | Phase | P0 | 1000 |
 | [P1-H01](issues/P1-H01.md) | Operator: accept model terms and provision download access | P1 | P0 | Human | Operator | P0 | 1005 |
 | [P1-09](issues/P1-09.md) | Shared GPU runtime base, Python 3.14 and model-image disk budget | P1 | P0, P1-H01 | Luna | Implementation | P1 | 1009 |
 | [P1-01](issues/P1-01.md) | Model locks, CUDA compatibility and container smoke checks | P1 | P0, P1-H01, P1-09 | Luna | Implementation | P1 | 1010 |
@@ -29,7 +29,10 @@ Every child depends on the preceding phase plus its listed local prerequisites. 
 | [P1R-01](issues/P1R-01.md) | Supersede legacy evaluation design and migrate planning contracts | P1R | P0 | Luna | Implementation | P0 | 1510 |
 | [P1R-02](issues/P1R-02.md) | Define chunk and hypothesis canonical schemas | P1R | P0, P1R-01 | Luna | Implementation | P0 | 1520 |
 | [P1R-03](issues/P1R-03.md) | Implement deterministic adaptive chunk segmentation | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1530 |
-| [P1R-03A](issues/P1R-03A.md) | Community-1-aware adaptive chunk boundary selection | P1R | P0, P1R-02, P1R-03, P1-03 | Luna | Implementation | P1 | 1535 |
+| [P1R-03A](issues/P1R-03A.md) | Community-1-aware adaptive chunk boundary selection (superseded) | P1R | historical; superseded by P1R-03D | Luna | Implementation | P1 | 1535 |
+| [P1R-03B](issues/P1R-03B.md) | Use exclusive diarization turn boundaries to reduce hard-max chunking (superseded) | P1R | historical; superseded by P1R-03D | Luna | Implementation | P1 | 1536 |
+| [P1R-03C](issues/P1R-03C.md) | Use exclusive diarization turn boundaries to reduce hard-max chunking (supersedes 03B) | P1R | P0, P1R-02, P1R-03A, P1-03 | Luna | Implementation | P1 | 1537 |
+| [P1R-03D](issues/P1R-03D.md) | Native Community-1 speech-activity adaptive chunking (supersedes 03A/03B; P1 release prerequisite) | P1R | P0, P1R-02, P1-03 | Luna | Implementation | P1 | 1538 |
 | [P1R-04](issues/P1R-04.md) | Adapt Parakeet to the chunk-first transcription contract | P1R | P0, P1R-02 | Luna | Implementation | P1 | 1540 |
 | [P1R-05](issues/P1R-05.md) | Add Whisper Large v3 local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1550 |
 | [P1R-06](issues/P1R-06.md) | Add Voxtral Mini 4B Realtime local ASR service | P1R | P0, P1R-02 | Luna | Implementation | P0 | 1560 |

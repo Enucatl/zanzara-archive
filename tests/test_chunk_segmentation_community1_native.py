@@ -38,6 +38,7 @@ def _activity(
         frame_start_ms=0,
         frame_step_ms=100,
         frame_duration_ms=100,
+        capture_version="community1-speaker-count-snapshot-v1",
     )
 
 
@@ -47,6 +48,7 @@ def _segment(
     zero_intervals: tuple[tuple[int, int], ...] = (),
     overlap: tuple[tuple[int, int], ...] = (),
     exclusive: tuple[Turn, ...] | None = None,
+    standard: tuple[Turn, ...] | None = None,
 ):
     activity = _activity(duration_ms, zero_intervals, overlap)
     exclusive = exclusive or (Turn("A", 0, duration_ms),)
@@ -55,7 +57,7 @@ def _segment(
         SOURCE_SHA256,
         duration_ms,
         native_activity=activity,
-        standard_turns=(Turn("A", 0, duration_ms),),
+        standard_turns=standard or (Turn("A", 0, duration_ms),),
         exclusive_turns=exclusive,
         community1_artifact_id="community1-test-v1",
     )
@@ -69,6 +71,9 @@ def test_case_1_continuous_speech_uses_hard_maximum_without_target_candidate() -
     assert result.chunks[0].selection_phase == "hard_maximum"
     assert result.boundary_diagnostics[0]["ideal_target_timestamp_ms"] == 12_000
     assert result.boundary_diagnostics[0]["reason"] == "hard_maximum"
+    assert result.boundary_diagnostics[0]["exclusive_transition_count_18_30"] == 0
+    assert result.boundary_diagnostics[0]["native_pause_count_18_30"] == 0
+    assert result.boundary_diagnostics[0]["candidate_timestamps_types"] == []
     assert result.chunks[0].end_ms <= 30_000
 
 
@@ -81,6 +86,15 @@ def test_case_2_transition_at_11_4_wins() -> None:
 def test_case_3_late_transition_is_selected_as_the_only_structural_candidate() -> None:
     result = _segment(40_000, exclusive=(Turn("A", 0, 15_500), Turn("B", 15_500, 40_000)))
     assert result.chunks[0].end_ms == 15_500
+    assert result.chunks[0].selected_candidate_type == "speaker_change"
+
+
+def test_case_3_transition_after_exclusive_silence_is_still_structural() -> None:
+    result = _segment(
+        40_000,
+        exclusive=(Turn("A", 0, 10_000), Turn("B", 11_400, 40_000)),
+    )
+    assert result.chunks[0].end_ms == 11_400
     assert result.chunks[0].selected_candidate_type == "speaker_change"
 
 
@@ -175,10 +189,23 @@ def test_relaxation_clean_skips_overlap_conflicted_18_2_for_19_seconds() -> None
             Turn("B", 18_200, 19_000),
             Turn("C", 19_000, 40_000),
         ),
+        standard=(Turn("A", 0, 40_000), Turn("B", 18_100, 18_400)),
     )
     chunk = result.chunks[0]
     assert (chunk.end_ms, chunk.selection_phase) == (19_000, "relaxed_clean")
     assert chunk.overlap_adjustment == 0.0
+
+
+def test_relaxation_clean_uses_native_overlap_penalty() -> None:
+    result = _segment(
+        40_000,
+        overlap=((18_100, 18_400),),
+        exclusive=(Turn("A", 0, 18_200), Turn("B", 18_200, 40_000)),
+        standard=(Turn("A", 0, 40_000),),
+    )
+    chunk = result.chunks[0]
+    assert (chunk.end_ms, chunk.selection_phase) == (18_200, "relaxed_any")
+    assert chunk.overlap_adjustment == 1.5
 
 
 def test_relaxation_clean_uses_23_seconds_over_earlier_overlap() -> None:
@@ -190,6 +217,7 @@ def test_relaxation_clean_uses_23_seconds_over_earlier_overlap() -> None:
             Turn("B", 21_000, 23_000),
             Turn("C", 23_000, 40_000),
         ),
+        standard=(Turn("A", 0, 40_000), Turn("B", 20_900, 21_100)),
     )
     chunk = result.chunks[0]
     assert (chunk.end_ms, chunk.selection_phase) == (23_000, "relaxed_clean")
@@ -220,3 +248,41 @@ def test_relaxation_hard_maximum_is_exact_30_seconds_without_natural_candidate()
     chunk = result.chunks[0]
     assert (chunk.end_ms, chunk.selection_phase) == (30_000, "hard_maximum")
     assert chunk.selected_candidate_type == "hard_maximum"
+
+
+def test_relaxed_clean_does_not_invent_native_overlap_from_standard_turns() -> None:
+    result = _segment(
+        40_000,
+        exclusive=(
+            Turn("A", 0, 18_100),
+            Turn("A", 18_100, 18_200),
+            Turn("B", 18_200, 40_000),
+        ),
+        standard=(Turn("A", 0, 40_000), Turn("B", 18_100, 18_200)),
+    )
+    assert (result.chunks[0].end_ms, result.chunks[0].selection_phase) == (18_200, "relaxed_clean")
+
+
+def test_relaxed_any_includes_exact_24_and_30_and_earlier_timestamp_wins() -> None:
+    result = _segment(
+        40_000,
+        exclusive=(
+            Turn("A", 0, 24_000),
+            Turn("B", 24_000, 30_000),
+            Turn("C", 30_000, 40_000),
+        ),
+    )
+    assert (result.chunks[0].end_ms, result.chunks[0].selection_phase) == (24_000, "relaxed_clean")
+    result = _segment(
+        40_000,
+        exclusive=(Turn("A", 0, 30_000), Turn("B", 30_000, 40_000)),
+    )
+    assert (result.chunks[0].end_ms, result.chunks[0].selection_phase) == (30_000, "relaxed_any")
+    assert result.chunks[0].boundary_end_reason == "speaker_change"
+    # Same-time candidates retain type priority, but never outrank an earlier time.
+    result = _segment(
+        40_000,
+        zero_intervals=((26_800, 27_200),),
+        exclusive=(Turn("A", 0, 25_000), Turn("B", 25_000, 27_000), Turn("C", 27_000, 40_000)),
+    )
+    assert result.chunks[0].end_ms == 25_000

@@ -55,6 +55,61 @@ def test_network_access_is_reflected_by_health_endpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.browser
+def test_p1r03d_review_page_persists_native_and_boundary_decisions(tmp_path: Path) -> None:
+    queue_root = tmp_path / "p1r03d"
+    queue_root.mkdir()
+    (queue_root / "native-vad-validation-queue-4c0f98f.json").write_text(
+        '{"rows":[{"region_id":"native-1","episode_id":"golden.opus",'
+        '"start_ms":0,"end_ms":1000,"native_speaker_count":1}]}'
+    )
+    (queue_root / "boundary-inspection-queue-4c0f98f.json").write_text(
+        '{"rows":[{"chunk_id":"chunk-1","episode_id":"golden.opus",'
+        '"start_ms":0,"end_ms":1000,"duration_ms":1000,"boundary_end_reason":"speaker_change",'
+        '"categories":["speaker_change"]}]}'
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "state.db",
+            artifact_root=tmp_path / "artifacts",
+            p1r03d_evidence_root=queue_root,
+        )
+    )
+
+    page = client.get("/p1r-03d")
+    assert page.status_code == 200
+    assert "P1R-03D human review" in page.text
+    assert "native-1" in page.text
+    assert client.get("/api/v1/p1r-03d").json()["data"]["native"]["rows"]
+
+    native = client.post(
+        "/api/v1/p1r-03d/native/native-1",
+        json={
+            "reviewer": "Matteo",
+            "expected_revision": 0,
+            "speech_present": True,
+            "overlap_correct": True,
+            "note": "clear speech",
+        },
+    )
+    assert native.status_code == 200
+    assert native.json()["data"]["decision"] == "speech_present"
+    conflict = client.post(
+        "/api/v1/p1r-03d/native/native-1",
+        json={"reviewer": "Matteo", "expected_revision": 0, "speech_present": False},
+    )
+    assert conflict.status_code == 409
+
+    boundary = client.post(
+        "/api/v1/p1r-03d/boundary/chunk-1",
+        json={"reviewer": "Matteo", "expected_revision": 0, "quality": "acceptable"},
+    )
+    assert boundary.status_code == 200
+    reviews = client.get("/api/v1/p1r-03d").json()["data"]["reviews"]
+    assert reviews["native"]["native-1"]["payload"]["speech_present"] is True
+    assert reviews["boundary"]["chunk-1"]["payload"]["quality"] == "acceptable"
+
+
+@pytest.mark.browser
 def test_seed_accepts_raw_attribution_artifact(tmp_path: Path) -> None:
     source = "a" * 64
     repository = SQLiteRepository.open(tmp_path / "state.db")

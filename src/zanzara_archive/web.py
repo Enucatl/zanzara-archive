@@ -100,6 +100,7 @@ def create_app(
     artifact_root: str | Path = ".git/zanzara-artifacts",
     archive_root: str | Path | None = None,
     manifest_path: str | Path | None = None,
+    p1r03d_evidence_root: str | Path | None = None,
     network_access: bool = False,
     annotation_assistant: AnnotationAssistanceService | None = None,
 ) -> FastAPI:
@@ -110,6 +111,11 @@ def create_app(
     database_path = Path(database).expanduser()
     artifact_path = Path(artifact_root).expanduser()
     source_root = Path(archive_root).expanduser() if archive_root is not None else None
+    review_root = (
+        Path(p1r03d_evidence_root).expanduser()
+        if p1r03d_evidence_root is not None
+        else artifact_path.parent / "zanzara-evidence" / "P1R-03D"
+    )
     assistance_service = annotation_assistant or AnnotationAssistanceService()
     frozen_manifest = load_manifest(manifest_path) if manifest_path is not None else None
     if frozen_manifest is not None:
@@ -133,6 +139,116 @@ def create_app(
             "status": "ok",
             "access": "network-enabled" if network_access else "loopback-default",
         }
+
+    def p1r03d_queue(filename: str) -> dict[str, Any]:
+        path = review_root / filename
+        if not path.is_file():
+            return {"rows": [], "content_sha256": None, "available": False}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
+            raise ValueError(f"invalid P1R-03D review queue: {path}")
+        return payload
+
+    def p1r03d_data() -> dict[str, Any]:
+        with repository() as current:
+            reviews = current.list_p1r03d_reviews()
+        return {
+            "native": p1r03d_queue("native-vad-validation-queue-4c0f98f.json"),
+            "boundary": p1r03d_queue("boundary-inspection-queue-4c0f98f.json"),
+            "reviews": reviews,
+        }
+
+    @app.get("/p1r-03d", response_class=HTMLResponse, response_model=None)
+    def p1r03d_page(request: Request) -> HTMLResponse | JSONResponse:
+        try:
+            data = p1r03d_data()
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return _error(_request_id(), "review_queue_unavailable", str(exc), 503)
+        return templates.TemplateResponse(
+            request=request,
+            name="p1r03d.html",
+            context={"data_json": _safe_json(data)},
+        )
+
+    @app.get("/api/v1/p1r-03d")
+    def get_p1r03d_reviews() -> JSONResponse:
+        request_id = _request_id()
+        try:
+            data = p1r03d_data()
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return _error(request_id, "review_queue_unavailable", str(exc), 503)
+        return JSONResponse(content=ApiEnvelope(request_id, "ok", data=data).to_dict())
+
+    @app.post("/api/v1/p1r-03d/{review_type}/{item_id:path}")
+    def save_p1r03d_review(review_type: str, item_id: str, body: dict[str, Any]) -> JSONResponse:
+        request_id = _request_id()
+        try:
+            if review_type not in {"native", "boundary"}:
+                raise ValueError("review type must be native or boundary")
+            queue = p1r03d_queue(
+                "native-vad-validation-queue-4c0f98f.json"
+                if review_type == "native"
+                else "boundary-inspection-queue-4c0f98f.json"
+            )
+            item_key = "region_id" if review_type == "native" else "chunk_id"
+            known_ids = {str(row.get(item_key)) for row in queue["rows"]}
+            if item_id not in known_ids:
+                return _error(request_id, "unknown_review_item", "review item was not found", 404)
+            reviewer = body.get("reviewer")
+            if (
+                not isinstance(reviewer, str)
+                or not reviewer.strip()
+                or reviewer.strip() == "machine"
+            ):
+                raise ValueError("reviewer must be an identified human")
+            expected_revision = body.get("expected_revision", 0)
+            if (
+                isinstance(expected_revision, bool)
+                or not isinstance(expected_revision, int)
+                or expected_revision < 0
+            ):
+                raise ValueError("expected_revision must be a non-negative integer")
+            note = body.get("note", "")
+            if not isinstance(note, str):
+                raise ValueError("note must be text")
+            if review_type == "native":
+                speech_present = body.get("speech_present")
+                overlap_correct = body.get("overlap_correct")
+                if speech_present not in {True, False, None} or overlap_correct not in {
+                    True,
+                    False,
+                    None,
+                }:
+                    raise ValueError("native review fields must be true, false, or null")
+                if speech_present is None:
+                    decision = "uncertain"
+                else:
+                    decision = "speech_present" if speech_present else "speech_absent"
+                payload = {
+                    "speech_present": speech_present,
+                    "overlap_correct": overlap_correct,
+                    "note": note,
+                }
+            else:
+                quality = body.get("quality")
+                if quality not in {"good", "acceptable", "awkward", "bad"}:
+                    raise ValueError("boundary quality must be good, acceptable, awkward, or bad")
+                decision = quality
+                payload = {"quality": quality, "note": note}
+            with repository() as current:
+                record = current.record_p1r03d_review(
+                    review_type,
+                    item_id,
+                    decision=decision,
+                    reviewer=reviewer.strip(),
+                    payload=payload,
+                    expected_revision=expected_revision,
+                )
+        except StorageConflictError as exc:
+            return _error(request_id, "review_revision_conflict", str(exc), 409)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return _error(request_id, "invalid_review", str(exc), 422)
+        return JSONResponse(content=ApiEnvelope(request_id, "ok", data=record).to_dict())
 
     @app.post("/api/v1/calibration/batches")
     def prepare_calibration_batch(body: dict[str, Any]) -> JSONResponse:

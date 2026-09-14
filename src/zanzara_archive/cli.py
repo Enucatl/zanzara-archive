@@ -138,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root",
         default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
     )
+    web.add_argument(
+        "--p1r03d-evidence-root",
+        default=os.environ.get("ZANZARA_P1R03D_EVIDENCE_ROOT"),
+        help="private P1R-03D human-review queue directory",
+    )
     web.add_argument("--manifest", default="planning/corpus-20.json")
     web.add_argument(
         "--host",
@@ -443,6 +448,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 artifact_root=arguments.artifact_root,
                 archive_root=arguments.archive_root,
                 manifest_path=arguments.manifest,
+                p1r03d_evidence_root=arguments.p1r03d_evidence_root,
                 network_access=arguments.host not in LOOPBACK_WEB_HOSTS,
             ),
             host=arguments.host,

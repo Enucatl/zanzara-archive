@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>P1R-03D human review</title>
+    <style>
+      :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+      body { max-width: 1320px; margin: 1rem auto; padding: 0 1rem; }
+      header, .toolbar { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+      header { justify-content: space-between; }
+      .panel { border: 1px solid #7776; border-radius: .5rem; padding: .8rem; margin: .8rem 0; }
+      .scroll { overflow-x: auto; max-height: 65vh; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: .35rem; border-bottom: 1px solid #7774; text-align: left; vertical-align: middle; }
+      th { position: sticky; top: 0; background: Canvas; }
+      audio { width: min(100%, 700px); }
+      select, input, button { font: inherit; padding: .35rem; }
+      button { cursor: pointer; }
+      .reviewed { color: #71d18b; }
+      .pending { color: #e7c66a; }
+      .meta { color: #b9c8d4; }
+      .message { min-height: 1.3rem; }
+      .play { white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>P1R-03D human review</h1>
+      <label>Reviewer <input id="reviewer" required autocomplete="name" placeholder="identified human"></label>
+    </header>
+    <p class="meta">Listen to each interval. Native labels record speech present/absent and optional overlap correctness. Boundary labels record cut quality. Machine seeds are shown for context and are not human decisions.</p>
+    <audio id="player" controls preload="metadata"></audio>
+    <p id="message" class="message" role="status"></p>
+
+    <section class="panel">
+      <h2>Native activity validation</h2>
+      <p id="native-progress" class="meta"></p>
+      <div class="scroll"><table><thead><tr><th>Play</th><th>Episode / interval</th><th>Native count</th><th>AST seed</th><th>Speech truth</th><th>Overlap truth</th><th>Note</th><th>Save</th></tr></thead><tbody id="native-rows"></tbody></table></div>
+    </section>
+
+    <section class="panel">
+      <h2>Boundary quality inspection</h2>
+      <p id="boundary-progress" class="meta"></p>
+      <div class="scroll"><table><thead><tr><th>Play</th><th>Episode / interval</th><th>Reason</th><th>Duration</th><th>Categories</th><th>Quality</th><th>Note</th><th>Save</th></tr></thead><tbody id="boundary-rows"></tbody></table></div>
+    </section>
+
+    <script>
+      const DATA = {{ data_json|safe }};
+      const reviews = DATA.reviews || {native: {}, boundary: {}};
+      const $ = (id) => document.getElementById(id);
+      const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const player = $('player');
+      let stopAt = null;
+      player.addEventListener('timeupdate', () => { if (stopAt !== null && player.currentTime * 1000 >= stopAt) { player.pause(); stopAt = null; } });
+      function play(item) {
+        player.src = `/media/${encodeURIComponent(item.episode_id)}`;
+        stopAt = item.end_ms;
+        player.addEventListener('loadedmetadata', () => { player.currentTime = item.start_ms / 1000; player.play().catch(() => {}); }, {once: true});
+        player.load();
+      }
+      function reviewed(kind) { return Object.keys(reviews[kind] || {}).length; }
+      function select(name, values, selected) {
+        return `<select class="${name}">${values.map(([value, label]) => `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
+      }
+      function drawNative() {
+        const rows = DATA.native.rows || [];
+        $('native-progress').textContent = `${reviewed('native')} reviewed of ${rows.length}`;
+        $('native-rows').innerHTML = rows.map((item) => {
+          const id = item.region_id, review = reviews.native[id] || {}, payload = review.payload || {};
+          return `<tr data-kind="native" data-item-id="${escapeHtml(id)}" data-episode="${escapeHtml(item.episode_id)}" data-start="${item.start_ms}" data-end="${item.end_ms}">
+            <td><button type="button" class="play">▶ play</button></td>
+            <td>${escapeHtml(item.episode_id)}<br><span class="meta">${item.start_ms}–${item.end_ms} ms</span></td>
+            <td>${item.native_speaker_count}</td><td>${escapeHtml(item.ast_music_level_seed || 'unknown')}</td>
+            <td>${select('speech', [['','Unreviewed'],['true','Speech present'],['false','Speech absent']], payload.speech_present === null || payload.speech_present === undefined ? '' : String(payload.speech_present))}</td>
+            <td>${select('overlap', [['','Unreviewed'],['true','Correct'],['false','Incorrect']], payload.overlap_correct === null || payload.overlap_correct === undefined ? '' : String(payload.overlap_correct))}</td>
+            <td><input class="note" value="${escapeHtml(payload.note || '')}" aria-label="Native review note"></td>
+            <td><button type="button" class="save">Save</button> <span class="${review.review_id ? 'reviewed' : 'pending'}">${review.review_id ? 'saved' : 'pending'}</span></td>
+          </tr>`;
+        }).join('');
+      }
+      function drawBoundary() {
+        const rows = DATA.boundary.rows || [];
+        $('boundary-progress').textContent = `${reviewed('boundary')} reviewed of ${rows.length}`;
+        $('boundary-rows').innerHTML = rows.map((item) => {
+          const id = item.chunk_id, review = reviews.boundary[id] || {}, payload = review.payload || {};
+          return `<tr data-kind="boundary" data-item-id="${escapeHtml(id)}" data-episode="${escapeHtml(item.episode_id)}" data-start="${item.start_ms}" data-end="${item.end_ms}">
+            <td><button type="button" class="play">▶ play</button></td>
+            <td>${escapeHtml(item.episode_id)}<br><span class="meta">${item.start_ms}–${item.end_ms} ms</span></td>
+            <td>${escapeHtml(item.boundary_end_reason)}</td><td>${item.duration_ms} ms</td><td>${escapeHtml(item.categories.join(', '))}</td>
+            <td>${select('quality', [['','Unreviewed'],['good','Good'],['acceptable','Acceptable'],['awkward','Awkward'],['bad','Bad']], payload.quality || '')}</td>
+            <td><input class="note" value="${escapeHtml(payload.note || '')}" aria-label="Boundary review note"></td>
+            <td><button type="button" class="save">Save</button> <span class="${review.review_id ? 'reviewed' : 'pending'}">${review.review_id ? 'saved' : 'pending'}</span></td>
+          </tr>`;
+        }).join('');
+      }
+      async function save(row) {
+        const reviewer = $('reviewer').value.trim();
+        if (!reviewer) { $('message').textContent = 'Enter your reviewer name first.'; return; }
+        const kind = row.dataset.kind, id = row.dataset.itemId, current = reviews[kind][id] || {};
+        const body = {reviewer, expected_revision: current.revision || 0, note: row.querySelector('.note').value.trim()};
+        if (kind === 'native') {
+          const speech = row.querySelector('.speech').value, overlap = row.querySelector('.overlap').value;
+          if (!speech) { $('message').textContent = 'Choose speech present or absent before saving.'; return; }
+          body.speech_present = speech === 'true'; body.overlap_correct = overlap ? overlap === 'true' : null;
+        } else {
+          body.quality = row.querySelector('.quality').value;
+          if (!body.quality) { $('message').textContent = 'Choose a boundary quality before saving.'; return; }
+        }
+        const response = await fetch(`/api/v1/p1r-03d/${kind}/${encodeURIComponent(id)}`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+        const result = await response.json();
+        if (!response.ok) { $('message').textContent = result.error?.message || 'Save failed; reload the page.'; return; }
+        reviews[kind][id] = result.data; $('message').textContent = 'Review saved.'; drawNative(); drawBoundary();
+      }
+      document.addEventListener('click', (event) => {
+        const row = event.target.closest('tr[data-kind]'); if (!row) return;
+        if (event.target.closest('.play')) play({episode_id: row.dataset.episode, start_ms: Number(row.dataset.start), end_ms: Number(row.dataset.end)});
+        if (event.target.closest('.save')) save(row);
+      });
+      drawNative(); drawBoundary();
+    </script>
+  </body>
+</html>

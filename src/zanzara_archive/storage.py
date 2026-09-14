@@ -36,7 +36,7 @@ from .contracts import (
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -809,6 +809,30 @@ MIGRATIONS: dict[int, str] = {
       SELECT RAISE(ABORT, 'calibration decisions are append-only');
     END;
     """,
+    11: """
+    CREATE TABLE IF NOT EXISTS p1r03d_reviews (
+        review_id TEXT PRIMARY KEY,
+        review_type TEXT NOT NULL CHECK (review_type IN ('native','boundary')),
+        item_id TEXT NOT NULL,
+        reviewer TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        state TEXT NOT NULL CHECK (state IN ('active','superseded')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (review_type, item_id, revision)
+    );
+    CREATE INDEX IF NOT EXISTS idx_p1r03d_reviews_latest
+      ON p1r03d_reviews(review_type, item_id, revision);
+    CREATE TRIGGER p1r03d_reviews_immutable_update
+    BEFORE UPDATE ON p1r03d_reviews BEGIN
+      SELECT RAISE(ABORT, 'P1R-03D reviews are append-only');
+    END;
+    CREATE TRIGGER p1r03d_reviews_immutable_delete
+    BEFORE DELETE ON p1r03d_reviews BEGIN
+      SELECT RAISE(ABORT, 'P1R-03D reviews are append-only');
+    END;
+    """,
 }
 
 
@@ -1271,6 +1295,98 @@ class SQLiteRepository:
         if payload is None:
             raise StorageConflictError("calibration batch was not found")
         return tuple(payload.get("decisions", {}).values())  # type: ignore[return-value]
+
+    def list_p1r03d_reviews(self) -> dict[str, dict[str, dict[str, object]]]:
+        """Return the latest append-only P1R-03D decision for each queue item."""
+
+        rows = self.connection.execute(
+            """SELECT r.* FROM p1r03d_reviews r
+            JOIN (
+                SELECT review_type, item_id, max(revision) AS revision
+                FROM p1r03d_reviews GROUP BY review_type, item_id
+            ) latest ON latest.review_type = r.review_type
+                AND latest.item_id = r.item_id AND latest.revision = r.revision
+            ORDER BY r.review_type, r.item_id"""
+        ).fetchall()
+        result: dict[str, dict[str, dict[str, object]]] = {"native": {}, "boundary": {}}
+        for row in rows:
+            result[row["review_type"]][row["item_id"]] = json.loads(row["payload_json"])
+        return result
+
+    def record_p1r03d_review(
+        self,
+        review_type: str,
+        item_id: str,
+        *,
+        decision: str,
+        reviewer: str,
+        payload: Mapping[str, object],
+        expected_revision: int,
+    ) -> dict[str, object]:
+        """Append one P1R-03D human decision with optimistic revision control."""
+
+        if review_type not in {"native", "boundary"}:
+            raise ValueError("P1R-03D review type is invalid")
+        if not item_id or not reviewer or reviewer == "machine":
+            raise ValueError("P1R-03D review requires an identified human reviewer and item")
+        if expected_revision < 0:
+            raise ValueError("expected_revision must be non-negative")
+        stamp = _now()
+        with self.transaction() as connection:
+            current = (
+                connection.execute(
+                    "SELECT max(revision) AS revision FROM p1r03d_reviews "
+                    "WHERE review_type=? AND item_id=?",
+                    (review_type, item_id),
+                ).fetchone()["revision"]
+                or 0
+            )
+            if current != expected_revision:
+                raise StorageConflictError(
+                    "P1R-03D review revision conflict "
+                    f"(expected {expected_revision}, current {current})"
+                )
+            revision = current + 1
+            record = {
+                "review_id": "p1r03d-review-"
+                + hashlib.sha256(
+                    _json(
+                        {
+                            "review_type": review_type,
+                            "item_id": item_id,
+                            "revision": revision,
+                            "decision": decision,
+                            "reviewer": reviewer,
+                            "payload": payload,
+                            "created_at": stamp,
+                        }
+                    ).encode()
+                ).hexdigest(),
+                "review_type": review_type,
+                "item_id": item_id,
+                "decision": decision,
+                "reviewer": reviewer,
+                "revision": revision,
+                "reviewed_at": stamp,
+                "payload": dict(payload),
+            }
+            connection.execute(
+                """INSERT INTO p1r03d_reviews
+                (review_id, review_type, item_id, reviewer, decision, revision, state,
+                 payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)""",
+                (
+                    record["review_id"],
+                    review_type,
+                    item_id,
+                    reviewer,
+                    decision,
+                    revision,
+                    _json(record),
+                    stamp,
+                ),
+            )
+        return record
 
     def record_acoustic_condition_correction(
         self,

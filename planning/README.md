@@ -10,16 +10,18 @@ and direct dependencies. Phase labels organize work, not execution order.
 
 | Order | Outcome | Existing issues |
 |---|---|---|
-| 1 | Search current transcripts and play original audio on the trusted LAN | P3-03, P3-04, P4-01, P4-02 (#32, #33, #38, #39) |
+| 1 | Build the FTS5 index, produce and index the initial 20 transcripts, then search and play original audio on the trusted LAN | P3-03, P5-06, P3-04, P4-01, P4-02 (#32, #51, #33, #38, #39) |
 | 2, alongside product work | Finish a small comparison of the three implemented ASR candidates | P1R-10, P1R-11, P1R-H01, P1R-16, P1R-17 (#90–#92, #97–#98) |
 | 3 | Find recurring anonymous voices, listen, confirm or undo identity links | P2-01, P2-02, P2-05–P2-09, P4-04 (#19, #20, #23–#27, #41) |
-| 4 | Make the initial 20 useful and recoverable | P3-06–P3-07, P4-06, P5-01, P5-03, P5-05–P5-06 |
+| 4 | Check search/voice quality and recoverability of the initial 20 | P3-06–P3-07, P4-06, P5-01, P5-03, P5-05 |
 | 5 | Expand recent coverage, historical voice discovery, then remaining transcription | P6–P8, with bounded canaries and resource authorization |
 
-Text search starts from existing Parakeet/Community-1 attributed transcripts.
-Implementation does not wait for a new ASR report; the final 20-episode quality
-assessment uses it. Voice indexing needs diarization and clean exemplars,
-independently of ASR and text search.
+One episode already has Parakeet/Community-1 attribution artifacts, and the
+initial FTS5 index is empty. P3-03 indexes that real example; P5-06 then runs
+the existing per-episode stages for the remaining frozen episodes in resumable
+batches and fills the index alongside API/UI work. This uses the timed Parakeet
+baseline without waiting for the separate ASR report. Voice indexing needs
+diarization and clean exemplars, independently of ASR and text search.
 
 ## Architecture decisions
 

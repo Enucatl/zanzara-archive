@@ -2372,19 +2372,15 @@
     },
     {
       "id": "P5-06",
-      "title": "[P5-06] Accept the useful initial 20 episodes",
+      "title": "[P5-06] Produce and index the initial 20 transcripts",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
-      "kind": "Evaluation",
+      "kind": "Implementation",
       "priority": "P1",
-      "order": 9230,
+      "order": 9005,
       "blocked_by": [
-        "P1R-17",
-        "P2-08",
-        "P3-07",
-        "P4-06",
-        "P5-05"
+        "P3-03"
       ],
       "body": "issues/P5-06.md",
       "design_refs": [
@@ -3030,7 +3026,7 @@
         "P1R-17",
         "P2-08",
         "P3-07",
-        "P5-06"
+        "P5"
       ]
     },
     {

@@ -196,6 +196,12 @@ filters during retrieval; global-speaker filters follow confirmed membership.
 Return text, episode, word references and timestamped playback. Publish FTS/chunk
 changes transactionally; missing ASR is an explicit state.
 
+P3-03 first indexes the existing attributed episode. P5-06 then processes the
+remaining frozen episodes through the timed Parakeet/Community-1/attribution
+stages and indexes them in resumable batches, alongside search API and browser
+work. Initial production does not wait for the separate ASR comparison; a later
+model decision reprocesses only outputs actually affected.
+
 Dense/hybrid retrieval is deferred until real saved queries justify it. If
 activated, retain lexical fallback and keep vectors/generation/filter semantics
 consistent. Existing BGE-M3 is the first candidate; do not truncate texts silently

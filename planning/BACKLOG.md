@@ -53,6 +53,7 @@ is replaced explicitly. Phase labels are organizational.
 | [P7](issues/P7.md) | Historical voice index | Active | P7-01, P7-02, P7-03, P7-04 | Human | 7000 |
 | [P8](issues/P8.md) | Remaining historical transcription | Active | P8-01, P8-02, P8-03, P8-04 | Human | 8000 |
 | [P3-03](issues/P3-03.md) | Speaker-aware transcript chunks and SQLite FTS5 | Active | P1-04 | Luna | 9000 |
+| [P5-06](issues/P5-06.md) | Produce and index the initial 20 transcripts | Active | P3-03 | Luna | 9005 |
 | [P3-04](issues/P3-04.md) | Filtered lexical transcript search | Active | P3-03 | Luna | 9010 |
 | [P4-01](issues/P4-01.md) | Reuse the local web app for archive navigation | Active | P1-05 | Luna | 9020 |
 | [P4-02](issues/P4-02.md) | Text search, transcripts and timestamped playback | Active | P3-04, P4-01 | Luna | 9030 |
@@ -75,7 +76,6 @@ is replaced explicitly. Phase labels are organizational.
 | [P5-01](issues/P5-01.md) | Run the workstation with serial GPU jobs | Active | P4-02, P2-06 | Luna | 9200 |
 | [P5-03](issues/P5-03.md) | Demonstrate one backup and restore | Active | P5-01, P2-09 | Luna | 9210 |
 | [P5-05](issues/P5-05.md) | Document the working archive and recovery commands | Active | P4-06, P5-03 | Luna | 9220 |
-| [P5-06](issues/P5-06.md) | Accept the useful initial 20 episodes | Active | P1R-17, P2-08, P3-07, P4-06, P5-05 | Luna | 9230 |
 | [P6-01](issues/P6-01.md) | Freeze 400 recent episodes and incremental estimates | Active | P5-06 | Luna | 9240 |
 | [P6-02](issues/P6-02.md) | Human: authorize 400-episode expansion from estimates | Active | P6-01 | Human | 9250 |
 | [P6-03](issues/P6-03.md) | Process 40-total canary and check drift/regressions | Active | P6-02 | Luna | 9260 |
@@ -125,12 +125,12 @@ is replaced explicitly. Phase labels are organizational.
 | R15 | Private FastAPI/Jinja website, API v1, playback and bounded media access | [P4-01](issues/P4-01.md), [P4-02](issues/P4-02.md), [P4-06](issues/P4-06.md) |
 | R16 | Deferred when justified: Archive-speaker/upload queries, formats/limits, selected speaker and one-hour expiry | [P4-03](issues/P4-03.md) |
 | R17 | Candidate comparison, anonymous recurrence, appearances and chronology | [P4-04](issues/P4-04.md) |
-| R18 | Evaluation/job dashboard, measured coverage/latency/cost and failure behavior | [P4-05](issues/P4-05.md), [P5-06](issues/P5-06.md) |
+| R18 | Evaluation/job dashboard, measured coverage/latency/cost and failure behavior | [P4-05](issues/P4-05.md), [P5](issues/P5.md) |
 | R19 | Deferred when justified: Compose profiles, 4 GiB VRAM headroom and full ensemble contention benchmark | [P5-01](issues/P5-01.md), [P5-04](issues/P5-04.md) |
 | R20 | Deferred when justified: Cloudflare Access on entire website, origin JWT and CSRF, operator deployment configuration | [P5-H01](issues/P5-H01.md), [P5-02](issues/P5-02.md) |
 | R21 | Backups, Qdrant rebuild, interrupted job recovery and private evidence storage | [P5-03](issues/P5-03.md) |
 | R22 | Accurate application/recovery runbook with private data excluded | [P5-05](issues/P5-05.md), [P8-04](issues/P8-04.md) |
-| R23 | 20-episode acceptance and quality/regression gates, with P1R transcription evidence | [P1R-16](issues/P1R-16.md), [P1R-17](issues/P1R-17.md), [P2-08](issues/P2-08.md), [P3-07](issues/P3-07.md), [P5-06](issues/P5-06.md) |
+| R23 | 20-episode acceptance and quality/regression gates, with P1R transcription evidence | [P1R-16](issues/P1R-16.md), [P1R-17](issues/P1R-17.md), [P2-08](issues/P2-08.md), [P3-07](issues/P3-07.md), [P5](issues/P5.md) |
 | R24 | Gated 400 expansion, estimates and 40-total canary | [P6-01](issues/P6-01.md), [P6-02](issues/P6-02.md), [P6-03](issues/P6-03.md), [P6-04](issues/P6-04.md) |
 | R25 | Gated historical voice-only pass, 20 canary and cross-year human labels | [P7-01](issues/P7-01.md), [P7-02](issues/P7-02.md), [P7-03](issues/P7-03.md), [P7-04](issues/P7-04.md) |
 | R26 | Gated prioritized remaining ASR, bounded batches and final audit | [P8-01](issues/P8-01.md), [P8-02](issues/P8-02.md), [P8-03](issues/P8-03.md), [P8-04](issues/P8-04.md) |

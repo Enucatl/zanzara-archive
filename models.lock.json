@@ -10,7 +10,7 @@
   },
   "shared_base": {
     "image": "zanzara-archive/shared-base:py314-cu130",
-    "image_digest": "df7c3a4308f76785dd17d7f7ddf74e5471dcf2d1cafba679b7b1a75beceecca4",
+    "image_digest": "ee0e2a56d4d61d5a4a636e1e03fe1c68b5dcba2fdca239505436596a83d786ef",
     "python": "3.14.7",
     "torch": "2.14.0+cu130",
     "torchaudio": "2.11.0+cu130",
@@ -296,7 +296,7 @@
         {"cache": "huggingface", "path": "models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902/preprocessor_config.json", "size_bytes": 297, "sha256": "8d04ba5a9c6fca5d39d0de2b1fd05ecf79deb589fbba279728bbebac39934231"},
         {"cache": "huggingface", "path": "models--MIT--ast-finetuned-audioset-10-10-0.4593/snapshots/f826b80d28226b62986cc218e5cec390b1096902/model.safetensors", "size_bytes": 346404948, "sha256": "ae0c1e2ad4e1381d851fa9bf298ba13ebc9c5a914cdee2dbe427a6583869924d"}
       ],
-      "smoke": {"status": "passed", "shape": [611, 100], "elapsed_ms": 37989.297, "peak_vram_mib": 235.534, "evidence_sha256": "0ea551361337fae4c09c7f0dadac6688226c26ecb966984ffeaa0ab260c7c71f"}
+      "smoke": {"status": "passed", "shape": [611, 100], "elapsed_ms": 38339.753, "peak_vram_mib": 235.534, "evidence_sha256": "ffb58d769acfc08ae684b6dff604851de5b1ee76a3622969254796e045b7cc40"}
     }
   ],
   "services": [
@@ -308,6 +308,6 @@
     {"id": "eres2net", "directory": "services/eres2net", "image": "zanzara-archive/eres2net:py314-shared", "image_digest": "41620735648df7410649035e8d406ec61f8357aa9eacf837f650d2f6b4971641", "python": "3.14.7", "uv_lock_sha256": "00ba8bb7be58304a7797fdb6afa0795447a545bb6f42430fe737cf76125c8828"},
     {"id": "wavlm", "directory": "services/wavlm", "image": "zanzara-archive/wavlm:py314-shared", "image_digest": "5b06edf4885614dd869c3b41220f9730cc4cc4f4012f07370723c7a59d67b406", "python": "3.14.7", "uv_lock_sha256": "b4a5c1557da02e5792b230cc6416638ebc5a63e8ea468bcbe0ab63a768fcc621"},
     {"id": "text_embeddings", "directory": "services/text-embeddings", "image": "zanzara-archive/text-embeddings:py314-shared", "image_digest": "05556d5a69d48c827123ae48a8c6f11c69eba961a2b053dbfa860ab08780952d", "python": "3.14.7", "uv_lock_sha256": "7562066e31c83045bd874fd625aa06a7d895bfea65931a37868e5779ce71e75f"},
-    {"id": "audioset_ast", "directory": "services/audioset-ast", "image": "zanzara-archive/audioset-ast:py314-shared", "image_digest": "5f65b15ada2a01919d1252804f866b4c8f98975f000b11776373d91b0cb2531e", "python": "3.14.7", "uv_lock_sha256": "f48b1e5557a3e782e6dabaff4a6d4eb4a864fd7853bb371220c5ba3d7088b707"}
+    {"id": "audioset_ast", "directory": "services/audioset-ast", "image": "zanzara-archive/audioset-ast:py314-shared", "image_digest": "4f0088d506e7f8aa0bba4a9ca83ad233824285ed8e5f71fd39af3d9aac590c93", "python": "3.14.7", "uv_lock_sha256": "f48b1e5557a3e782e6dabaff4a6d4eb4a864fd7853bb371220c5ba3d7088b707"}
   ]
 }

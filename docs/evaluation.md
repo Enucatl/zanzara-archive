@@ -56,7 +56,22 @@ uv run zanzara evaluation run \
   --output "$ZANZARA_RESULTS"
 ```
 
-The command accepts optional `--corpus`, `--archive-root`, `--artifact-root`,
+Routine model-lock validation checks metadata and the small service `uv.lock`
+files without reading model checkpoint bytes. The same lightweight check is
+available as `uv run zanzara models verify --lock models.lock.json`; its output
+reports `artifacts_verified: false`. After acquiring or restoring model files,
+or when corruption is suspected, run the explicit full integrity audit:
+
+```bash
+uv run zanzara models verify --lock models.lock.json --verify-artifacts
+```
+
+That audit checks file presence, size and SHA-256 and reports
+`artifacts_verified: true` only on success. Neither mode reruns inference or
+proves that a currently running container matches historical smoke evidence.
+Recorded model fingerprints and stage cache identities remain unchanged.
+
+The evaluation command accepts optional `--corpus`, `--archive-root`, `--artifact-root`,
 `--database`, `--model-lock`, endpoint, decoder and language overrides. It
 does not publish an evaluation directory until input validation, all worker
 stages and scoring succeed. The private run records immutable source,

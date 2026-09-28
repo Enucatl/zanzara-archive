@@ -58,9 +58,13 @@ def _sha256(path: Path) -> str:
 def validate_model_lock(
     path: str | os.PathLike[str],
     *,
-    verify_artifacts: bool = True,
+    verify_artifacts: bool = False,
 ) -> dict[str, Any]:
-    """Validate a lock and, by default, every locally materialized locked artifact."""
+    """Validate lock metadata and service locks, optionally auditing model bytes.
+
+    Routine validation does not access the model cache. Set verify_artifacts
+    after acquisition, restore, or suspected corruption to check model files.
+    """
 
     lock_path = Path(path)
     try:
@@ -169,6 +173,7 @@ def validate_model_lock(
         "schema_version": 1,
         "models": len(models),
         "services": len(services),
+        "artifacts_verified": verify_artifacts,
         "hardware": hardware,
         "python": platform.python_version(),
     }

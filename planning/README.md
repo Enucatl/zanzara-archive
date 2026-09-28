@@ -1,69 +1,116 @@
-# Zanzara Archive planning package
+# Zanzara Archive working plan
 
-This folder is the implementation specification and GitHub setup handoff. It contains the complete issue bodies for all phase parents and children, including explicit human tasks, and is the local source for publication and reconciliation. Preserve [the original plan](../plan.md) as background; the decisions here supersede it.
+Revised 2026-09-28 for one operator on one fixed workstation. This plan and the
+updated issue bodies supersede earlier phase-release, exhaustive provenance,
+and mandatory ensemble/cloud requirements, including historical `plan.md` and
+closed issues. GitHub issues track the work; `manifest.json` mirrors their scope
+and direct dependencies. Phase labels organize work, not execution order.
 
-## Reading order
+## Deliver something useful first
 
-1. Read this file for scope, decisions and execution boundaries.
-2. Read [SYSTEM-DESIGN](SYSTEM-DESIGN.md) (D1–D12) and [EVALUATION](EVALUATION.md) (E1–E7).
-3. Read [GITHUB-SETUP](GITHUB-SETUP.md) for permissions, publication, native relationships, reconciliation and verification.
-4. Read [BACKLOG](BACKLOG.md), [manifest.json](manifest.json) and the linked [issue bodies](issues/P0.md). The manifest defines titles, parents, blockers, executor, kind, priority, order, labels and Project configuration.
-5. Read [REVIEW-SKILL](REVIEW-SKILL.md) for the complete proposed repository skill and [SOURCES](SOURCES.md) for dated observations and technical references.
-
-[corpus-20.json](corpus-20.json) freezes the actual 20 episode filenames and their recorded metadata. [validate.mjs](validate.mjs) checks the package locally with Node >=22 and no dependencies. This is documentation tooling, not a JavaScript application dependency. P0-02 imports the corpus and establishes safe source paths; the persistent archive is not reverified during routine work. P0-06 will install the proposed review skill.
-
-```bash
-node planning/validate.mjs
-```
-
-The checks validate IDs, issue completeness/metadata, parent/blocker graph, release-gate structure, requirement mappings, local links/anchors and the exact frozen corpus. They cannot establish model quality, human review, hardware compatibility or live GitHub configuration. Test commands and CLI names in issue bodies are future contracts to implement in their owning issues; they do not claim those commands exist in the current repository.
-
-## Agreed scope and superseding decisions
-
-| Area | Binding decision | Supersedes original plan |
+| Order | Outcome | Existing issues |
 |---|---|---|
-| Corpus | Exactly the supplied latest-20 snapshot, 2026-07-01–2026-09-10; golden `260910-lazanzara.opus` | Approximate/representative 10–20 initial selection, including historical episodes |
-| Application | Python 3.14, uv/src package, FastAPI/Jinja/vanilla JS; separate locked Python 3.11 ML services | Unspecified application/runtime |
-| Canonical state | SQLite WAL/FTS5 on local volumes, one durable worker | PostgreSQL preference and unspecified orchestration |
-| Vectors | Dedicated Compose Qdrant; individual exemplars plus separate centroids, three named speaker spaces | Existing/shared Qdrant deployment |
-| Models | Parakeet v3, Community-1, ResNet293-LM, fixed ERes2Net v1.0.3, released fine-tuned WavLM Large verification head; dense BGE-M3 | Open ERes2Net/WavLM checkpoint choice |
-| Ensemble | Full three-model baseline; centroid union from all three, deterministic one-to-one exemplar matching, conditional logistic calibration | Cascade as initial alternative, vague matching/calibration |
-| Identity | Human-confirmed global membership, manual names, reject/uncertain/undo/split with contradiction checks | Automatic high-confidence linking/clustering |
-| Excerpts/time | >=3 seconds, prefer 8–15, max ten, exclude overlap/250 ms transitions; persisted integer milliseconds | Broader duration guidance and seconds-based examples |
-| Transcription evaluation | P1R model-independent chunks, episode-level splits, human audio-verified truth and separate ASR/diarization/attribution scoring | P1 whole-episode, manually word-timed golden gate |
-| Paid benchmark | Identical stratified 20-minute development subset, MAI and Voxtral, US$10 total including probes/retries | 3–5-hour multi-provider comparison including Scribe |
-| Cloud | shared-inference embeddings plus bounded upstream transcription extension; validated timing and index equivalence | Unspecified cloud replacement interface |
-| Website | Entire website behind Cloudflare Access with origin JWT/CSRF checks; bounded ephemeral uploads | Incomplete runtime/security/search contract |
-| Expansion | Separate P6/P7/P8 approvals and canaries after released initial 20 | Earlier broader phase outline |
-| Delivery | Private owner Project, native children/blockers, Luna implementation, Sol integrated review, explicit user release of every phase | Unspecified implementation workflow |
+| 1 | Search current transcripts and play original audio on the trusted LAN | P3-03, P3-04, P4-01, P4-02 (#32, #33, #38, #39) |
+| 2, alongside product work | Finish a small comparison of the three implemented ASR candidates | P1R-10, P1R-11, P1R-H01, P1R-16, P1R-17 (#90–#92, #97–#98) |
+| 3 | Find recurring anonymous voices, listen, confirm or undo identity links | P2-01, P2-02, P2-05–P2-09, P4-04 (#19, #20, #23–#27, #41) |
+| 4 | Make the initial 20 useful and recoverable | P3-06–P3-07, P4-06, P5-01, P5-03, P5-05–P5-06 |
+| 5 | Expand recent coverage, historical voice discovery, then remaining transcription | P6–P8, with bounded canaries and resource authorization |
 
-These are fixed initial candidates and acceptance targets, not claims that the models are optimal or will pass. Missing checkpoint access, GPU compatibility or quality evidence becomes a blocker. No silent substitutions, fabricated timing/confidence, vector-space mixing or automatic identity merges.
+Text search starts from existing Parakeet/Community-1 attributed transcripts.
+Implementation does not wait for a new ASR report; the final 20-episode quality
+assessment uses it. Voice indexing needs diarization and clean exemplars,
+independently of ASR and text search.
 
-P1R is now the authoritative replacement for P1's transcription-evaluation release semantics; the migration record in [P1R-01-MIGRATION](P1R-01-MIGRATION.md) preserves the useful implementation and history. P1 remains the operational/reusable-services phase, while P1R owns transcription-quality evidence. Its migration child is the only work authorized to mark methodology-specific P1 review follow-ups not planned and to rewrite affected downstream dependencies. P1R uses frozen multi-episode, approximately 10–15 second adaptive chunks; partitions are independent at episode level. Human listening establishes text/speaker truth, while ASR candidates and a local Qwen helper are drafts only. Word timestamps remain optional artifacts, not gold or a release criterion. Expansion uses the original date cutoff for nested 20/40/400 cohorts. Deterministic defaults and evidentiary minima require a recorded design decision and review, not silent tuning on held-out data.
+## Architecture decisions
 
-## Instructions for the GitHub setup agent
+- Keep Python/uv, FastAPI/Jinja/vanilla JS, SQLite WAL/FTS5, one durable worker,
+  isolated model services and Qdrant. Reuse working code.
+- Start text retrieval with FTS5, episode/date filters and timestamped playback.
+  Global-speaker filters follow identity membership. Add dense/hybrid search
+  when real queries expose useful gaps.
+- Start voice retrieval with ResNet293, clean excerpts, centroid candidates and
+  exemplar reranking. Keep original vectors and separate model generations.
+  Scores rank candidates; they are not probabilities or identity decisions.
+  ERes2Net, WavLM and fusion remain optional measured comparisons.
+- Finish Parakeet/Whisper/Voxtral comparison on **80 chunks**: 60 representative,
+  20 difficult, multiple episodes, split by episode before tuning. Human
+  listening remains required. Expand only for an unresolved choice or failure.
+  This pilot cannot establish archive-wide accuracy.
+- Use completed P1R-03D chunking (#105); retire competing P1R-03C (#104).
+  Qwen/AST are available aids; calibration refinement is not a product gate.
+- Serialize GPU work initially and load the services needed for the current
+  stage. Add concurrent serving when observed waiting warrants the work.
+- Serve on the trusted LAN at `http://complex.home.arpa:8000/`, bound to
+  `0.0.0.0`. Internet exposure is deferred; Cloudflare Access, origin enforcement
+  and existing web protections remain prerequisites before exposure.
 
-Under GPT 5.6-Luna, use GITHUB-SETUP exactly: validate all local inputs; preflight credentials before any creation; reconcile the private owner Project/fields/labels; publish parents then children; attach native sub-issues and blocking dependencies; add Project items/fields; configure views; read all objects back. Keep a private atomic mapping of stable IDs to issue numbers/database IDs/node IDs/Project item IDs. Reruns must create no duplicates and preserve human edits/comments.
+## Proportionate checks and provenance
 
-Current credentials lack the Project scope; `gh auth refresh -s project` is the operator remedy during setup. Project view sorting/grouping also requires the explicit UI action documented in G3 with the inspected API schema. These are future setup requirements, not blockers to producing this folder. Planning files need a published commit before issue links can point to that commit. Do not claim setup complete while permissions, saved views, links or native relationships remain unverified.
+Run focused checks for changed behavior once. Reuse passing results until their
+code, inputs or configuration materially change. Documentation edits do not
+require inference, the full test suite, checkpoint scans or corpus probes.
+Smoke an affected inference service after relevant model/runtime changes;
+do not smoke every model after unrelated changes.
 
-Stop at the verified GitHub structure and creation report. Do not begin P0 implementation in the setup run. The private Project does not hide public repository issues: raw archive audio, annotations, identities, embeddings, keys and sensitive traces stay in private local storage.
+Keep cheap stage/configuration fingerprints, model revisions, artifact IDs,
+hashes computed during publication, and checks that prevent model mixing or
+partial output. Do not migrate stable identifiers merely to remove hash fields.
+Routine model-lock validation is structural; checkpoint byte verification is
+explicit for acquisition, replacement, suspected corruption or recovery.
+Do not repeatedly hash the trusted archive, model cache, reports or screenshots
+as an implementation/review prerequisite. Existing artifact-reader integrity
+checks remain; this revision does not claim every runtime checksum is removed.
 
-## Luna implementation and phase review
+Completion normally needs the commit, relevant command/result and a run ID or
+artifact path, plus model/configuration/reference versions when material.
+A rebuild warrants a changed-service smoke, not every historical benchmark.
+Report actual defects or missing human truth; omit speculative evidence packets
+and Project-metadata-only blockers.
 
-Select only eligible open Luna children, including registered review follow-ups, using native blockers and completion evidence. Sort by phase, priority, then numeric Order. A child waits for the **preceding** phase's release, never its own phase's closure. Human tasks and phase parents are not unattended implementation work. A prerequisite closed as `not_planned` needs an explicit user-approved replacement.
+Keep safe paths/media bounds, genuine timestamps, valid vectors, atomic
+publication, resumability, backups, human identity confirmation/undo, privacy,
+and paid-call limits. These protect actual data and work.
 
-Implement one bounded Luna issue, run its required checks, commit the result directly to `main`, push `origin/main`, and record the commit and evidence on the child issue. Mark that child Done only after its acceptance checklist passes; Operator and other Human issues remain explicit human actions. There is no issue-level PR review gate. At each phase boundary present `$review-phase <parent-issue-number>` for invocation using the model currently enabled in chat. The skill reviews integrated behavior, verifies current evidence and creates deduplicated native remediation children; it does not fix them or release the phase. Every phase stays open until a current PASS and the user's `Release Pn at <reviewed-commit>` record.
+## Execution
 
-## Package completion checklist
+Select eligible active work by numeric Order and direct unfinished prerequisites.
+The manifest flags optional work `deferred: true` and retired work `retired: true`;
+neither is auto-selected. Deferred issues stay open in Backlog and do not block
+core parents. Remove or explicitly replace retired prerequisites; not-planned
+closure never claims an implementation exists.
 
-- [x] Every handoff phase/child ID retained, with full bodies and explicit role/prerequisites.
-- [x] Operator model access, benchmark credentials, annotations, deployment and release actions represented.
-- [x] Requirement-to-issue mapping, acyclic dependencies and no own-parent closure requirement.
-- [x] Actual frozen 20-file membership and recorded media metadata included.
-- [x] Budget, timestamp capability, vector generation and human identity invariants specified.
-- [x] Resumable GitHub publication and native read-back verification documented.
-- [x] Sol follow-up selection and user release gates remain extensible.
-- [x] Proposed review skill and all required future README/architecture prompt deliverables specified.
-- [ ] Future setup run: permissions, published planning links, private Project, issues, relationships, views and ID map verified.
-- [ ] Future implementation: P0, legacy P1 migration/P1R, then P2–P8 executed and individually released by the user.
+Continue across phase labels and batch closely related tasks when authorized.
+Parents summarize core outcomes; no separate review invocation, exact-commit
+PASS or `Release Pn` comment is mandatory. Review remains useful on request or
+for material integration risk. Ordinary body/status changes do not require a
+Project audit. Read back changed bodies/dependencies/fields once when updating
+planning. Closed implementation records are not retroactively re-certified.
+
+Human annotation, identity decisions and model terms remain human actions.
+This revision authorizes no paid calls, public deployment or bulk expansion.
+P6/P7/P8 retain concrete resource decisions before large runs; one approval
+covers its stated scope without a repeated phase-boundary ceremony.
+
+## Deferred work and return conditions
+
+| Work | Return when |
+|---|---|
+| ERes2Net/WavLM and calibrated fusion | Reviewed ResNet misses justify another encoder |
+| Dense/hybrid retrieval | Saved queries show useful paraphrases/topics are missed |
+| Cloud comparison and upstream transcription extension | Local quality is inadequate and paid comparison is authorized |
+| Uploaded voice queries | Archive-speaker search works and external samples are needed |
+| Evaluation dashboard / assistance study | Existing reports and basic errors impede actual use |
+| Cloudflare deployment | Remote access is needed |
+| GPU concurrency tuning | Serial execution causes unacceptable waiting |
+
+## Supporting contracts
+
+[SYSTEM-DESIGN](SYSTEM-DESIGN.md) retains D1–D12 implementation details;
+[EVALUATION](EVALUATION.md) defines smaller assessments and their limits.
+[BACKLOG](BACKLOG.md), [manifest.json](manifest.json), and issue bodies carry
+revised dependencies. [GITHUB-SETUP](GITHUB-SETUP.md) applies to structural changes,
+not every coding task. [REVIEW-SKILL](REVIEW-SKILL.md) describes optional review.
+
+Run `node planning/validate.mjs` when changing this package. It checks recorded
+plan data, not archive bytes or model quality. Historical evidence remains in
+Git and private run directories.

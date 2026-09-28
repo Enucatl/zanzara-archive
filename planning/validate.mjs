@@ -50,8 +50,10 @@ for(const i of manifest.issues){
   fail(ids.get(i.parent)?.kind==='Phase' && i.parent===i.phase,`Bad parent ${i.id}`);
   fail(!i.blocked_by.includes(i.parent),`${i.id} depends on own parent`);
  }
- const previousPhase={P1:'P0',P1R:'P0',P2:'P1',P3:'P2',P4:'P3',P5:'P4',P6:'P5',P7:'P6',P8:'P7'}[i.phase];
- if(previousPhase)fail(i.blocked_by.includes(previousPhase),`Missing previous phase blocker ${i.id}`);
+ // Phase labels group work. Only actual deliverables belong in blocked_by.
+ for(const flag of ['deferred','retired'])if(i[flag]!==undefined)fail(typeof i[flag]==='boolean',`Invalid ${flag} ${i.id}`);
+ if(i.deferred||i.retired)fail(i.release_blocker===false,`Optional/retired issue blocks milestone ${i.id}`);
+ for(const dep of i.blocked_by)if(!i.deferred&&!i.retired)fail(!ids.get(dep).deferred&&!ids.get(dep).retired,`Active issue ${i.id} blocked by optional/retired ${dep}`);
  if(i.release_blocker!==undefined)fail(typeof i.release_blocker==='boolean',`Invalid release blocker ${i.id}`);
  const body=read(i.body);
  fail((body.match(/<!-- zanzara-plan:/g)??[]).length===1,`Marker count ${i.id}`);
@@ -59,7 +61,7 @@ for(const i of manifest.issues){
  headings.forEach(h=>fail(body.includes(`## ${h}\n`),`Missing ${h} in ${i.id}`));
  fail((body.match(/^- \[ \]/gm)??[]).length>=3,`Insufficient acceptance checklist ${i.id}`);
  fail(!/\bTODO\b|\bTBD\b|lorem ipsum/i.test(body),`Unfinished body ${i.id}`);
- fail(i.initial_status===(i.blocked_by.length?'Blocked':'Ready'),`Incorrect initial state ${i.id}`);
+ fail(i.initial_status===(i.deferred?'Backlog':i.blocked_by.length?'Blocked':'Ready'),`Incorrect initial state ${i.id}`);
  i.labels.forEach(l=>fail(manifest.labels.some(x=>x.name===l),`Unknown label ${l}`));
  fail(read('BACKLOG.md').includes(`](${i.body})`),`Missing backlog link ${i.id}`);
 }

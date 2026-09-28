@@ -1,105 +1,131 @@
-# Evaluation and release gates
+# Evaluation
 
-Section IDs E1–E7 are stable. All reports identify source/annotation/split/model/configuration hashes and the reviewed code commit. A passing test harness is not evidence of real model quality. Missing human references or inadequate sample sizes mean **insufficient evidence**, never an assumed pass.
-
-## P1R replacement status
-
-P1R is the authoritative replacement for P1 transcription evaluation. The P1-specific material in E1/E2 below is retained as historical evidence and implementation history; it must not be used to release P1 or to require manually timed words, a complete golden episode, a five-block split, timing-error metrics, or timestamp-capable ASR output. P1R evaluates frozen, model-independent chunks with human audio-verified references and episode-level development/held-out partitions. Required lexical metrics are conservative versioned Italian WER and CER; multi-speaker truth supports an explicitly locked overlap-aware speaker-independent metric such as ORC-WER, while DER/JER and cpWER/tcpWER remain separate evaluation questions. Representative/stress and overlap/music/degraded/rapid-turn-taking slices always report chunk, duration and word denominators. The complete executable contracts are P1R-02, P1R-11, P1R-H01 and P1R-12 through P1R-17. See [P1R-01-MIGRATION](P1R-01-MIGRATION.md) for the before/after map and live issue decisions.
+Revised 2026-09-28; supersedes earlier mandatory sample sizes, report packets
+and phase-release ceremonies. E1–E7 remain stable references. Measure enough for
+the next decision and disclose uncertainty. Fixtures establish code behavior;
+human-reviewed real audio establishes quality.
 
 ## E1 — Golden reference and transcription split
 
-### Historical P1 contract — retained, not authoritative
+Reuse completed P1R-03D chunking and existing annotation/scoring contracts.
+Start with 80 chunks: 60 representative and 20 difficult, from multiple episodes
+in the frozen 20. Assign episodes to development/held-out groups before sampling
+or tuning, aiming for 40 chunks in each, with 30 representative and ten difficult.
+Use at least two episodes per partition where available; report coverage gaps.
 
-The following paragraphs preserve the original P1 annotation and split
-contract for reproducibility of completed artifacts. They are not active P1R
-release requirements. P1R gold is chunk-based, human audio-reviewed and
-episode-partitioned as described above and in P1R-02/P1R-11/P1R-H01.
+Select without ASR-score filtering. Include rapid turns, overlap, music and
+degraded audio where present; manual tags suffice. Keep held-out episodes out of
+prompt/threshold/model-setting tuning. Freeze membership once with a manifest
+version/run ID. Expand only for an unresolved decision or important failure.
 
-P1-05 supplies waveform/audio playback, editable words, speaker turns, overlaps and unintelligible regions. Preserve machine-seeded output as `draft`; only an identified human can mark a version `reviewed`. Save immutable exports plus append-only history, reviewer, source checksum and review time. Concurrent edits require revision checks. P1-06 reviews the entire Italian golden episode verbatim, including repeated words, false starts, dialect, names and numbers. Human reference speaker IDs come from listening, not unquestioned diarizer labels. Mark genuinely unintelligible intervals rather than guessing or silently removing difficult speech.
-
-Before any comparative experiment, freeze five contiguous time blocks covering the original episode without gaps: let boundary `b_i=floor(i*duration_ms/5)` for i=0…5. Blocks 0–3 are development (80%); block 4 is held out (20%). Record exact boundaries and source hash in the split manifest. Assign a reference word by its midpoint and clip scored speaker intervals at boundaries. Fit preprocessing, thresholds and choices using development only. A custodian runs held-out scoring after configuration freeze; record access. Full-episode numbers may accompany results but must say they include development. Do not move bad held-out examples to development after observing results.
-
-Manually verify at least 200 word boundaries (start **and** end for at least 200 distinct words), stratified across all five blocks, short/long words, speaker transitions and difficult audio. Publish word IDs and private manually timed reference intervals before evaluating timing. Machine times do not count as reference. Resolve annotation disagreements through a recorded human adjudication; a single reviewer is acceptable but must be disclosed. Report excluded unintelligible duration and coverage.
-
-Italian normalization version `it-v1`: Unicode NFC, Unicode casefold, replace each Unicode punctuation-category character with a space, then collapse whitespace and trim. Raw WER uses whitespace tokens with case and punctuation intact. Normalized WER uses `it-v1` tokens; CER uses Unicode code points including single normalized interword spaces. Do not expand digits into words, remove disfluencies or rewrite lexical content. Mask reference and hypothesis regions annotated unintelligible before scoring, using time when available; for a text-only hypothesis use an explicitly documented reference alignment and exclude ambiguous mask boundaries from paired comparisons. If masking cannot be aligned reliably, report the comparison as unscorable rather than favoring that model. Implement known-answer normalization and masking fixtures before measuring model output.
+The operator listens and corrects text and speaker/condition truth, recording
+reviewed or unresolved status for each chunk. Candidate consensus is not truth.
+Unintelligible/unscorable content retains its reason and denominator. No complete
+golden episode or manually timed words. Preserve existing review revisions and
+human work when selecting the smaller sample.
 
 ## E2 — ASR, diarization, attribution and timing metrics
 
-### Current P1R interpretation
+Run existing Parakeet, Whisper and Voxtral on the same pilot. Use existing Italian
+WER/CER scoring; report representative/difficult samples separately with counts,
+words, duration, failures and unsupported cases. Use overlap-aware ASR,
+independent DER/JER and integrated attribution metrics where reviewed references
+support them. Missing truth is a limitation, never invented zero error. Do not
+relabel unsupported overlap as clean speech to improve scores.
 
-P1R reports lexical WER/CER and its locked overlap-aware ASR metric from chunk
-hypotheses, interval-based DER/JER and speaker-count/overlap measures from
-Community-1, and separate integrated speaker-attributed measures. These
-reports use human-reviewed chunk truth and report chunk, duration and word
-denominators for every applicable slice. Timing metadata may be reported when
-present, but missing timing is not a transcription-quality failure. Production
-attribution remains a separate consumer that can require genuine timed words.
+Recommend an operating default using quality, failures, throughput and memory.
+A close result permits retaining the working baseline and reporting uncertainty.
+This pilot does not guarantee quality across thousands of episodes. Serious
+observed word loss, bad offsets or systematic wrong-speaker attribution needs a
+bounded fix. Historical P1 numeric thresholds are not current release gates.
 
-### Historical P1 contract — retained, not authoritative
-
-The timing-error calculations and P1 thresholds below remain available for
-historical report interpretation only. They do not gate P1R or any current
-transcription-quality release.
-
-Report raw/normalized WER `(S+D+I)/N`, normalized CER, denominator counts, and slices for overlap and difficult audio. Freeze slice intervals during human annotation, including telephone/degraded audio, music and rapid exchanges where present. Report a slice with zero reference tokens as not applicable.
-
-Primary DER uses zero collar and includes overlap: aggregate missed speech, false alarm and speaker confusion divided by reference speaker-time. Also report 250 ms collar DER, JER and signed/absolute speaker-count error. Use a locked evaluation library (for example pyannote.metrics for DER and dscore-compatible JER); record the version, optimal speaker mapping and evaluation map. Convert milliseconds to seconds at this boundary only. Include handcrafted two-speaker overlap fixtures with analytically known miss/confusion values. Never score exclusive diarization as if it preserved overlap.
-
-Speaker-attributed transcription error is speaker-attributed WER (SA-WER): map hypothesis episode speakers to reference speakers by maximum overlap on scored audio, align words chronologically per mapped speaker, sum edit counts, divide by all scored reference words. Unassigned hypothesis words form an unmapped speaker stream and contribute insertions; the corresponding missed reference words remain deletions. Report the exact mapping and definition, since SA-WER variants differ. Report unassigned-word rate separately over all timed hypothesis words in scored regions. Add a known fixture in which text is correct but the speaker is wrong.
-
-For manually timed words correctly matched in lexical alignment, calculate absolute start and end errors; report combined median and 95th percentile, separate start/end summaries and matched-reference coverage. Missing/deleted words cannot vanish from the coverage denominator. Use linear-interpolated empirical quantiles consistently and save individual errors privately.
-
-Initial release thresholds: held-out normalized WER **<=25%** and primary overlap-inclusive DER **<=25%**. These are requirements, not predicted performance. After a baseline is accepted, any unexplained increase greater than **one percentage point** in either metric blocks release. All other metrics must be reported; no unagreed threshold should be invented for them. A changed reference invalidates direct comparison unless both systems are rescored on the same reference version.
+Production still requires genuine timing for playback and word attribution.
+A text-only benchmark winner is not automatically a production replacement:
+retain the timed baseline until a supported timing path is implemented and
+checked. Reference/normalizer changes require consistent rescoring of compared
+outputs; unrelated documentation/code changes do not invalidate evidence.
 
 ## E3 — Voice labels, splits and scoring
 
-P2 builds voice artifacts for the frozen 20, independent of whether their transcripts exist. P2-07 is Human: listen to candidate excerpts, mark same-person/different-person/uncertain, and label reviewed recurring non-host speakers plus difficult negatives. Distinguish hosts and non-hosts; do not infer real names. Labels include both episode-speaker artifact IDs, reviewer, evidence excerpt times, source hashes and ambiguity notes. Uncertain pairs are excluded from binary training/scoring and counted separately. Human identity review decisions used in the product and benchmark labels are versioned independently to prevent evaluation feedback from rewriting truth.
+Start with ResNet293 candidates and human comparison. Review recurring speakers
+and difficult different-speaker pairs across episodes, including non-hosts where
+present. Record same/different/uncertain, appearance IDs and excerpt times.
+Product decisions and benchmark labels stay distinct; names remain manual.
 
-Freeze a label manifest and splits before fitting anything. Group all appearances/pairs sharing a confirmed identity; allocate identity groups 70% calibration and 30% held-out by a fixed seed (20260911), stratified host/non-host where possible. Prevent the same identity or exact appearance occurring across the split. Audit paired negatives for cross-split identity leakage. Hosts that cannot yield independent groups are reported as a separate diagnostic and do not provide calibration evidence for non-host results. Queries require at least one independently reviewed positive appearance in another episode; retain eligible gallery positives in the query's split. Keep no-match queries as a separate false-positive diagnostic. Record eligible/excluded query counts and why; do not turn ineligible queries into retrieval failures or successes.
+Report Recall@1/5/10 and MRR for queries with a reviewed positive in another
+episode, counts, host/non-host coverage, failures and exclusions. Exclude the
+query episode by default; report no-match queries separately. With no recurring
+non-host labels, permit exploratory browsing but make no quality or historical
+bulk-readiness claim from host-only results.
 
-For sufficient calibration evidence, require at least five recurring non-host identity groups in calibration, three in held-out, and at least 20 positive and 20 negative reviewed pairs in each partition. These are minimum evidentiary safeguards, not a claim of statistical power. If the 20 episodes cannot support them, keep rank fusion explicitly uncalibrated and report verification/calibration limitations. Held-out retrieval targets still apply to eligible reviewed queries; with none, release is blocked for insufficient evidence. Never expand the initial corpus or relax a threshold without user direction.
+Use uncalibrated similarities. The first interface needs no logistic calibration,
+probability claim, large label quota or bootstrap suite. Compare additional
+encoders on the same reviewed queries if activated; keep tuning/evaluation
+identity groups separate. The former Recall@10 >=80% is an improvement target,
+not a universal gate for a small pilot. Show false matches honestly for review.
 
-Evaluate every encoder alone and the full three-model pipeline on the same queries/gallery. Report Recall@1/5/10/20 (fraction with a relevant appearance in top k), MRR (reciprocal rank of first relevant appearance), both all-speaker and non-host/host breakdowns, gallery size and query count. Exclude query episode by default. Report candidate-union recall separately from verification/reranking recall so missed candidates remain visible. Primary cross-episode held-out Recall@10 target is **>=80%** over eligible queries, with non-host breakdown required. Do not filter out hard cases based on model scores.
-
-Conditional calibration: fit a standardized, L2-regularized logistic regression on the three median model scores from D7, using only calibration data. Choose C from `{0.1,1,10}` by identity-grouped cross-validation on calibration log loss; if grouping cannot sustain validation, remain uncalibrated. Freeze the standardizer, coefficients, intercept, C, split and score schema in an immutable artifact before held-out evaluation. Logistic output may be labelled a calibrated estimate only with held-out reliability/Brier/log-loss reporting; it never authorizes automatic identity merging.
-
-For reviewed binary pairs, report score distributions, ROC and EER only when both classes and sufficient independent groups exist; otherwise report counts and insufficient evidence. Fix any operational decision threshold on calibration only. Provide false-positive/negative counts at that threshold, pair counts and uncertainty. Use a 2,000-resample identity-group bootstrap with seed 20260911 for 95% intervals; do not bootstrap correlated pairs as if independent. Mark intervals unstable for sparse groups rather than reporting spurious precision. Track incorrect confirmed merges and active contradictions (both must be zero in release fixtures), and demonstrate successful undo/split reversal. Human error found in real decisions needs correction plus a remediation issue.
+Keep a regression for merge → contradiction refusal → undo → split. Only human
+confirmation changes membership; zero contradictory fixture merges is required.
+Historical expansion needs cross-year listening, not extrapolated host results.
 
 ## E4 — Text relevance and retrieval
 
-P3-06 is Human: create **40 Italian queries**, eight each for exact names, exact phrases, paraphrases, topics and no-result cases. Use private archive examples; public fixtures use synthetic Italian text. Grade relevant chunks 0/1/2 (irrelevant/partly relevant/highly relevant), including exact word ranges and reviewer. Freeze 20 development and 20 held-out queries (four per category in each), using seed 20260911. Review the pooled candidate set from all three modes blind to rank/system and search manually for missed relevant chunks before freezing judgments. Pool preparation may retrieve candidates but must not compare metrics or tune modes; final evaluation uses frozen judgments. Report judgment depth and incomplete-relevance limitations.
+Ship FTS5 first. Save about ten real Italian queries covering names, phrases,
+date/episode filters and no-result behavior. The operator checks useful results
+and playback offsets; distinguish transcription failures from retrieval failures.
+This is a usability check, not a representative statistical benchmark.
 
-Compare lexical, dense and hybrid against exactly the same chunk generation and filters. Calculate nDCG@10 using gain `2^relevance-1` and logarithmic discount, Recall@10 over judged relevant chunks, and MRR for the first grade >=1. For no-result queries, report false-result rate and rank behavior separately; nDCG/Recall have no positive denominator and are not folded in as zeros or perfect scores. Report query counts per metric/category and examples of failure privately. Hybrid held-out nDCG@10 must **match or exceed lexical**. Bootstrap 2,000 times by query for paired uncertainty intervals, seed 20260911. No claim of significance without supporting evidence.
+If lexical misses justify dense retrieval, activate P3-02 and compare lexical,
+dense/hybrid against the same generation, filters and frozen judgments. Expand
+toward 40 queries only when comparison requires it. Report nDCG@10, Recall@10 and
+MRR with denominators, no-result cases separately. Retain lexical fallback;
+do not promote hybrid based only on queries used to tune it.
 
 ## E5 — Local/cloud comparisons and budget
 
-Compare local Parakeet, `microsoft/mai-transcribe-2` and `mistralai/voxtral-mini-transcribe` on identical source intervals totaling **20 minutes**, selected before provider comparisons from reviewed P1R development chunks. Select ten disjoint two-minute windows stratified over clean speech, rapid exchanges, overlap, names/numbers and difficult audio; allow multi-label strata and document absent strata. Held-out P1R episodes remain sealed. Use the same decoded bytes, language setting, scored-region masks and normalization for each system. Preserve exact source offsets and response capabilities.
-
-Immediately before any paid request verify current model/provider availability, Italian support, timestamp support and pricing; record dated source/provider evidence. Compare text-only outputs for WER only and list missing timing as a capability limitation. OpenRouter provider diarization is a probe, not a replacement for the fixed Community-1 baseline. If models are unavailable, create a blocker; do not silently choose another model. Report coverage for failed/unsupported calls alongside successful results.
-
-Every paid probe and benchmark attempt passes the D8 ledger and the operator-provisioned US$10 key cap. Include estimated reservation, actual usage/cost, provider/model, request ID, retries and failed charges where exposed. The report must reconcile outstanding reservations and balance. Missing credentials, unknown pricing or insufficient remaining allowance block paid execution while local/report tooling can be developed with fixtures. No real keys or audio enter CI. A paid request must not occur merely because a test marker was omitted.
+Cloud comparison is deferred. If activated, use the same development subset and
+normalizer, leaving held-out episodes untouched. Verify current provider support
+and prices before paid calls. Existing US$10 total, capped credential, ledger
+and explicit authorization still apply, including retries and uncertain charges.
+Routine tests and this revision trigger no paid calls.
 
 ## E6 — Operational measurements and report format
 
-For each stage and end-to-end run measure wall duration, audio duration, real-time factor `wall_seconds/audio_seconds`, peak VRAM/RAM, input/output bytes, cold and warm latency, failures, retries and monetary cost. Distinguish model-only inference from decode/queue/network/end-to-end time. Record hardware, driver, CUDA/container digests, concurrent workloads, sampling method and sampling interval. P5-04 measures resident memory and simultaneous interactive requests plus processing, with >=4 GiB VRAM headroom, then fixes measured profiles or serialization. Do not claim unloaded services fit concurrently.
+Record run ID/path, code revision, relevant model/config/reference versions,
+command, counts, results, failures, wall time and approximate peak memory.
+Existing machine-readable outputs plus one concise summary suffice. No mandatory
+HTML dashboard, every-report checksums or six-model smoke packet. Reuse recorded
+source/model identity instead of scanning stored bytes.
 
-Each immutable run directory contains `run.json`, `metrics.json`, `coverage.json`, `errors.json`, `cost-ledger.json` (when paid), hashes of references/splits/config/model locks, and `report.html`. Store detailed per-query/word/pair artifacts privately; a sanitized aggregate HTML/JSON report may be published. Report code commit, commands, environment, sample sizes, exclusions, metric definitions, baseline deltas, confidence intervals, pass/block verdict and limitations. Reports must be reproducible from manifests; a screenshot alone is not evidence. Public screenshots and examples contain no real archive identities or transcripts.
+Smoke only changed inference services. CPU checks target affected behavior and
+shared contracts; broad changes/failures justify wider runs, not every closure.
+Keep paid/GPU/human evidence distinct from fixtures. Private audio, transcripts,
+identities and secrets stay outside public issues.
+
+Serialize GPU jobs initially; measure concurrent residency when needed. Before
+relying on durable reviewed data, demonstrate one SQLite/artifact restore and
+retrieval rebuild from stored vectors. Reuse results until recovery changes.
 
 ## E7 — Gates and expansion checks
 
-| Gate | Required evidence |
+| Milestone | Sufficient evidence |
 |---|---|
-| P0 | Reproducible package/fixtures, available frozen 20, local-state/crash recovery tests, review skill |
-| P1 | Reusable model/service artifacts, operational provenance and non-methodology follow-ups; no transcription-quality release gate |
-| P1R | Human-reviewed chunk truth, episode-level partitions, three-model ASR/diarization/integrated reports and current transcription-quality release evidence |
-| P2 | Full ensemble run, E3 retrieval target or explicit blocker, split audit, identity reversal/contradiction evidence |
-| P3 | Pinned upstream integration, budget ledger, cloud comparison, E4 hybrid target, no mixed vector spaces |
-| P4 | Browser journeys for search/playback/uploads/review/dashboard; protected local deployment boundary |
-| P5 | All 20 processed with each required stage terminal and valid; Access/CSRF tests; backup/restore and contention reports; current quality gates and public docs |
-| P6 | Estimates and user approval; 40-total canary; then 400 coverage and quality/drift report |
-| P7 | Stratified 20 historical voice-only canary, human cross-year labels/metrics, user approval, historical coverage |
-| P8 | Approved queue/resources; ten-episode batches; complete transcription/index coverage and final recovery/quality audit |
+| P1 | Usable model services and timed transcript/diarization artifacts |
+| P1R | Small reviewed pilot, honest comparison and operating choice |
+| P2 | ResNet candidates, reviewed examples, identity reversal safeguards |
+| P3 | FTS5 queries and useful results on reviewed examples |
+| P4 | Search/playback and voice/compare/confirm/undo journeys on the LAN |
+| P5 | Initial 20 accounted for, quality limitations, restart/restore, runbook |
+| P6 | Resource approval, 40-total canary and new audio review, then 400 coverage |
+| P7 | Historical canary, cross-year listening, resource approval, coverage |
+| P8 | Approved remaining queue, bounded transcription, coverage/sample quality |
 
-A canary re-runs the current applicable frozen checks: P1R lexical/diarization/integrated measures where ASR is present, voice Recall@10 >=80% on eligible reviewed canary queries, hybrid >= lexical where transcription/search is present, zero contradictory/incorrect fixture merges, no unrecoverable jobs, and complete accounting of voice-unsearchable speakers and excluded audio. Annotate representative new canary material before declaring quality stable. P6-03 owns requesting human review of the new canary slices/identity labels as a blocking operator follow-up when required; Luna cannot self-certify human truth. P7-02 owns historical review explicitly. Report year/channel/quality-stratum coverage and compare distributions; a detected shift requires measurement/remediation rather than an invented automatic drift threshold.
+Parents summarize core deliverables. Deferred children do not block them. No
+separate `Release Pn` ceremony or quality rerun at every commit. Reviews inspect
+material risk/behavior and can be requested independently of milestones.
 
-Each phase stays open until every child/follow-up is complete, linked implementation PRs are merged, Sol has reviewed the integrated commit and current evidence, and the user explicitly releases that phase. A failed target creates bounded remediation sub-issues. An insufficient-evidence report documents the blocker; it is not permission to skip the gate. Newly merged code affecting the phase invalidates the prior review until Sol reruns it. See [REVIEW-SKILL](REVIEW-SKILL.md) for the exact review contract.
+Expansion remains a resource/quality decision. Reuse unchanged reference results;
+review new canary audio for year/channel/quality drift and investigate failures.
+Report missing/unsearchable speakers and incomplete episodes. One explicit
+approval covers its cohort/resources and bounded batches; new spend, exposure
+or a larger cohort needs its own authorization.

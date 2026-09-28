@@ -74,8 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     models = commands.add_parser("models", help="validate the immutable model lock")
     model_commands = models.add_subparsers(dest="models_command", required=True)
-    model_verify = model_commands.add_parser("verify", help="verify model artifacts and smoke lock")
+    model_verify = model_commands.add_parser("verify", help="validate model and service locks")
     model_verify.add_argument("--lock", required=True, help="path to models.lock.json")
+    model_verify.add_argument(
+        "--verify-artifacts",
+        action="store_true",
+        help="also read and hash all model files (acquisition, restore, or corruption audit)",
+    )
     evaluation = commands.add_parser("evaluation", help="validate private evaluation inputs")
     evaluation_commands = evaluation.add_subparsers(dest="evaluation_command", required=True)
     reference = evaluation_commands.add_parser(
@@ -467,7 +472,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if arguments.command == "models":
         try:
-            result = validate_model_lock(arguments.lock)
+            result = validate_model_lock(
+                arguments.lock, verify_artifacts=arguments.verify_artifacts
+            )
         except ModelLockError as exc:
             parser.error(str(exc))
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -1,49 +1,52 @@
 <!-- zanzara-plan:P1R -->
-# [P1R] Chunk-based multi-model transcription benchmark
+# [P1R] Small local ASR comparison
 
 - Stable ID: P1R
 - Executor: Human
 - Kind: Phase
 - Parent: none
-- Blocked by: P0, P1R-01, P1R-02, P1R-03, P1R-03C, P1R-03D, P1R-04, P1R-05, P1R-06, P1R-07, P1R-08, P1R-08A, P1R-09, P1R-10, P1R-11, P1R-H01, P1R-12, P1R-13, P1R-14, P1R-16, P1R-17, P1R-08B, P1R-08C
+- Blocked by: P1R-01, P1R-02, P1R-03, P1R-03D, P1R-04, P1R-05, P1R-06, P1R-07, P1R-08, P1R-08B, P1R-08C, P1R-08A, P1R-09, P1R-10, P1R-11, P1R-H01, P1R-12, P1R-13, P1R-14, P1R-16, P1R-17
+
+Active under the 2026-09-28 working plan; direct prerequisites below replace phase-wide release gates.
 
 ## Outcome and requirement
 
-Replace the word-timestamp-centric P1 evaluation gate with a frozen, multi-episode, model-independent audio-chunk benchmark. Compare Parakeet, Whisper Large v3 and Voxtral Mini 4B against human-reviewed truth; report lexical, diarization and integrated speaker-attributed quality separately. Community-1 owns speaker/overlap metadata; local AudioSet AST separately owns acoustic/music evidence.
+Track the core outcome: Small local ASR comparison. This parent is a progress milestone, not an authorization gate for unrelated work.
 
 ## Design and interfaces
 
-Chunks are adaptive 8–18 second intervals (30 second hard maximum), derived from acoustic/diarization signals rather than ASR output. Human listening, not candidates or Qwen, establishes truth. Word timestamps remain optional immutable model metadata. See [P1R-01](P1R-01.md) for migration and [P1R-02](P1R-02.md) for canonical contracts.
+Core prerequisites: P1R-01, P1R-02, P1R-03, P1R-03D, P1R-04, P1R-05, P1R-06, P1R-07, P1R-08, P1R-08B, P1R-08C, P1R-08A, P1R-09, P1R-10, P1R-11, P1R-H01, P1R-12, P1R-13, P1R-14, P1R-16, P1R-17. Deferred children remain visible in the backlog but do not block this milestone. Use direct dependencies to begin downstream implementation.
+
+Use the [working plan](../README.md), relevant [design contract](../SYSTEM-DESIGN.md) and [evaluation guidance](../EVALUATION.md). Earlier closed issue checklists are historical, not new prerequisites.
 
 ## Bounded steps
 
-1. Complete the listed release-blocking children and preserve private reference artifacts.
-2. Obtain a current Sol review of the integrated commit and evidence.
-3. Request explicit `Release P1R at <reviewed-commit>` from the user before closing this parent.
+1. Reuse the existing implementation and direct prerequisite outputs.
+2. Deliver the stated behavior within this scope.
+3. Run the focused checks and record the outcome once.
 
 ## Inputs, outputs and failure behavior
 
-Inputs are released P0 capabilities, completed P1 reusable artifacts where valid, and the P1R child evidence. Output is a human release record tied to a current Sol PASS. Missing gold, model evidence, slice denominators, or an explicit release keeps this parent open.
+Use the direct prerequisite artifacts and preserve source/model identity and original time offsets where applicable. Missing actual inputs, human truth or a failed correctness check is a concrete blocker; unrelated phase status and metadata are not. Report failures without publishing partial or fabricated output.
 
 ## Exclusions
 
-No archive-wide processing, word-boundary gold, automatic gold promotion, cloud ASR spend, source separation, identity clustering, or automatic phase closure.
+No automatic human approval, exact-commit review reset or mandatory Release Pn ceremony.
 
 ## Acceptance checklist
 
-- [ ] Legacy P1 transcription-evaluation semantics are formally superseded without deleting history.
-- [ ] Frozen representative and stress manifests, reviewed chunk references, and all three local hypotheses exist.
-- [ ] WER/CER, overlap-aware ASR, diarization, and integrated attribution reports are reproducible and separately reported.
-- [ ] A current Sol PASS and the user's explicit release identify the reviewed commit.
+- [ ] Core deliverables meet their revised acceptance checks.
+- [ ] Actual quality/correctness failures and limitations are disclosed.
+- [ ] Required human/resource actions within scope are recorded; optional work does not block completion.
 
 ## Verification commands
 
-Run the focused CPU checks named by children, `node planning/validate.mjs`, and the private RTX 5090 evidence commands from P1R-05, P1R-06 and P1R-16. Invoke `$review-phase <this-issue-number>` under Sol; no command replaces human release.
+Reuse applicable child checks and run only a missing integrated path or check warranted by a material change. Optional $review-phase can review actual integration risk.
 
 ## Evidence and documentation
 
-Record manifest/reference/model/configuration/scoring hashes, sanitized aggregate reports, hardware/runtime evidence, Sol report and release comment. Keep audio and detailed references private.
+Record commit, relevant command/result and run ID or artifact path; include model/config/reference versions when material. Keep real audio, text, identities and secrets private. Reuse still-applicable results.
 
 ## Stop conditions and completion rule
 
-Stop if a release-blocking child, independent gold, real GPU evidence, current review, or explicit user release is missing. P1R-15 is an optional ergonomics study and does not block release. Completion requires every checked release criterion and user release.
+Complete when the stated acceptance is met; report any actual blocker. Phase parents summarize core outcomes without a separate release ceremony. Human decisions, paid calls, Internet exposure and new bulk scope retain their explicit authorization requirements.

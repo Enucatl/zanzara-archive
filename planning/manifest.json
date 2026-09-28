@@ -367,7 +367,7 @@
     },
     {
       "id": "P1",
-      "title": "[P1] Measured transcription and diarization baseline",
+      "title": "[P1] Reusable transcription and diarization services",
       "phase": "P1",
       "parent": null,
       "executor": "Human",
@@ -375,7 +375,6 @@
       "priority": "P0",
       "order": 1000,
       "blocked_by": [
-        "P0",
         "P1-H01",
         "P1-09",
         "P1-01",
@@ -383,11 +382,8 @@
         "P1-03",
         "P1-04",
         "P1-05",
-        "P1-06",
         "P1-07",
-        "P1-08",
-        "P1-10",
-        "P1R-03D"
+        "P1-10"
       ],
       "body": "issues/P1.md",
       "children": [
@@ -621,7 +617,8 @@
         "executor:human",
         "priority:P0"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Blocked",
+      "release_blocker": false
     },
     {
       "id": "P1-07",
@@ -676,7 +673,8 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Blocked",
+      "release_blocker": false
     },
     {
       "id": "P1-10",
@@ -705,7 +703,7 @@
     },
     {
       "id": "P1R",
-      "title": "[P1R] Chunk-based multi-model transcription benchmark",
+      "title": "[P1R] Small local ASR comparison",
       "phase": "P1R",
       "parent": null,
       "executor": "Human",
@@ -713,17 +711,17 @@
       "priority": "P0",
       "order": 1500,
       "blocked_by": [
-        "P0",
         "P1R-01",
         "P1R-02",
         "P1R-03",
-        "P1R-03C",
         "P1R-03D",
         "P1R-04",
         "P1R-05",
         "P1R-06",
         "P1R-07",
         "P1R-08",
+        "P1R-08B",
+        "P1R-08C",
         "P1R-08A",
         "P1R-09",
         "P1R-10",
@@ -733,9 +731,7 @@
         "P1R-13",
         "P1R-14",
         "P1R-16",
-        "P1R-17",
-        "P1R-08B",
-        "P1R-08C"
+        "P1R-17"
       ],
       "children": [
         "P1R-01",
@@ -929,13 +925,8 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 1537,
-      "blocked_by": [
-        "P0",
-        "P1R-02",
-        "P1R-03A",
-        "P1-03"
-      ],
+      "order": 21000,
+      "blocked_by": [],
       "body": "issues/P1R-03C.md",
       "design_refs": [
         "D5",
@@ -949,7 +940,9 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Ready",
+      "retired": true,
+      "release_blocker": false
     },
     {
       "id": "P1R-03D",
@@ -1229,19 +1222,17 @@
     },
     {
       "id": "P1R-10",
-      "title": "[P1R-10] Replace annotation UI with chunk-centric transcription review",
+      "title": "[P1R-10] Finish the chunk review interface",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P0",
-      "order": 1600,
+      "order": 9040,
       "blocked_by": [
-        "P0",
         "P1R-07",
         "P1R-08",
-        "P1R-08A",
-        "P1R-09"
+        "P1R-03D"
       ],
       "body": "issues/P1R-10.md",
       "design_refs": [
@@ -1258,18 +1249,16 @@
     },
     {
       "id": "P1R-11",
-      "title": "[P1R-11] Freeze representative and stress benchmark manifests",
+      "title": "[P1R-11] Freeze an 80-chunk ASR pilot",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P0",
-      "order": 1610,
+      "order": 9050,
       "blocked_by": [
-        "P0",
-        "P1R-08",
-        "P1R-08A",
-        "P1R-10"
+        "P1R-03D",
+        "P1R-08"
       ],
       "body": "issues/P1R-11.md",
       "design_refs": [
@@ -1287,15 +1276,14 @@
     },
     {
       "id": "P1R-H01",
-      "title": "[P1R-H01] Human: review and finalize chunk gold references",
+      "title": "[P1R-H01] Human: review the small ASR pilot",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 1620,
+      "order": 9060,
       "blocked_by": [
-        "P0",
         "P1R-10",
         "P1R-11"
       ],
@@ -1395,15 +1383,14 @@
     },
     {
       "id": "P1R-15",
-      "title": "[P1R-15] Evaluate human-review assistance effectiveness",
+      "title": "[P1R-15] Evaluate annotation assistance when needed",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P2",
-      "order": 1660,
+      "order": 20000,
       "blocked_by": [
-        "P0",
         "P1R-H01"
       ],
       "release_blocker": false,
@@ -1417,19 +1404,19 @@
         "executor:luna",
         "priority:P2"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true
     },
     {
       "id": "P1R-16",
-      "title": "[P1R-16] Execute three-model benchmark and publish selection report",
+      "title": "[P1R-16] Compare three local ASR models on the pilot",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P0",
-      "order": 1670,
+      "order": 9070,
       "blocked_by": [
-        "P0",
         "P1R-07",
         "P1R-11",
         "P1R-H01",
@@ -1454,16 +1441,14 @@
     },
     {
       "id": "P1R-17",
-      "title": "[P1R-17] Rewrite release gates and downstream dependency contracts",
+      "title": "[P1R-17] Record the selected ASR operating settings",
       "phase": "P1R",
       "parent": "P1R",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P0",
-      "order": 1680,
+      "order": 9080,
       "blocked_by": [
-        "P0",
-        "P1R-01",
         "P1R-16"
       ],
       "body": "issues/P1R-17.md",
@@ -1483,7 +1468,7 @@
     },
     {
       "id": "P2",
-      "title": "[P2] Three-model voice retrieval and identity review",
+      "title": "[P2] Voice discovery and human identity review",
       "phase": "P2",
       "parent": null,
       "executor": "Human",
@@ -1491,11 +1476,8 @@
       "priority": "P0",
       "order": 2000,
       "blocked_by": [
-        "P1",
         "P2-01",
         "P2-02",
-        "P2-03",
-        "P2-04",
         "P2-05",
         "P2-06",
         "P2-07",
@@ -1524,15 +1506,15 @@
     },
     {
       "id": "P2-01",
-      "title": "[P2-01] Deterministic clean-exemplar extraction",
+      "title": "[P2-01] Extract clean speaker exemplars",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2010,
+      "order": 9090,
       "blocked_by": [
-        "P1"
+        "P1-03"
       ],
       "body": "issues/P2-01.md",
       "design_refs": [
@@ -1549,15 +1531,15 @@
     },
     {
       "id": "P2-02",
-      "title": "[P2-02] ResNet293 service adapter and validated embedding fixtures",
+      "title": "[P2-02] ResNet293 speaker embedding adapter",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2020,
+      "order": 9100,
       "blocked_by": [
-        "P1"
+        "P1-01"
       ],
       "body": "issues/P2-02.md",
       "design_refs": [
@@ -1574,15 +1556,15 @@
     },
     {
       "id": "P2-03",
-      "title": "[P2-03] ERes2Net service adapter and validated embedding fixtures",
+      "title": "[P2-03] Compare ERes2Net after measured ResNet misses",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2030,
+      "order": 20010,
       "blocked_by": [
-        "P1"
+        "P2-08"
       ],
       "body": "issues/P2-03.md",
       "design_refs": [
@@ -1595,19 +1577,21 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P2-04",
-      "title": "[P2-04] WavLM Large verification service adapter and validated embedding fixtures",
+      "title": "[P2-04] Compare WavLM after measured ResNet misses",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2040,
+      "order": 20020,
       "blocked_by": [
-        "P1"
+        "P2-08"
       ],
       "body": "issues/P2-04.md",
       "design_refs": [
@@ -1620,23 +1604,22 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P2-05",
-      "title": "[P2-05] Qdrant exemplar and centroid generations",
+      "title": "[P2-05] Index ResNet exemplars and centroids in Qdrant",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2050,
+      "order": 9110,
       "blocked_by": [
-        "P1",
         "P2-01",
-        "P2-02",
-        "P2-03",
-        "P2-04"
+        "P2-02"
       ],
       "body": "issues/P2-05.md",
       "design_refs": [
@@ -1653,15 +1636,14 @@
     },
     {
       "id": "P2-06",
-      "title": "[P2-06] Candidate retrieval and robust exemplar verification",
+      "title": "[P2-06] Retrieve and verify ResNet voice candidates",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2060,
+      "order": 9120,
       "blocked_by": [
-        "P1",
         "P2-05"
       ],
       "body": "issues/P2-06.md",
@@ -1679,15 +1661,14 @@
     },
     {
       "id": "P2-07",
-      "title": "[P2-07] Human: cross-episode labels and frozen voice splits",
+      "title": "[P2-07] Human: review recurring voices and difficult negatives",
       "phase": "P2",
       "parent": "P2",
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 2070,
+      "order": 9150,
       "blocked_by": [
-        "P1",
         "P2-06"
       ],
       "body": "issues/P2-07.md",
@@ -1705,15 +1686,15 @@
     },
     {
       "id": "P2-08",
-      "title": "[P2-08] Encoder and ensemble evaluation with conditional calibration",
+      "title": "[P2-08] Evaluate the first voice retrieval baseline",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 2080,
+      "order": 9160,
       "blocked_by": [
-        "P1",
+        "P2-06",
         "P2-07"
       ],
       "body": "issues/P2-08.md",
@@ -1732,15 +1713,14 @@
     },
     {
       "id": "P2-09",
-      "title": "[P2-09] Audited manual identity decisions, undo and split",
+      "title": "[P2-09] Human identity links, contradiction checks, undo and split",
       "phase": "P2",
       "parent": "P2",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 2090,
+      "order": 9130,
       "blocked_by": [
-        "P1",
         "P2-06"
       ],
       "body": "issues/P2-09.md",
@@ -1759,7 +1739,7 @@
     },
     {
       "id": "P3",
-      "title": "[P3] Hybrid text retrieval and replaceable inference",
+      "title": "[P3] Useful lexical transcript search",
       "phase": "P3",
       "parent": null,
       "executor": "Human",
@@ -1767,13 +1747,8 @@
       "priority": "P0",
       "order": 3000,
       "blocked_by": [
-        "P2",
-        "P3-01",
-        "P3-02",
         "P3-03",
         "P3-04",
-        "P3-H01",
-        "P3-05",
         "P3-06",
         "P3-07"
       ],
@@ -1798,15 +1773,15 @@
     },
     {
       "id": "P3-H01",
-      "title": "[P3-H01] Operator: provision capped OpenRouter benchmark key",
+      "title": "[P3-H01] Human: provision a capped key if cloud comparison is needed",
       "phase": "P3",
       "parent": "P3",
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 3005,
+      "order": 20050,
       "blocked_by": [
-        "P2"
+        "P1R-16"
       ],
       "body": "issues/P3-H01.md",
       "design_refs": [
@@ -1819,19 +1794,21 @@
         "executor:human",
         "priority:P0"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P3-01",
-      "title": "[P3-01] Upstream shared-inference transcription and pinned integration",
+      "title": "[P3-01] Extend shared-inference transcription when needed",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 3010,
+      "order": 20030,
       "blocked_by": [
-        "P2"
+        "P1R-16"
       ],
       "body": "issues/P3-01.md",
       "design_refs": [
@@ -1844,19 +1821,21 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P3-02",
-      "title": "[P3-02] Local BGE-M3 and shared-inference embedding adapter",
+      "title": "[P3-02] Add dense retrieval for demonstrated lexical gaps",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 3020,
+      "order": 20040,
       "blocked_by": [
-        "P2"
+        "P3-07"
       ],
       "body": "issues/P3-02.md",
       "design_refs": [
@@ -1870,20 +1849,21 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P3-03",
-      "title": "[P3-03] Speaker-aware chunks, FTS5 and dense text indexing",
+      "title": "[P3-03] Speaker-aware transcript chunks and SQLite FTS5",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 3030,
+      "order": 9000,
       "blocked_by": [
-        "P2",
-        "P3-02"
+        "P1-04"
       ],
       "body": "issues/P3-03.md",
       "design_refs": [
@@ -1900,15 +1880,14 @@
     },
     {
       "id": "P3-04",
-      "title": "[P3-04] Filtered lexical, dense and hybrid search",
+      "title": "[P3-04] Filtered lexical transcript search",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 3040,
+      "order": 9010,
       "blocked_by": [
-        "P2",
         "P3-03"
       ],
       "body": "issues/P3-04.md",
@@ -1926,17 +1905,15 @@
     },
     {
       "id": "P3-05",
-      "title": "[P3-05] Provider probes, generation safety and cost controls",
+      "title": "[P3-05] Run bounded provider comparison when justified",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 3050,
+      "order": 20060,
       "blocked_by": [
-        "P2",
         "P3-01",
-        "P3-02",
         "P3-H01"
       ],
       "body": "issues/P3-05.md",
@@ -1950,20 +1927,21 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P3-06",
-      "title": "[P3-06] Human: frozen Italian text-query relevance set",
+      "title": "[P3-06] Human: check ten useful Italian search queries",
       "phase": "P3",
       "parent": "P3",
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 3060,
+      "order": 9170,
       "blocked_by": [
-        "P2",
-        "P3-04"
+        "P4-02"
       ],
       "body": "issues/P3-06.md",
       "design_refs": [
@@ -1979,17 +1957,14 @@
     },
     {
       "id": "P3-07",
-      "title": "[P3-07] Cloud/local ASR and text-search evaluation reports",
+      "title": "[P3-07] Summarize lexical search usefulness",
       "phase": "P3",
       "parent": "P3",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 3070,
+      "order": 9180,
       "blocked_by": [
-        "P1R",
-        "P2",
-        "P3-05",
         "P3-06"
       ],
       "body": "issues/P3-07.md",
@@ -2009,7 +1984,7 @@
     },
     {
       "id": "P4",
-      "title": "[P4] Complete private website",
+      "title": "[P4] Usable archive website on the LAN",
       "phase": "P4",
       "parent": null,
       "executor": "Human",
@@ -2017,12 +1992,9 @@
       "priority": "P0",
       "order": 4000,
       "blocked_by": [
-        "P3",
         "P4-01",
         "P4-02",
-        "P4-03",
         "P4-04",
-        "P4-05",
         "P4-06"
       ],
       "body": "issues/P4.md",
@@ -2044,15 +2016,15 @@
     },
     {
       "id": "P4-01",
-      "title": "[P4-01] Responsive application shell and API integration",
+      "title": "[P4-01] Reuse the local web app for archive navigation",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 4010,
+      "order": 9020,
       "blocked_by": [
-        "P3"
+        "P1-05"
       ],
       "body": "issues/P4-01.md",
       "design_refs": [
@@ -2070,15 +2042,15 @@
     },
     {
       "id": "P4-02",
-      "title": "[P4-02] Text search, transcripts and timestamped audio playback",
+      "title": "[P4-02] Text search, transcripts and timestamped playback",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 4020,
+      "order": 9030,
       "blocked_by": [
-        "P3",
+        "P3-04",
         "P4-01"
       ],
       "body": "issues/P4-02.md",
@@ -2097,16 +2069,15 @@
     },
     {
       "id": "P4-03",
-      "title": "[P4-03] Archive-speaker and bounded upload voice-search jobs",
+      "title": "[P4-03] Add uploaded voice queries when needed",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 4030,
+      "order": 20070,
       "blocked_by": [
-        "P3",
-        "P4-01"
+        "P4-04"
       ],
       "body": "issues/P4-03.md",
       "design_refs": [
@@ -2119,20 +2090,23 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P4-04",
-      "title": "[P4-04] Speaker comparison, identity review and chronology",
+      "title": "[P4-04] Voice comparison and anonymous appearance history",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 4040,
+      "order": 9140,
       "blocked_by": [
-        "P3",
-        "P4-01"
+        "P4-01",
+        "P2-06",
+        "P2-09"
       ],
       "body": "issues/P4-04.md",
       "design_refs": [
@@ -2149,16 +2123,15 @@
     },
     {
       "id": "P4-05",
-      "title": "[P4-05] Evaluation dashboard and job/error states",
+      "title": "[P4-05] Add evaluation dashboard when reports become awkward",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 4050,
+      "order": 20080,
       "blocked_by": [
-        "P3",
-        "P4-01"
+        "P5-06"
       ],
       "body": "issues/P4-05.md",
       "design_refs": [
@@ -2171,23 +2144,22 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P4-06",
-      "title": "[P4-06] Browser tests for complete user journeys",
+      "title": "[P4-06] Check the core browser journeys",
       "phase": "P4",
       "parent": "P4",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 4060,
+      "order": 9190,
       "blocked_by": [
-        "P3",
         "P4-02",
-        "P4-03",
-        "P4-04",
-        "P4-05"
+        "P4-04"
       ],
       "body": "issues/P4-06.md",
       "design_refs": [
@@ -2205,7 +2177,7 @@
     },
     {
       "id": "P5",
-      "title": "[P5] Operational 20-episode release and public documentation",
+      "title": "[P5] Useful and recoverable initial 20",
       "phase": "P5",
       "parent": null,
       "executor": "Human",
@@ -2213,12 +2185,8 @@
       "priority": "P0",
       "order": 5000,
       "blocked_by": [
-        "P4",
         "P5-01",
-        "P5-H01",
-        "P5-02",
         "P5-03",
-        "P5-04",
         "P5-05",
         "P5-06"
       ],
@@ -2242,15 +2210,15 @@
     },
     {
       "id": "P5-H01",
-      "title": "[P5-H01] Operator: provision Cloudflare Access and deployment configuration",
+      "title": "[P5-H01] Human: provision remote access when needed",
       "phase": "P5",
       "parent": "P5",
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 5005,
+      "order": 20090,
       "blocked_by": [
-        "P4"
+        "P5-06"
       ],
       "body": "issues/P5-H01.md",
       "design_refs": [
@@ -2262,19 +2230,22 @@
         "executor:human",
         "priority:P0"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P5-01",
-      "title": "[P5-01] Production Compose profiles and configuration reference",
+      "title": "[P5-01] Run the workstation with serial GPU jobs",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 5010,
+      "order": 9200,
       "blocked_by": [
-        "P4"
+        "P4-02",
+        "P2-06"
       ],
       "body": "issues/P5-01.md",
       "design_refs": [
@@ -2292,15 +2263,14 @@
     },
     {
       "id": "P5-02",
-      "title": "[P5-02] Cloudflare tunnel, origin JWT enforcement and provisioning runbook",
+      "title": "[P5-02] Protect remote access before Internet exposure",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 5020,
+      "order": 20100,
       "blocked_by": [
-        "P4",
         "P5-01",
         "P5-H01"
       ],
@@ -2315,20 +2285,22 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P5-03",
-      "title": "[P5-03] Backup/restore, Qdrant rebuild and interrupted-job drills",
+      "title": "[P5-03] Demonstrate one backup and restore",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 5030,
+      "order": 9210,
       "blocked_by": [
-        "P4",
-        "P5-01"
+        "P5-01",
+        "P2-09"
       ],
       "body": "issues/P5-03.md",
       "design_refs": [
@@ -2347,15 +2319,14 @@
     },
     {
       "id": "P5-04",
-      "title": "[P5-04] Concurrent GPU benchmark and measured serving defaults",
+      "title": "[P5-04] Tune GPU concurrency after observed contention",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 5040,
+      "order": 20110,
       "blocked_by": [
-        "P4",
         "P5-01"
       ],
       "body": "issues/P5-04.md",
@@ -2369,22 +2340,22 @@
         "executor:luna",
         "priority:P1"
       ],
-      "initial_status": "Blocked"
+      "initial_status": "Backlog",
+      "deferred": true,
+      "release_blocker": false
     },
     {
       "id": "P5-05",
-      "title": "[P5-05] Public README and three architecture-generation prompts",
+      "title": "[P5-05] Document the working archive and recovery commands",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 5050,
+      "order": 9220,
       "blocked_by": [
-        "P4",
-        "P5-02",
-        "P5-03",
-        "P5-04"
+        "P4-06",
+        "P5-03"
       ],
       "body": "issues/P5-05.md",
       "design_refs": [
@@ -2401,16 +2372,18 @@
     },
     {
       "id": "P5-06",
-      "title": "[P5-06] Complete 20-episode acceptance and release evidence packet",
+      "title": "[P5-06] Accept the useful initial 20 episodes",
       "phase": "P5",
       "parent": "P5",
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 5060,
+      "order": 9230,
       "blocked_by": [
-        "P1R",
-        "P4",
+        "P1R-17",
+        "P2-08",
+        "P3-07",
+        "P4-06",
         "P5-05"
       ],
       "body": "issues/P5-06.md",
@@ -2439,7 +2412,6 @@
       "priority": "P0",
       "order": 6000,
       "blocked_by": [
-        "P5",
         "P6-01",
         "P6-02",
         "P6-03",
@@ -2468,9 +2440,9 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 6010,
+      "order": 9240,
       "blocked_by": [
-        "P5"
+        "P5-06"
       ],
       "body": "issues/P6-01.md",
       "design_refs": [
@@ -2494,9 +2466,8 @@
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 6020,
+      "order": 9250,
       "blocked_by": [
-        "P5",
         "P6-01"
       ],
       "body": "issues/P6-02.md",
@@ -2520,9 +2491,8 @@
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 6030,
+      "order": 9260,
       "blocked_by": [
-        "P5",
         "P6-02"
       ],
       "body": "issues/P6-03.md",
@@ -2546,9 +2516,8 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 6040,
+      "order": 9270,
       "blocked_by": [
-        "P5",
         "P6-03"
       ],
       "body": "issues/P6-04.md",
@@ -2575,7 +2544,6 @@
       "priority": "P0",
       "order": 7000,
       "blocked_by": [
-        "P6",
         "P7-01",
         "P7-02",
         "P7-03",
@@ -2604,9 +2572,9 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 7010,
+      "order": 9280,
       "blocked_by": [
-        "P6"
+        "P6-04"
       ],
       "body": "issues/P7-01.md",
       "design_refs": [
@@ -2630,9 +2598,8 @@
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 7020,
+      "order": 9290,
       "blocked_by": [
-        "P6",
         "P7-01"
       ],
       "body": "issues/P7-02.md",
@@ -2656,9 +2623,8 @@
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 7030,
+      "order": 9300,
       "blocked_by": [
-        "P6",
         "P7-02"
       ],
       "body": "issues/P7-03.md",
@@ -2682,9 +2648,8 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 7040,
+      "order": 9310,
       "blocked_by": [
-        "P6",
         "P7-03"
       ],
       "body": "issues/P7-04.md",
@@ -2712,7 +2677,6 @@
       "priority": "P0",
       "order": 8000,
       "blocked_by": [
-        "P7",
         "P8-01",
         "P8-02",
         "P8-03",
@@ -2741,9 +2705,9 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 8010,
+      "order": 9320,
       "blocked_by": [
-        "P7"
+        "P7-04"
       ],
       "body": "issues/P8-01.md",
       "design_refs": [
@@ -2766,9 +2730,8 @@
       "executor": "Human",
       "kind": "Operator",
       "priority": "P0",
-      "order": 8020,
+      "order": 9330,
       "blocked_by": [
-        "P7",
         "P8-01"
       ],
       "body": "issues/P8-02.md",
@@ -2792,9 +2755,8 @@
       "executor": "Luna",
       "kind": "Implementation",
       "priority": "P1",
-      "order": 8030,
+      "order": 9340,
       "blocked_by": [
-        "P7",
         "P8-02"
       ],
       "body": "issues/P8-03.md",
@@ -2821,9 +2783,8 @@
       "executor": "Luna",
       "kind": "Evaluation",
       "priority": "P1",
-      "order": 8040,
+      "order": 9350,
       "blocked_by": [
-        "P7",
         "P8-03"
       ],
       "body": "issues/P8-04.md",
@@ -2935,7 +2896,7 @@
     },
     {
       "id": "R07",
-      "requirement": "Clean exemplars, three-vector indexes, centroids and deterministic retrieval",
+      "requirement": "Clean exemplars, ResNet voice index, centroids and deterministic retrieval; extra encoders optional",
       "issues": [
         "P2-01",
         "P2-05",
@@ -2960,14 +2921,14 @@
     },
     {
       "id": "R10",
-      "requirement": "Shared-inference transcription upstream extension and merged pin",
+      "requirement": "Deferred when justified: Shared-inference transcription upstream extension and merged pin",
       "issues": [
         "P3-01"
       ]
     },
     {
       "id": "R11",
-      "requirement": "Replaceable inference, capabilities and safe vector-generation swaps",
+      "requirement": "Deferred when justified: Replaceable inference, capabilities and safe vector-generation swaps",
       "issues": [
         "P3-02",
         "P3-05"
@@ -2975,7 +2936,7 @@
     },
     {
       "id": "R12",
-      "requirement": "Hybrid text search, speaker-aware chunks, filters and lexical fallback",
+      "requirement": "FTS5 transcript search, filters and playback; dense/hybrid on demonstrated need",
       "issues": [
         "P3-03",
         "P3-04",
@@ -2984,7 +2945,7 @@
     },
     {
       "id": "R13",
-      "requirement": "40 reviewed Italian queries and lexical/dense/hybrid quality comparison",
+      "requirement": "About ten reviewed Italian search examples; larger relevance comparison when needed",
       "issues": [
         "P3-06",
         "P3-07"
@@ -2992,7 +2953,7 @@
     },
     {
       "id": "R14",
-      "requirement": "Identical 20-minute local/cloud ASR subset and enforced US$10 total benchmark",
+      "requirement": "Deferred when justified: Identical 20-minute local/cloud ASR subset and enforced US$10 total benchmark",
       "issues": [
         "P3-H01",
         "P3-05",
@@ -3010,7 +2971,7 @@
     },
     {
       "id": "R16",
-      "requirement": "Archive-speaker/upload queries, formats/limits, selected speaker and one-hour expiry",
+      "requirement": "Deferred when justified: Archive-speaker/upload queries, formats/limits, selected speaker and one-hour expiry",
       "issues": [
         "P4-03"
       ]
@@ -3032,7 +2993,7 @@
     },
     {
       "id": "R19",
-      "requirement": "Compose profiles, 4 GiB VRAM headroom and full ensemble contention benchmark",
+      "requirement": "Deferred when justified: Compose profiles, 4 GiB VRAM headroom and full ensemble contention benchmark",
       "issues": [
         "P5-01",
         "P5-04"
@@ -3040,7 +3001,7 @@
     },
     {
       "id": "R20",
-      "requirement": "Cloudflare Access on entire website, origin JWT and CSRF, operator deployment configuration",
+      "requirement": "Deferred when justified: Cloudflare Access on entire website, origin JWT and CSRF, operator deployment configuration",
       "issues": [
         "P5-H01",
         "P5-02"
@@ -3055,7 +3016,7 @@
     },
     {
       "id": "R22",
-      "requirement": "Public README, screenshots and three implementation-grounded architecture prompts",
+      "requirement": "Accurate application/recovery runbook with private data excluded",
       "issues": [
         "P5-05",
         "P8-04"
@@ -3104,7 +3065,7 @@
     },
     {
       "id": "R27",
-      "requirement": "Luna implementation, Sol review/remediation, user release of every phase",
+      "requirement": "Focused issue implementation and optional integrated review; direct deliverable dependencies",
       "issues": [
         "P0-06",
         "P0",
@@ -3121,7 +3082,7 @@
     },
     {
       "id": "R28",
-      "requirement": "Idempotent GitHub setup, native parents/blockers, fields/views and no milestones",
+      "requirement": "Maintain relevant GitHub issues/dependencies and Project status with targeted readback",
       "issues": [
         "P0-06"
       ]

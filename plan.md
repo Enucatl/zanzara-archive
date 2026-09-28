@@ -1,4 +1,11 @@
-Below is the draft I’d use as the working technical design. I’ve made the **three-embedding-model ensemble** a first-class part of the architecture rather than an optional experiment.
+> **Working plan revised 2026-09-28:** see [planning/README.md](planning/README.md)
+> and the updated GitHub issues. Deliver FTS5 transcript search/playback first,
+> then ResNet voice discovery and human identity review. Finish the existing
+> three-ASR comparison on an 80-chunk pilot alongside product work. Additional
+> encoders, dense/cloud retrieval, uploads and remote deployment are deferred.
+> Use focused checks and explicit integrity audits; ordinary work has no
+> phase-release ceremony. The original proposal below is background where
+> not superseded.
 
 # Podcast Archive Transcription, Diarization, and Cross-Episode Speaker Identification
 

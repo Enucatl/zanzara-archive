@@ -1,11 +1,10 @@
 # Zanzara Archive
 
-Foundation status: the Python 3.14 application skeleton and CPU-only developer
-Foundation status: the Python 3.14 application skeleton and CPU-only developer
-checks are in place. The frozen 20-episode manifest and read-only source paths
-are available; the canonical archive is a persistent trusted input and is not
-reverified during routine commits, reviews or code runs. Model services, the
-web application and search features remain planned work.
+The application has durable jobs, transcript/diarization artifacts, local model
+services, annotation pages and chunk evaluation tools. Search and cross-episode
+voice discovery are the next product work. The revised
+[working plan](planning/README.md) prioritizes FTS5 search/playback and one voice
+encoder, with focused checks and a small human-reviewed ASR pilot.
 
 The binding implementation specification is in [`planning/README.md`](planning/README.md),
 with the architecture in [`planning/SYSTEM-DESIGN.md`](planning/SYSTEM-DESIGN.md)
@@ -32,9 +31,9 @@ source hashing or media verification. See
 [`docs/corpus-verification.md`](docs/corpus-verification.md) for the source
 mount and artifact-path layout.
 
-The top-level package intentionally has no ML dependencies. Future Python 3.11
-inference services will live under `services/`, each with its own package,
-Dockerfile and lock, so CPU application checks remain usable without CUDA,
+The top-level package intentionally has no ML dependencies. Inference services
+live under `services/` with isolated packages and a shared GPU runtime, so CPU
+application checks remain usable without CUDA,
 model credentials, network inference or private archive data.
 
 Tests that need resources beyond the application process declare one of the

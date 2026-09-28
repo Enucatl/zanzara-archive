@@ -13,10 +13,11 @@ when the final window is shorter. Window probabilities are mean-aggregated by
 AudioSet class. Each relevant class ID/name/probability is retained both per
 window and in the aggregate seed.
 
-`p1r-acoustic-thresholds-v1` maps music probabilities to `none`, `background`,
-`dominant`, or `uncertain` using provisional thresholds. These defaults are
-not calibrated until reviewed development evidence is recorded. Speech
-presence and non-speech activity are separate fields. Clipping fraction, peak
+`p1r-acoustic-thresholds-v2` maps music probabilities to `none`, `background`,
+`dominant`, or `uncertain` using the accepted development calibration. The
+selected values are `music_presence=0.339844`, `music_dominant=0.8`, and
+`speech_presence=0.565918`; the remaining signal thresholds are unchanged.
+Speech presence and non-speech activity are separate fields. Clipping fraction, peak
 dBFS, RMS dBFS and silence fraction are deterministic signal measurements;
 `audio_quality` is a `clean`/`degraded`/`uncertain` machine seed from those
 measurements, not an AST claim.
@@ -80,10 +81,15 @@ uv run zanzara calibration generate \
   --output .git/zanzara-evidence/P1R-08B/development-batch.json
 ```
 
-The calibration generator uses the frozen P1R chunk policy: an 8-second
-preferred minimum, 12-second target, 18-second preferred maximum and 30-second
-hard maximum. When no VAD or acoustic boundary artifact is supplied, the
-specified hard-duration fallback can therefore produce 30-second clips.
+To sample the corrected canonical Community-1 chunks, add
+`--chunks-manifest .git/zanzara-evidence/P1R-03D/corpus-20-native-4c0f98f.json`
+to the generate command. The generator verifies the corpus and segmentation
+provenance before selecting development clips.
+
+Without `--chunks-manifest`, the generator uses the original P1R fallback
+policy: an 8-second preferred minimum, 12-second target, 18-second preferred
+maximum and 30-second hard maximum. That fallback can produce 30-second clips.
+With a corrected manifest, the batch retains its recorded native chunk policy.
 AudioSet AST is the later acoustic classifier; it provides music probabilities
 for each frozen clip and does not choose clip boundaries.
 

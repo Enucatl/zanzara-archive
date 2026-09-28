@@ -7,7 +7,12 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from .chunking import ChunkSegmentationConfig, segment_chunks_with_metadata
+from .chunking import (
+    ChunkSegmentationConfig,
+    Community1AdaptiveConfig,
+    Community1NativeAdaptiveConfig,
+    segment_chunks_with_metadata,
+)
 from .contracts import AudioChunk, ContractValidationError
 from .corpus import CorpusManifest
 
@@ -28,6 +33,7 @@ def build_batch(
     *,
     batch_id: str,
     clips_per_episode: int = 8,
+    chunks_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic, model-independent development review batch."""
 
@@ -47,19 +53,60 @@ def build_batch(
     development_set, held_out_set = set(development), set(held_out)
     if development_set | held_out_set != expected or development_set & held_out_set:
         raise ContractValidationError("split must assign every corpus episode exactly once")
-    config = ChunkSegmentationConfig()
+    if chunks_manifest is not None:
+        raw_chunks = chunks_manifest.get("chunks")
+        config_payload = chunks_manifest.get("segmentation_configuration")
+        if not isinstance(raw_chunks, list) or not raw_chunks:
+            raise ContractValidationError("chunks manifest requires a non-empty chunks array")
+        if not isinstance(config_payload, Mapping):
+            raise ContractValidationError("chunks manifest requires segmentation configuration")
+        algorithm = chunks_manifest.get("algorithm")
+        config_type = {
+            "community1-adaptive-v1": Community1AdaptiveConfig,
+            "community1-native-adaptive-v2": Community1NativeAdaptiveConfig,
+        }.get(algorithm)
+        if config_type is None:
+            raise ContractValidationError("chunks manifest has unsupported algorithm")
+        config = config_type.from_dict(config_payload)
+        if (
+            chunks_manifest.get("corpus_manifest_sha256") != corpus.sha256
+            or chunks_manifest.get("segmentation_version") != config.version
+            or chunks_manifest.get("segmentation_configuration_hash") != config.configuration_sha256
+        ):
+            raise ContractValidationError("chunks manifest provenance does not match corpus/config")
+        parsed_chunks = tuple(AudioChunk.from_dict(raw) for raw in raw_chunks)
+        for chunk in parsed_chunks:
+            if (
+                chunk.segmentation_version != config.version
+                or chunk.segmentation_configuration_hash != config.configuration_sha256
+            ):
+                raise ContractValidationError("chunks manifest has mixed segmentation provenance")
+        by_episode_chunks = {
+            name: tuple(chunk for chunk in parsed_chunks if chunk.episode_id == name)
+            for name in development
+        }
+    else:
+        config = ChunkSegmentationConfig()
+        by_episode_chunks = {}
     chunks: list[dict[str, Any]] = []
     by_name = {episode.relative_filename: episode for episode in corpus.episodes}
     for episode_name in development:
         episode = by_name[episode_name]
-        result = segment_chunks_with_metadata(
-            episode.relative_filename,
-            episode.sha256,
-            episode.duration_ms,
-            config=config,
-            partition="development",
-        )
-        selected = result.chunks
+        if chunks_manifest is not None:
+            selected = by_episode_chunks[episode_name]
+            if not selected:
+                raise ContractValidationError(
+                    f"chunks manifest has no chunks for development episode {episode_name}"
+                )
+        else:
+            result = segment_chunks_with_metadata(
+                episode.relative_filename,
+                episode.sha256,
+                episode.duration_ms,
+                config=config,
+                partition="development",
+            )
+            selected = result.chunks
         if len(selected) > clips_per_episode:
             positions = (
                 [
@@ -84,8 +131,7 @@ def build_batch(
         "split": normalized_split,
         "chunks": chunks,
     }
-    payload["content_sha256"] = content_sha256(payload)
-    return payload
+    return validate_batch(payload, corpus)
 
 
 def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[str, Any]:
@@ -133,7 +179,11 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
                 "calibration batch segmentation_configuration must be an object"
             )
         try:
-            configuration = ChunkSegmentationConfig.from_dict(raw_configuration)
+            config_type = {
+                "community1-adaptive-v1": Community1AdaptiveConfig,
+                "community1-native-adaptive-v2": Community1NativeAdaptiveConfig,
+            }.get(payload["segmentation_version"], ChunkSegmentationConfig)
+            configuration = config_type.from_dict(raw_configuration)
         except (TypeError, ValueError, ContractValidationError) as exc:
             raise ContractValidationError(
                 "calibration batch segmentation_configuration is invalid"
@@ -169,6 +219,20 @@ def validate_batch(payload: Mapping[str, Any], corpus: CorpusManifest) -> dict[s
             )
         if chunk.partition != "development":
             raise ContractValidationError(f"calibration chunk {chunk.chunk_id} is not development")
+        if chunk.episode_id not in development:
+            raise ContractValidationError(
+                f"calibration chunk {chunk.chunk_id} is outside the development split"
+            )
+        if normalized_configuration is not None and isinstance(
+            configuration, (Community1AdaptiveConfig, Community1NativeAdaptiveConfig)
+        ):
+            if (
+                chunk.segmentation_version != configuration.version
+                or chunk.segmentation_configuration_hash != configuration.configuration_sha256
+            ):
+                raise ContractValidationError(
+                    f"calibration chunk {chunk.chunk_id} has mismatched segmentation provenance"
+                )
         normalized.append(chunk.to_dict())
     normalized_split: dict[str, Any] = {"development": development, "held_out": held_out}
     for key in ("method", "seed"):

@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from zanzara_archive.calibration import build_batch, validate_batch
+from zanzara_archive.chunking import Community1NativeAdaptiveConfig
 from zanzara_archive.contracts import AudioChunk
 from zanzara_archive.corpus import load_manifest
 from zanzara_archive.storage import SQLiteRepository
@@ -66,6 +68,75 @@ def test_build_batch_selects_deterministic_development_clips() -> None:
         "preferred_max_s": 18.0,
         "hard_max_s": 30.0,
     }
+
+
+def test_build_batch_uses_only_verified_native_development_chunks() -> None:
+    manifest = load_manifest("planning/corpus-20.json")
+    episode = manifest.episodes[0]
+    split = {
+        "development": [episode.relative_filename],
+        "held_out": [item.relative_filename for item in manifest.episodes[1:]],
+    }
+    config = Community1NativeAdaptiveConfig()
+    chunk = AudioChunk.create(
+        episode_id=episode.relative_filename,
+        source_sha256=episode.sha256,
+        start_ms=0,
+        end_ms=12_000,
+        segmentation_fingerprint="a" * 64,
+        partition="development",
+        segmentation_version=config.version,
+        segmentation_configuration_hash=config.configuration_sha256,
+    )
+    source = {
+        "algorithm": config.version,
+        "corpus_manifest_sha256": manifest.sha256,
+        "segmentation_version": config.version,
+        "segmentation_configuration": config.to_dict(),
+        "segmentation_configuration_hash": config.configuration_sha256,
+        "chunks": [chunk.to_dict()],
+    }
+    batch = build_batch(manifest, split, batch_id="native-fixture", chunks_manifest=source)
+    assert batch["chunks"] == [chunk.to_dict()]
+    assert validate_batch(batch, manifest) == batch
+
+    with pytest.raises(ValueError, match="provenance"):
+        build_batch(
+            manifest,
+            split,
+            batch_id="native-fixture",
+            chunks_manifest={**source, "corpus_manifest_sha256": "0" * 64},
+        )
+    with pytest.raises(ValueError, match="segmentation provenance"):
+        build_batch(
+            manifest,
+            split,
+            batch_id="native-fixture",
+            chunks_manifest={
+                **source,
+                "chunks": [{**chunk.to_dict(), "segmentation_configuration_hash": "0" * 64}],
+            },
+        )
+    held_out = manifest.episodes[1]
+    with pytest.raises(ValueError, match="outside the development split"):
+        validate_batch(
+            {
+                **batch,
+                "chunks": [
+                    AudioChunk.create(
+                        episode_id=held_out.relative_filename,
+                        source_sha256=held_out.sha256,
+                        start_ms=0,
+                        end_ms=12_000,
+                        segmentation_fingerprint="a" * 64,
+                        partition="development",
+                        segmentation_version=config.version,
+                        segmentation_configuration_hash=config.configuration_sha256,
+                    ).to_dict()
+                ],
+            },
+            manifest,
+        )
 
 
 def test_calibration_page_decision_resume_conflict_and_export(tmp_path: Path) -> None:

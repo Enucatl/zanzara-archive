@@ -167,6 +167,10 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--batch-id", required=True)
     generate.add_argument("--clips-per-episode", type=int, default=8)
     generate.add_argument("--output", required=True, help="private batch JSON output")
+    generate.add_argument(
+        "--chunks-manifest",
+        help="optional corrected canonical chunk manifest to subsample",
+    )
     prepare = calibration_commands.add_parser(
         "prepare", help="validate and persist a calibration batch"
     )
@@ -342,11 +346,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.calibration_command == "generate":
                 manifest = load_manifest(arguments.manifest)
                 split = json.loads(Path(arguments.split).read_text(encoding="utf-8"))
+                chunks_manifest = (
+                    json.loads(Path(arguments.chunks_manifest).read_text(encoding="utf-8"))
+                    if arguments.chunks_manifest
+                    else None
+                )
                 result = build_batch(
                     manifest,
                     split,
                     batch_id=arguments.batch_id,
                     clips_per_episode=arguments.clips_per_episode,
+                    chunks_manifest=chunks_manifest,
                 )
                 output = Path(arguments.output)
                 output.parent.mkdir(parents=True, exist_ok=True)

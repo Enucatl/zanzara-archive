@@ -32,7 +32,7 @@ AUDIOSET_SAMPLE_RATE_HZ = 16_000
 AUDIOSET_WINDOW_MS = 10_000
 AUDIOSET_MAX_LENGTH = 1_024
 ACOUSTIC_CONDITION_VERSION = "p1r-acoustic-condition-v1"
-ACOUSTIC_THRESHOLD_VERSION = "p1r-acoustic-thresholds-v1"
+ACOUSTIC_THRESHOLD_VERSION = "p1r-acoustic-thresholds-v2"
 SIGNAL_MEASUREMENT_VERSION = "p1r-signal-measurements-v1"
 
 MUSIC_LABEL_KEYWORDS = frozenset({"music", "musical instrument", "singing", "song"})
@@ -95,9 +95,9 @@ class AcousticThresholds:
     """Frozen development-only mapping thresholds."""
 
     version: str = ACOUSTIC_THRESHOLD_VERSION
-    music_presence: float = 0.20
-    music_dominant: float = 0.65
-    speech_presence: float = 0.25
+    music_presence: float = 0.339844
+    music_dominant: float = 0.80
+    speech_presence: float = 0.565918
     activity_presence: float = 0.25
     clipping_fraction: float = 0.01
     low_rms_dbfs: float = -45.0

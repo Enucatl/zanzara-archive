@@ -50,6 +50,7 @@ from zanzara_archive.model_locks import (
 )
 from zanzara_archive.stages import stage_fingerprint
 from zanzara_archive.storage import SQLiteRepository, StorageError
+from zanzara_archive.text_index import build_text_chunks
 from zanzara_archive.transcripts import build_attributed_transcript, render_exports
 
 LOOPBACK_WEB_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -242,7 +243,13 @@ def build_parser() -> argparse.ArgumentParser:
     process = commands.add_parser("process", help="run one local processing stage")
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
-    process.add_argument("--stage", required=True, choices=("asr", "diarization", "attribution"))
+    process.add_argument(
+        "--stage", required=True, choices=("asr", "diarization", "attribution", "text_index")
+    )
+    process.add_argument(
+        "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
+    )
+    process.add_argument("--attribution-artifact", help="specific completed attribution directory")
     process.add_argument(
         "--archive-root",
         default=os.environ.get("ZANZARA_ARCHIVE_ROOT", "/export/scratch/archive/zanzara"),
@@ -487,6 +494,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ArtifactPublicationError,
             CorpusValidationError,
             OSError,
+            StorageError,
             ValueError,
         ) as exc:
             parser.error(str(exc))
@@ -566,7 +574,63 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         return _process_diarization_stage(arguments)
     if arguments.stage == "attribution":
         return _process_attribution_stage(arguments)
+    if arguments.stage == "text_index":
+        return _process_text_index_stage(arguments)
     return _process_asr_stage(arguments)
+
+
+def _process_text_index_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Index one complete attributed episode in SQLite without model inference."""
+
+    corpus = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in corpus.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise ValueError(f"episode is not in the frozen corpus: {arguments.episode}")
+    if arguments.attribution_artifact:
+        artifact_path = Path(arguments.attribution_artifact)
+    else:
+        root = Path(arguments.artifact_root).expanduser() / episode.sha256 / "attribution"
+        candidates = sorted(root.glob("*/attributed.json"))
+        if len(candidates) != 1:
+            raise ValueError(
+                f"found {len(candidates)} attribution artifacts for {arguments.episode}; "
+                "expected one or pass --attribution-artifact"
+            )
+        artifact_path = candidates[0].parent
+    artifact, payload, _, artifact_path = _load_stage_payload(
+        arguments.artifact_root,
+        artifact_path,
+        expected_stage="attribution",
+        payload_name="attributed.json",
+    )
+    if (
+        payload.get("artifact_id") != artifact.artifact_id
+        or payload.get("episode_id") != episode.relative_filename
+        or payload.get("source_sha256") != episode.sha256
+        or artifact.source_sha256 != episode.sha256
+        or payload.get("duration_ms") != episode.duration_ms
+    ):
+        raise ValueError("attribution identity or duration does not match the frozen episode")
+    try:
+        chunks = build_text_chunks(payload)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError(f"invalid attributed words: {exc}") from exc
+    repository = SQLiteRepository.open(arguments.database)
+    try:
+        repository.register_corpus_manifest(corpus)
+        repository.replace_text_chunks(episode.relative_filename, artifact, artifact_path, chunks)
+    finally:
+        repository.close()
+    return {
+        "stage": "text_index",
+        "episode_id": episode.relative_filename,
+        "attribution_artifact_id": artifact.artifact_id,
+        "artifact_path": str(artifact_path),
+        "chunk_count": len(chunks),
+        "word_count": sum(len(chunk.word_ids) for chunk in chunks),
+    }
 
 
 def _configuration_key(configuration: dict[str, Any]) -> str:

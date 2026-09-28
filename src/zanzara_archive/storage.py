@@ -35,8 +35,9 @@ from .contracts import (
 )
 from .corpus import CorpusManifest
 from .stages import stage_fingerprint
+from .text_index import TextChunk
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -833,6 +834,10 @@ MIGRATIONS: dict[int, str] = {
       SELECT RAISE(ABORT, 'P1R-03D reviews are append-only');
     END;
     """,
+    12: """
+    ALTER TABLE text_chunks ADD COLUMN speaker_id TEXT;
+    CREATE INDEX idx_text_chunks_episode ON text_chunks(episode_id);
+    """,
 }
 
 
@@ -1083,6 +1088,53 @@ class SQLiteRepository:
                     _now(),
                 ),
             )
+
+    def replace_text_chunks(
+        self,
+        episode_id: str,
+        artifact: ArtifactManifest,
+        artifact_path: Path,
+        chunks: tuple[TextChunk, ...],
+    ) -> None:
+        """Replace one episode's chunks and FTS rows in one transaction."""
+
+        if artifact.stage != "attribution":
+            raise ValueError("text chunks require an attribution artifact")
+        self.record_artifact(artifact, artifact_path)
+        with self.transaction() as connection:
+            episode = connection.execute(
+                "SELECT source_sha256 FROM episodes WHERE episode_id = ?", (episode_id,)
+            ).fetchone()
+            if episode is None or episode[0] != artifact.source_sha256:
+                raise StorageConflictError("attribution source does not match registered episode")
+            connection.execute(
+                "DELETE FROM text_chunks_fts WHERE chunk_id IN "
+                "(SELECT chunk_id FROM text_chunks WHERE episode_id = ?)",
+                (episode_id,),
+            )
+            connection.execute("DELETE FROM text_chunks WHERE episode_id = ?", (episode_id,))
+            for chunk in chunks:
+                connection.execute(
+                    """INSERT INTO text_chunks
+                    (chunk_id, episode_id, attribution_artifact_id, start_ms, end_ms,
+                     text, word_ids_json, overlap, speaker_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        chunk.chunk_id,
+                        episode_id,
+                        artifact.artifact_id,
+                        chunk.start_ms,
+                        chunk.end_ms,
+                        chunk.text,
+                        _json(chunk.word_ids),
+                        int(chunk.overlap),
+                        chunk.speaker_id,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO text_chunks_fts (chunk_id, text) VALUES (?, ?)",
+                    (chunk.chunk_id, chunk.text),
+                )
 
     @staticmethod
     def _chunk_episode_check(connection: sqlite3.Connection, chunk: AudioChunk) -> None:

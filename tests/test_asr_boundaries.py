@@ -1,9 +1,13 @@
 """CPU fixtures for deterministic ASR window ownership."""
 
+from dataclasses import replace
+from types import SimpleNamespace
+
 from zanzara_archive.asr import (
     assign_window_words,
     build_asr_windows,
     merge_window_results,
+    transcribe_windowed,
     window_audio_artifact,
 )
 from zanzara_archive.contracts import AudioArtifact, ModelFingerprint, TimedWord, TranscriptResult
@@ -93,3 +97,21 @@ def test_merge_keeps_adjacent_repeated_words_and_does_not_drop_omitted_fixture_w
     merged = merge_window_results(AUDIO, windows, window_results, request_id="asr-test")
     assert [word.text for word in merged.words] == ["again", "kept", "again"]
     assert [word.start_ms for word in merged.words] == [45, 95, 135]
+
+
+def test_transcribe_windowed_uses_requested_window_length() -> None:
+    seen: list[int] = []
+    audio = replace(AUDIO, duration_ms=250_000)
+
+    class Adapter:
+        def transcribe_bytes(self, audio: AudioArtifact, _: bytes, **__: object) -> SimpleNamespace:
+            seen.append(audio.duration_ms)
+            return SimpleNamespace(result=result(audio, ()), raw_response={})
+
+    transcript, windows, responses = transcribe_windowed(
+        Adapter(), audio, lambda _: b"audio", request_id="test", window_ms=100_000
+    )
+    assert [window.ownership_start_ms for window in windows] == [0, 100_000, 200_000]
+    assert seen == [105_000, 110_000, 55_000]
+    assert transcript.duration_ms == audio.duration_ms
+    assert len(responses) == 3

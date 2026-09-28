@@ -179,10 +179,11 @@ def transcribe_windowed(
     *,
     request_id: str,
     language: str | None = None,
+    window_ms: int = ASR_WINDOW_MS,
 ) -> tuple[TranscriptResult, tuple[ASRWindow, ...], tuple[Mapping[str, Any], ...]]:
     """Run every expanded window and return the merged result plus private responses."""
 
-    windows = build_asr_windows(audio.duration_ms)
+    windows = build_asr_windows(audio.duration_ms, window_ms=window_ms)
     parsed: list[ParsedTranscription] = []
     for window in windows:
         window_audio = window_audio_artifact(audio, window)

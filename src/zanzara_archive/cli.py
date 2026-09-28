@@ -13,7 +13,7 @@ from typing import Any
 
 from zanzara_archive import __version__
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
-from zanzara_archive.asr import transcribe_windowed
+from zanzara_archive.asr import ASR_WINDOW_MS, transcribe_windowed
 from zanzara_archive.calibration import build_batch, validate_batch
 from zanzara_archive.chunking import (
     Community1AdaptiveConfig,
@@ -281,6 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     process.add_argument("--ffmpeg", default="ffmpeg")
     process.add_argument("--language")
+    process.add_argument(
+        "--asr-window-ms",
+        type=int,
+        default=ASR_WINDOW_MS,
+        help="ASR ownership window length in milliseconds (up to 300000)",
+    )
     jobs = commands.add_parser("jobs", help="manage durable worker jobs")
     job_commands = jobs.add_subparsers(dest="jobs_command", required=True)
     enqueue = job_commands.add_parser("enqueue", help="enqueue one stage job")
@@ -1088,7 +1094,7 @@ def _default_attribution_input_path(
         model = model_fingerprint_from_lock(arguments.model_lock, "parakeet")
         configuration = {
             "stage": "asr",
-            "window_ms": 300_000,
+            "window_ms": getattr(arguments, "asr_window_ms", ASR_WINDOW_MS),
             "context_ms": 5_000,
             "language": arguments.language,
             "decoder": "ffmpeg",
@@ -1329,6 +1335,9 @@ def _process_attribution_stage(arguments: argparse.Namespace) -> dict[str, Any]:
 def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:
     """Process one episode through the bounded Parakeet stage."""
 
+    window_ms = getattr(arguments, "asr_window_ms", ASR_WINDOW_MS)
+    if not 0 < window_ms <= ASR_WINDOW_MS:
+        raise ValueError(f"ASR window length must be between 1 and {ASR_WINDOW_MS} ms")
     manifest = load_manifest(arguments.manifest)
     episode = next(
         (item for item in manifest.episodes if item.relative_filename == arguments.episode), None
@@ -1387,11 +1396,12 @@ def _process_asr_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         load_window,
         request_id=request_id,
         language=arguments.language,
+        window_ms=window_ms,
     )
     transcript.require_production()
     configuration = {
         "stage": "asr",
-        "window_ms": 300_000,
+        "window_ms": window_ms,
         "context_ms": 5_000,
         "language": arguments.language,
         "decoder": "ffmpeg",

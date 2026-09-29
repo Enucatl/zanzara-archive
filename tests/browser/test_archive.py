@@ -1,5 +1,6 @@
 """Archive navigation and unavailable-content regression checks."""
 
+import os
 import sqlite3
 from html import unescape
 from pathlib import Path
@@ -9,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
+from zanzara_archive.corpus import load_manifest
 from zanzara_archive.storage import SQLiteRepository
 from zanzara_archive.web import create_app
 
@@ -126,3 +128,105 @@ def test_search_result_opens_correct_transcript_offset(tmp_path: Path) -> None:
     missing_media = client.get("/media/second.opus")
     assert missing_media.status_code == 404
     assert missing_media.json()["error"]["code"] == "media_unavailable"
+
+
+@pytest.mark.browser
+def test_search_playback_keyboard_in_chromium(tmp_path: Path) -> None:
+    """Follow a filtered hit to the right source offset using only the keyboard."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    manifest_path = Path(__file__).parents[2] / "planning" / "corpus-20.json"
+    first, second = load_manifest(manifest_path).episodes[:2]
+    source = tmp_path / second.relative_filename
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"synthetic media")
+    database = tmp_path / "state.db"
+    client = TestClient(create_app(database, manifest_path=manifest_path, archive_root=tmp_path))
+    repository = SQLiteRepository.open(database)
+    for index, episode in enumerate((first, second)):
+        repository.connection.execute(
+            """INSERT INTO artifacts (artifact_id, source_sha256, stage, stage_key,
+               artifact_path, manifest_sha256, upstream_artifact_hashes_json,
+               preprocessing_json, pipeline_version, artifact_schema_version,
+               file_checksums_json, created_at)
+               VALUES (?, ?, 'attribution', 'test', 'test', ?, '[]', '{}',
+               'test', 1, '{}', '2026-09-01')""",
+            (f"attr-{index}", episode.sha256, episode.sha256),
+        )
+        repository.connection.execute(
+            """INSERT INTO text_chunks (chunk_id, episode_id,
+               attribution_artifact_id, start_ms, end_ms, text,
+               word_ids_json, speaker_id)
+               VALUES (?, ?, ?, ?, ?, ?, '[]', ?)""",
+            (
+                f"hit-{index}",
+                episode.relative_filename,
+                f"attr-{index}",
+                4000 if index == 0 else 17500,
+                5000 if index == 0 else 18500,
+                f"radar {index}",
+                "A" if index == 0 else "B",
+            ),
+        )
+        repository.connection.execute(
+            "INSERT INTO text_chunks_fts (chunk_id, text) VALUES (?, ?)",
+            (f"hit-{index}", f"radar {index}"),
+        )
+    repository.connection.commit()
+    repository.close()
+
+    def route_request(route: playwright.Route) -> None:
+        """Serve the app to Chromium without opening a network port."""
+        target = urlsplit(route.request.url)
+        if target.path.startswith("/media/"):
+            route.fulfill(status=204)
+            return
+        response = client.request(
+            route.request.method, target.path + ("?" + target.query if target.query else "")
+        )
+        route.fulfill(
+            status=response.status_code,
+            body=response.content,
+            content_type=response.headers.get("content-type", "text/plain"),
+        )
+
+    with playwright.sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=os.environ.get("CHROMIUM_EXECUTABLE"))
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("http://archive.test/**", route_request)
+        page.add_init_script("""
+            let clock = 0;
+            Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+                get() {return clock}, set(value) {clock = value}
+            });
+            HTMLMediaElement.prototype.play = function() {return Promise.resolve()};
+        """)
+        page.goto("http://archive.test/transcripts")
+        page.locator('input[name="q"]').fill("radar")
+        page.locator('select[name="episode_id"]').select_option(second.relative_filename)
+        page.locator('input[name="q"]').press("Enter")
+        result = page.locator(".search-result a")
+        playwright.expect(result).to_have_count(1)
+        assert second.relative_filename in result.get_attribute("href")
+        assert "t=17.500" in result.get_attribute("href")
+        result.focus()
+        page.keyboard.press("Enter")
+        playwright.expect(page.locator("h1")).to_contain_text(second.relative_filename)
+        assert page.locator(".seek").get_attribute("data-seconds") == "17.5"
+        page.locator("#episode-audio").dispatch_event("loadedmetadata")
+        assert page.locator("#episode-audio").evaluate("audio => audio.currentTime") == 17.5
+        page.locator("#episode-audio").evaluate("audio => audio.currentTime = 0")
+        page.locator(".seek").focus()
+        page.keyboard.press("Enter")
+        assert page.locator("#episode-audio").evaluate("audio => audio.currentTime") == 17.5
+        page.get_by_text("Back to transcripts").click()
+        playwright.expect(page.locator(".search-result")).to_have_count(1)
+        page.locator('input[name="q"]').fill("absent")
+        page.locator('input[name="q"]').press("Enter")
+        playwright.expect(page.get_by_text("No results.", exact=False)).to_be_visible()
+        page.locator('input[name="q"]').fill("radar*")
+        page.locator('input[name="q"]').press("Enter")
+        playwright.expect(page.get_by_role("alert")).to_be_visible()
+        assert not errors
+        browser.close()

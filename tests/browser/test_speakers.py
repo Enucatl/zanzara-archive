@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,10 +18,10 @@ from zanzara_archive.storage import SQLiteRepository
 from zanzara_archive.web import create_app
 
 
-def test_voice_comparison_and_reversible_appearance_history(
+def _voice_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Show real artifact speakers and follow confirm, split and undo in SQLite."""
+) -> tuple[TestClient, list[str], list, list[str], Path]:
+    """Build two synthetic voice records with one ranked candidate."""
 
     corpus_path = Path(__file__).parents[2] / "planning" / "corpus-20.json"
     episodes = load_manifest(corpus_path).episodes[:2]
@@ -120,6 +122,14 @@ def test_voice_comparison_and_reversible_appearance_history(
     client = TestClient(
         create_app(database, artifact_root=publisher.root, manifest_path=corpus_path)
     )
+    return client, speaker_ids, episodes, evidence_ids, database
+
+
+def test_voice_comparison_and_reversible_appearance_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Show real artifact speakers and follow confirm, split and undo in SQLite."""
+    client, speaker_ids, episodes, evidence_ids, database = _voice_client(tmp_path, monkeypatch)
     page = client.get("/speakers", params={"speaker_id": speaker_ids[0]})
     assert page.status_code == 200
     assert "ResNet293" in page.text and "uncalibrated" in page.text
@@ -176,3 +186,65 @@ def test_voice_comparison_and_reversible_appearance_history(
     assert undo.status_code == 200
     assert "Split this appearance" not in client.get("/speakers").text
     assert decision_id not in client.get("/speakers").text
+
+
+@pytest.mark.browser
+def test_voice_review_keyboard_in_chromium(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compare excerpts, confirm a match, then undo it with keyboard controls."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    client, speaker_ids, episodes, _, _ = _voice_client(tmp_path, monkeypatch)
+
+    def route_request(route: playwright.Route) -> None:
+        """Serve the local app and JSON writes to Chromium."""
+        target = urlsplit(route.request.url)
+        if target.path.startswith("/media/"):
+            route.fulfill(status=204)
+            return
+        response = client.request(
+            route.request.method,
+            target.path + ("?" + target.query if target.query else ""),
+            content=route.request.post_data,
+            headers={"content-type": "application/json"},
+        )
+        route.fulfill(
+            status=response.status_code,
+            body=response.content,
+            content_type=response.headers.get("content-type", "text/plain"),
+        )
+
+    with playwright.sync_playwright() as runtime:
+        browser = runtime.chromium.launch(executable_path=os.environ.get("CHROMIUM_EXECUTABLE"))
+        page = browser.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("http://archive.test/**", route_request)
+        page.goto("http://archive.test/speakers")
+        page.locator('select[name="speaker_id"]').select_option(speaker_ids[0])
+        page.get_by_role("button", name="Find candidates").focus()
+        page.keyboard.press("Enter")
+        playwright.expect(page.locator(".pair")).to_have_count(1)
+        assert page.locator('.pair audio[aria-label^="Selected excerpt"]').count() == 1
+        assert page.locator('.pair audio[aria-label^="Candidate excerpt"]').count() == 1
+        assert "#t=1,4" in page.locator(".pair audio").last.get_attribute("src")
+        page.get_by_role("button", name="Same person").focus()
+        page.keyboard.press("Enter")
+        playwright.expect(page.get_by_role("alert")).to_contain_text("Enter a reviewer name")
+        page.locator("#reviewer").fill("Browser operator")
+        page.get_by_role("button", name="Same person").focus()
+        page.keyboard.press("Enter")
+        playwright.expect(page.get_by_role("button", name="Split this appearance")).to_have_count(2)
+        appearances = page.locator(".group li")
+        assert appearances.count() == 2
+        older, newer = sorted(episodes, key=lambda episode: episode.episode_date)
+        assert older.relative_filename in appearances.nth(0).inner_text()
+        assert newer.relative_filename in appearances.nth(1).inner_text()
+        page.locator("#reviewer").fill("Browser operator")
+        page.get_by_role("button", name="Undo").focus()
+        page.keyboard.press("Enter")
+        playwright.expect(page.get_by_role("button", name="Split this appearance")).to_have_count(0)
+        playwright.expect(
+            page.get_by_text("No confirmed recurring appearances yet.")
+        ).to_be_visible()
+        assert client.get("/api/v1/identity-state").json()["data"]["revision"] == 2
+        assert not errors
+        browser.close()

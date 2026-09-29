@@ -194,5 +194,9 @@ def test_chunk_review_in_chromium(tmp_path: Path) -> None:
         page.keyboard.press("Alt+b")
         expect(page.locator("#message")).to_contain_text("Save your edits")
         assert [client.get(url).json()["data"]["candidates"] for url in urls] == original
+        page.goto("http://review.test/chunk-review?pick=1,3")
+        expect(page.locator("#progress")).to_have_text("Chunk 1 of 2")
+        expect(page.locator("#queue option")).to_have_count(2)
+        expect(page.locator("#chunk-title")).to_contain_text("3000–5000 ms")
         assert not errors
         browser.close()

@@ -34,9 +34,11 @@ diarization and clean exemplars, independently of ASR and text search.
   exemplar reranking. Keep original vectors and separate model generations.
   Scores rank candidates; they are not probabilities or identity decisions.
   ERes2Net, WavLM and fusion remain optional measured comparisons.
-- Finish Parakeet/Whisper/Voxtral comparison on **80 chunks**: 60 representative,
-  20 difficult, multiple episodes, split by episode before tuning. Human
-  listening remains required. Expand only for an unresolved choice or failure.
+- Use the frozen **80-chunk** pilot as the sampling pool. Human review is capped
+  at a fixed **30-chunk** cohort: 15 per episode partition, each with ten
+  representative and five difficult clips. Compare Parakeet, Whisper and
+  Voxtral on those same reviewed clips; report the other 50 as unreviewed.
+  Human listening remains required. Expand only with operator authorization.
   This pilot cannot establish archive-wide accuracy.
 - Use completed P1R-03D chunking (#105); retire competing P1R-03C (#104).
   Qwen/AST are available aids; calibration refinement is not a product gate.

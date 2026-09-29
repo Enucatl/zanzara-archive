@@ -175,8 +175,16 @@ document.addEventListener('keydown', event => {
 });
 (async () => {
   try {
-    const manifest = new URLSearchParams(location.search).get('manifest_id');
+    const params = new URLSearchParams(location.search);
+    const manifest = params.get('manifest_id');
     chunks = (await request(`/api/v1/chunk-review${manifest ? `?manifest_id=${encodeURIComponent(manifest)}` : ''}`)).chunks;
+    if (params.has('pick')) {
+      const raw = params.get('pick');
+      if (!/^\d+(,\d+)*$/.test(raw)) throw new Error('Invalid review selection.');
+      const picks = raw.split(',').map(Number);
+      if (new Set(picks).size !== picks.length || picks.some(i => i >= chunks.length)) throw new Error('Invalid review selection.');
+      chunks = picks.map(i => chunks[i]);
+    }
     chunks.forEach((chunk, i) => { const option = document.createElement('option'); option.value = i; option.textContent = `${chunk.partition || 'unassigned'} · ${chunk.episode_id} · ${chunk.start_ms} ms`; $('queue').append(option); });
     if (chunks.length) await navigate(0); else message('No frozen chunks have been registered.');
   } catch (error) { message(error.message); }

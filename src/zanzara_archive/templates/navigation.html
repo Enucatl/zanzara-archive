@@ -5,7 +5,7 @@
   .archive-nav [aria-current="page"] { font-weight: bold; }
 </style>
 <nav class="archive-nav" aria-label="Archive">
-  {% for url, label in [('/', 'Archive'), ('/transcripts', 'Transcripts'), ('/speakers', 'Speakers'), ('/chunk-review', 'ASR review'), ('/p1r-03d', 'Chunk boundaries')] %}
-  <a href="{{ url }}"{% if request.url.path == url %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% for url, label in [('/', 'Archive'), ('/transcripts', 'Transcripts'), ('/speakers', 'Speakers'), ('/chunk-review?manifest_id=p1r11-4b3205b1adb139dad9c1a14f&pick=0,2,4,5,6,7,8,9,11,14,17,20,22,26,30,33,35,39,41,49,53,55,56,58,60,62,64,66,71,72', 'ASR review (30)'), ('/p1r-03d', 'Chunk boundaries')] %}
+  <a href="{{ url }}"{% if request.url.path == url.split('?')[0] %} aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>

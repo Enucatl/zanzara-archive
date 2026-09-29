@@ -8,25 +8,26 @@ human-reviewed real audio establishes quality.
 ## E1 — Golden reference and transcription split
 
 Reuse completed P1R-03D chunking and existing annotation/scoring contracts.
-Start with 80 chunks: 60 representative and 20 difficult, from multiple episodes
-in the frozen 20. Assign episodes to development/held-out groups before sampling
-or tuning, aiming for 40 chunks in each, with 30 representative and ten difficult.
-Use at least two episodes per partition where available; report coverage gaps.
+The frozen 80-chunk pool has 60 representative and 20 difficult clips from
+multiple episodes. Human review is capped at a fixed 30-clip subset: 15 per
+development/held-out partition, each with ten representative and five difficult.
+The partitions were assigned by episode before sampling. Report coverage gaps.
 
 Select without ASR-score filtering. Include rapid turns, overlap, music and
 degraded audio where present; manual tags suffice. Keep held-out episodes out of
 prompt/threshold/model-setting tuning. Freeze membership once with a manifest
 version/run ID. Expand only for an unresolved decision or important failure.
 
-The operator listens and corrects text and speaker/condition truth, recording
-reviewed or unresolved status for each chunk. Candidate consensus is not truth.
+The operator listens and corrects text and speaker/condition truth for the 30
+selected clips, recording reviewed or unresolved status for each. The other 50
+remain unreviewed and outside human-scored denominators. Candidate consensus is not truth.
 Unintelligible/unscorable content retains its reason and denominator. No complete
 golden episode or manually timed words. Preserve existing review revisions and
 human work when selecting the smaller sample.
 
 ## E2 — ASR, diarization, attribution and timing metrics
 
-Run existing Parakeet, Whisper and Voxtral on the same pilot. Use existing Italian
+Run existing Parakeet, Whisper and Voxtral on the same reviewed cohort. Use existing Italian
 WER/CER scoring; report representative/difficult samples separately with counts,
 words, duration, failures and unsupported cases. Use overlap-aware ASR,
 independent DER/JER and integrated attribution metrics where reviewed references

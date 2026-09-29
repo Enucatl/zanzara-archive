@@ -67,7 +67,7 @@ def select_exemplars(result: DiarizationResult) -> dict[str, dict[str, object]]:
                 for left, right in blocked
                 if max(start, left) < min(end, right)
             )
-            # ponytail: scan overlaps per turn; use an interval index if long episodes make this slow.
+            # ponytail: scan overlaps per turn; index intervals if episodes get slow.
             clean = _subtract((start + TRANSITION_MS, end - TRANSITION_MS), blocked)
             for left, right in clean:
                 if right - left < MIN_MS:

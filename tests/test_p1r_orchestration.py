@@ -176,6 +176,44 @@ def test_success_persists_three_independent_results_and_common_audio(
     repository.close()
 
 
+def test_selected_chunks_keep_frozen_manifest_and_limit_dispatches(tmp_path: Path) -> None:
+    """Run a reviewed cohort without changing its parent manifest identity."""
+
+    first = _chunk()
+    second = AudioChunk.create(
+        episode_id=first.episode_id,
+        source_sha256=SOURCE_SHA256,
+        start_ms=3_000,
+        end_ms=6_000,
+        segmentation_fingerprint=SEGMENTATION_SHA256,
+        duration_ms=10_000,
+        partition="development",
+    )
+    manifest = ChunkBenchmarkManifest(
+        manifest_id="manifest-p1r-orchestration",
+        chunks=(first, second),
+        partitions={"development": (first.chunk_id, second.chunk_id)},
+    )
+    repository = _repository(tmp_path, first)
+    adapter = FixtureAdapter("parakeet", 1)
+    orchestrator = ChunkInferenceOrchestrator(
+        repository,
+        ArtifactPublisher(tmp_path / "artifacts", repository),
+        [AdapterRegistration("parakeet", adapter)],
+    )
+    with pytest.raises(ValueError, match="selected chunk IDs"):
+        orchestrator.run(manifest, lambda _: b"wav", selected_chunk_ids=(first.chunk_id,) * 2)
+    report = orchestrator.run(
+        manifest, lambda chunk: chunk.chunk_id.encode(), selected_chunk_ids=(second.chunk_id,)
+    )
+    assert report.total_dispatches == 1
+    assert len(adapter.calls) == 1
+    assert adapter.calls[0][1] == second.chunk_id.encode()
+    assert repository.fetch_chunk_benchmark_manifest(manifest.manifest_id) == manifest
+    assert len(repository.list_chunk_inference_dispatches(manifest.manifest_id)) == 1
+    repository.close()
+
+
 def test_one_model_failure_is_visible_without_discarding_successful_peers(
     tmp_path: Path,
 ) -> None:

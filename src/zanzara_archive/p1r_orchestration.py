@@ -350,13 +350,14 @@ class ChunkInferenceOrchestrator:
         manifest: ChunkBenchmarkManifest,
         audio_loader: AudioLoader,
         *,
+        selected_chunk_ids: Iterable[str] | None = None,
         owner: str = "p1r-07",
         now: datetime | str | None = None,
         retry_failed: bool = False,
     ) -> OrchestrationReport:
         """Dispatch every chunk/model pair and reconcile its durable result.
 
-        The loader is called once per chunk.  The returned bytes are passed to
+        The loader is called once per selected chunk. The returned bytes are passed to
         every adapter unchanged, so all model rows share one auditable audio
         identity.  ``retry_failed`` only retries the same registered adapter;
         it never substitutes a different provider or model.
@@ -366,14 +367,22 @@ class ChunkInferenceOrchestrator:
             raise ValueError("at least one chunk adapter must be registered")
         if not owner:
             raise ValueError("owner must be non-empty")
+        selected = tuple(selected_chunk_ids) if selected_chunk_ids is not None else None
+        known_ids = {chunk.chunk_id for chunk in manifest.chunks}
+        if selected is not None and (
+            not selected or len(set(selected)) != len(selected) or set(selected) - known_ids
+        ):
+            raise ValueError("selected chunk IDs must be unique non-empty manifest members")
+        selected_set = set(selected) if selected is not None else known_ids
+        chunks = tuple(chunk for chunk in manifest.chunks if chunk.chunk_id in selected_set)
         self.repository.record_chunk_benchmark_manifest(manifest)
         registrations = self.adapters
-        dispatches = self._ensure_dispatches(manifest, registrations)
+        dispatches = self._ensure_dispatches(manifest, registrations, chunks)
         dispatch_by_key = {
             (str(row["chunk_id"]), str(row["adapter_id"])): row for row in dispatches
         }
 
-        for chunk in manifest.chunks:
+        for chunk in chunks:
             chunk_dispatches = [
                 dispatch_by_key[(chunk.chunk_id, registration.adapter_id)]
                 for registration in registrations
@@ -400,14 +409,15 @@ class ChunkInferenceOrchestrator:
                     retry_failed=retry_failed,
                 )
 
-        return self._report(manifest)
+        return self._report(manifest, selected_set)
 
     def _ensure_dispatches(
         self,
         manifest: ChunkBenchmarkManifest,
         registrations: tuple[AdapterRegistration, ...],
+        chunks: tuple[AudioChunk, ...],
     ) -> tuple[dict[str, object], ...]:
-        for chunk in manifest.chunks:
+        for chunk in chunks:
             for registration in registrations:
                 dispatch_id = _dispatch_identity(manifest, chunk, registration)
                 request_id = "request-" + dispatch_id.removeprefix("dispatch-")
@@ -760,12 +770,16 @@ class ChunkInferenceOrchestrator:
                 f"successful dispatch hypothesis is missing or mismatched: {hypothesis_id}"
             )
 
-    def _report(self, manifest: ChunkBenchmarkManifest) -> OrchestrationReport:
+    def _report(
+        self, manifest: ChunkBenchmarkManifest, selected_ids: set[str]
+    ) -> OrchestrationReport:
         rows = self.repository.list_chunk_inference_dispatches(manifest.manifest_id)
         counts: dict[str, dict[str, int]] = {}
         hypothesis_ids: dict[str, list[str]] = {}
         failures: list[DispatchFailure] = []
         for row in rows:
+            if row["chunk_id"] not in selected_ids:
+                continue
             adapter_id = str(row["adapter_id"])
             status = str(row["status"])
             adapter_counts = counts.setdefault(adapter_id, {})

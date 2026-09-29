@@ -32,6 +32,7 @@ from .annotations import (
 )
 from .artifacts import ArtifactPublicationError
 from .calibration import validate_batch, validate_decision
+from .chunk_review import chunk_review_router
 from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError
 from .corpus import CorpusValidationError, load_manifest, resolve_source
 from .qwen_assistance import (
@@ -111,6 +112,7 @@ def create_app(
     app = FastAPI(title="Zanzara Archive — Local Annotation", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
     database_path = Path(database).expanduser()
+    app.include_router(chunk_review_router(database_path))
     artifact_path = Path(artifact_root).expanduser()
     source_root = Path(archive_root).expanduser() if archive_root is not None else None
     review_root = (
@@ -611,6 +613,12 @@ def create_app(
             media_type=mimetypes.guess_type(source.name)[0] or "audio/ogg",
             filename=source.name,
         )
+
+    @app.get("/chunk-review", response_class=HTMLResponse)
+    def chunk_review_page(request: Request) -> HTMLResponse:
+        """Review frozen chunk candidates and append human reference revisions."""
+
+        return templates.TemplateResponse(request=request, name="chunk_review.html", context={})
 
     @app.get("/annotations/{episode_id:path}", response_class=HTMLResponse)
     def annotation_page(request: Request, episode_id: str) -> HTMLResponse:

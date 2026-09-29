@@ -621,9 +621,12 @@ class SpeakerStream:
 
     speaker_id: str
     turns: tuple[Turn, ...] = ()
+    text: str | None = None
 
     def __post_init__(self) -> None:
         _require_id(self.speaker_id, "speaker_id")
+        if self.text is not None and not isinstance(self.text, str):
+            raise ContractValidationError("speaker stream text must be text")
         previous_start = -1
         for turn in self.turns:
             if turn.speaker_id != self.speaker_id:
@@ -638,6 +641,7 @@ class SpeakerStream:
         return {
             "speaker_id": self.speaker_id,
             "turns": [turn.to_dict() for turn in self.turns],
+            **({"text": self.text} if self.text is not None else {}),
         }
 
     @classmethod
@@ -1769,6 +1773,7 @@ class ReferenceRevision:
     source_hash: str | None = None
     prior_revision: str | None = None
     status: ReferenceReviewStatus | None = None
+    condition_corrections: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_id(self.revision_id, "revision_id")
@@ -1834,6 +1839,11 @@ class ReferenceRevision:
             "text": self.text,
             "speaker_streams": [stream.to_dict() for stream in self.speaker_streams],
             "created_at": self.created_at,
+            **(
+                {"condition_corrections": dict(self.condition_corrections)}
+                if self.condition_corrections
+                else {}
+            ),
         }
 
     @classmethod

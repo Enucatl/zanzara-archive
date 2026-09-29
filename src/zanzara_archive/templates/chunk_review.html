@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASR chunk review</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 1100px; margin: 1rem auto; padding: 0 1rem; }
+    section { border: 1px solid #8888; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+    textarea { display: block; width: 100%; box-sizing: border-box; min-height: 5rem; margin: .5rem 0; }
+    button, input, select { font: inherit; padding: .35rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+    #message { min-height: 1.5rem; }
+  </style>
+</head>
+<body>
+  {% include "navigation.html" %}
+  <h1>ASR chunk review</h1>
+  <p>Candidate drafts are immutable machine output. Only an explicit human approval creates human truth.</p>
+  <div class="toolbar">
+    <button id="previous">Previous</button><label>Chunk <select id="queue"></select></label><button id="next">Next</button>
+    <label>Reviewer <input id="reviewer" autocomplete="name" required></label>
+  </div>
+  <p id="progress"></p><p id="message" role="status" aria-live="polite">Loading chunks…</p>
+  <main id="editor" hidden>
+    <section>
+      <h2 id="chunk-title"></h2>
+      <audio id="player" controls preload="metadata"></audio>
+      <div class="toolbar"><button id="play">Play / pause</button><button id="back">Seek −2s</button><button id="forward">Seek +2s</button><label><input id="loop" type="checkbox"> Loop chunk</label></div>
+      <p>Alt+P play/pause · Alt+L loop · Alt+←/→ seek · Alt+N/B next/previous · Ctrl/⌘+S save · Alt+A approve</p>
+    </section>
+    <section><h2>Immutable candidate drafts</h2><div id="candidates"></div></section>
+    <section>
+      <h2>Editable human reference</h2><p id="status"></p>
+      <label>Transcript <textarea id="text"></textarea></label>
+      <h3>Speaker streams</h3><p>Keep simultaneous speakers separate. No word timing is required.</p>
+      <div id="streams"></div><button id="add-stream">Add speaker stream</button>
+      <h3>Condition corrections</h3>
+      <div class="toolbar">
+        <label>Speaker condition <select id="speaker_condition"><option value="">Uncorrected</option><option>single_speaker</option><option value="multi_speaker_no_overlap">Turn-taking</option><option value="partial_overlap">Partial overlap</option><option value="heavy_overlap">Heavy overlap</option><option>uncertain</option></select></label>
+        <label>Music <select id="music_level"><option value="">Uncorrected</option><option>none</option><option>background</option><option>dominant</option><option>uncertain</option></select></label>
+        <label>Audio quality <select id="audio_quality"><option value="">Uncorrected</option><option>clean</option><option>degraded</option><option>uncertain</option></select></label>
+        <label>Rapid turn-taking <select id="rapid_turn_taking"><option value="">Uncorrected</option><option value="true">Yes</option><option value="false">No</option></select></label>
+      </div>
+      <label>Review notes <textarea id="notes"></textarea></label>
+      <div class="toolbar"><button id="save">Save draft</button><button id="approve">Approve human truth</button></div>
+      <details><summary>Machine condition seeds (optional)</summary><pre id="conditions"></pre></details>
+    </section>
+    <section><h2>Append-only history</h2><div id="history"></div></section>
+  </main>
+<script>
+const $ = id => document.getElementById(id);
+let chunks = [], index = 0, detail = null, dirty = false, busy = false;
+const player = $('player');
+const conditionKeys = ['speaker_condition', 'music_level', 'audio_quality', 'notes', 'rapid_turn_taking'];
+function message(text) { $('message').textContent = text; }
+async function request(url, options) {
+  const response = await fetch(url, options);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error?.message || result.detail || 'Request failed. Local edits were kept.');
+  return result.data;
+}
+function addStream(stream = {}) {
+  const row = document.createElement('div');
+  const label = document.createElement('label'); label.textContent = 'Speaker ID ';
+  const id = document.createElement('input'); id.value = stream.speaker_id || ''; label.append(id);
+  const textLabel = document.createElement('label'); textLabel.textContent = 'Speaker transcript';
+  const text = document.createElement('textarea'); text.value = stream.text || ''; textLabel.append(text);
+  const remove = document.createElement('button'); remove.textContent = 'Remove stream';
+  remove.onclick = () => { row.remove(); dirty = true; };
+  row.append(label, textLabel, remove); $('streams').append(row);
+}
+function play() {
+  if (!detail) return;
+  if (!player.paused) { player.pause(); return; }
+  const {start_ms, end_ms} = detail.chunk;
+  if (player.currentTime < start_ms / 1000 || player.currentTime >= end_ms / 1000) player.currentTime = start_ms / 1000;
+  player.play().catch(error => message(error.message));
+}
+function boundPlayback() {
+  if (detail && !player.paused && player.currentTime >= detail.chunk.end_ms / 1000) {
+    if ($('loop').checked) player.currentTime = detail.chunk.start_ms / 1000;
+    else player.pause();
+  }
+  if (!player.paused) requestAnimationFrame(boundPlayback);
+}
+player.addEventListener('play', boundPlayback);
+player.addEventListener('ended', () => { if (detail && $('loop').checked) play(); });
+player.addEventListener('timeupdate', () => {
+  if (detail && !player.paused && player.currentTime < detail.chunk.start_ms / 1000) player.currentTime = detail.chunk.start_ms / 1000;
+});
+function seek(delta) {
+  if (detail) player.currentTime = Math.max(detail.chunk.start_ms / 1000, Math.min(detail.chunk.end_ms / 1000, player.currentTime + delta));
+}
+function render(data) {
+  detail = data;
+  const chunk = data.chunk, reference = data.current_reference;
+  $('editor').hidden = false;
+  $('chunk-title').textContent = `${chunk.episode_id} · ${chunk.start_ms}–${chunk.end_ms} ms`;
+  $('progress').textContent = `Chunk ${index + 1} of ${chunks.length}`;
+  $('queue').value = String(index);
+  $('previous').disabled = index === 0; $('next').disabled = index === chunks.length - 1;
+  player.src = `/media/${encodeURIComponent(chunk.episode_id)}#t=${chunk.start_ms / 1000},${chunk.end_ms / 1000}`;
+  player.onloadedmetadata = () => { player.currentTime = chunk.start_ms / 1000; };
+  $('text').value = reference?.text || '';
+  $('status').textContent = `${reference?.review_status || 'Unreviewed'} · revision ${data.revision}`;
+  $('streams').replaceChildren();
+  for (const stream of reference?.speaker_streams || chunk.condition?.speaker_streams || []) addStream(stream);
+  const corrections = data.conditions.human_correction || {};
+  for (const key of conditionKeys) $(key).value = corrections[key] ?? '';
+  $('conditions').textContent = JSON.stringify(data.conditions.machine_seed, null, 2) || 'No seed available.';
+  $('candidates').replaceChildren();
+  for (const candidate of data.candidates) {
+    const panel = document.createElement('details'); panel.open = true;
+    const title = document.createElement('summary'); title.textContent = candidate.model_fingerprint?.model_id || candidate.hypothesis_id;
+    const text = document.createElement('pre'); text.textContent = candidate.text;
+    panel.append(title, text); $('candidates').append(panel);
+  }
+  if (!data.candidates.length) $('candidates').textContent = 'No candidate drafts. Human review is still available.';
+  $('history').replaceChildren();
+  for (const revision of data.history) {
+    const item = document.createElement('details');
+    const title = document.createElement('summary'); title.textContent = `r${revision.revision} · ${revision.review_status} · ${revision.reviewer}`;
+    const content = document.createElement('pre'); content.textContent = JSON.stringify(revision, null, 2);
+    item.append(title, content); $('history').append(item);
+  }
+  dirty = false;
+}
+async function navigate(next) {
+  $('queue').value = String(index);
+  if (busy || next < 0 || next >= chunks.length) return;
+  if (dirty) { message('Save your edits before changing chunks.'); return; }
+  busy = true; player.pause();
+  try {
+    const data = await request(`/api/v1/chunk-review/${encodeURIComponent(chunks[next].chunk_id)}`);
+    index = next; render(data); message('Ready for human review.');
+  } catch (error) { message(error.message); }
+  finally { busy = false; }
+}
+async function save(approve) {
+  if (busy || !detail) return;
+  const reviewer = $('reviewer').value.trim();
+  if (!reviewer) { message('Enter your reviewer name.'); $('reviewer').focus(); return; }
+  const payload = {expected_revision: detail.revision, reviewer, text: $('text').value,
+    review_status: approve ? 'human_truth' : 'draft',
+    speaker_streams: [...$('streams').children].map(row => ({speaker_id: row.querySelector('input').value.trim(), text: row.querySelector('textarea').value})),
+    condition_corrections: Object.fromEntries(conditionKeys.filter(key => $(key).value).map(key => [key, key === 'rapid_turn_taking' ? $(key).value === 'true' : $(key).value]))};
+  busy = true;
+  // Keep the form stable while saving; a response must never erase newer typing.
+  const controls = [...$('editor').querySelectorAll('input, textarea, select, button')];
+  controls.forEach(control => { control.disabled = true; });
+  player.pause();
+  try {
+    const data = await request(`/api/v1/chunk-review/${encodeURIComponent(detail.chunk.chunk_id)}`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload)});
+    render(data); message(`Saved revision ${data.revision}${approve ? ' as human truth' : ' as a draft'}.`);
+  } catch (error) { message(error.message); }
+  finally { busy = false; controls.forEach(control => { control.disabled = false; }); }
+}
+$('editor').addEventListener('input', event => { if (event.target.id !== 'loop') dirty = true; });
+$('add-stream').onclick = () => { addStream(); dirty = true; };
+$('previous').onclick = () => navigate(index - 1); $('next').onclick = () => navigate(index + 1);
+$('queue').onchange = event => navigate(Number(event.target.value));
+$('play').onclick = play; $('back').onclick = () => seek(-2); $('forward').onclick = () => seek(2);
+$('save').onclick = () => save(false); $('approve').onclick = () => save(true);
+window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+document.addEventListener('keydown', event => {
+  if (event.repeat) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); save(false); return; }
+  if (!event.altKey || event.ctrlKey || event.metaKey) return;
+  const actions = {p: play, l: () => { $('loop').checked = !$('loop').checked; }, n: () => navigate(index + 1), b: () => navigate(index - 1), a: () => save(true), ArrowLeft: () => seek(-2), ArrowRight: () => seek(2)};
+  const action = actions[event.key] || actions[event.key.toLowerCase()];
+  if (action) { event.preventDefault(); if (!busy) action(); }
+});
+(async () => {
+  try {
+    chunks = (await request('/api/v1/chunk-review')).chunks;
+    chunks.forEach((chunk, i) => { const option = document.createElement('option'); option.value = i; option.textContent = `${chunk.episode_id} · ${chunk.start_ms} ms`; $('queue').append(option); });
+    if (chunks.length) await navigate(0); else message('No frozen chunks have been registered.');
+  } catch (error) { message(error.message); }
+})();
+</script>
+</body>
+</html>

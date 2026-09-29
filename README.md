@@ -51,3 +51,12 @@ artifacts and generated processing output stay in ignored local directories.
 The durable single-worker queue, stage fingerprints and crash recovery contract
 are documented in [`docs/jobs.md`](docs/jobs.md). Jobs and stage state belong on
 the local SQLite `state` volume; the canonical archive remains read-only.
+
+The LAN [ASR review editor](http://complex.home.arpa:8000/chunk-review) lists registered
+chunks, immutable ASR candidates, and separate editable human references. Enter a
+reviewer name, edit the transcript and per-speaker text, then save a draft or
+explicitly approve human truth. Condition corrections and prior revisions remain
+in the database; missing AST/Qwen seeds do not prevent review. Save before moving
+to another chunk. Ctrl/⌘+S saves; Alt+P plays, Alt+L loops, Alt+←/→ seeks,
+Alt+N/B navigates, and Alt+A approves. Stale saves retain local edits and return a
+conflict; copy those edits before reloading the latest revision.

@@ -263,7 +263,14 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument(
         "--stage",
         required=True,
-        choices=("asr", "diarization", "attribution", "text_index", "exemplars"),
+        choices=(
+            "asr",
+            "diarization",
+            "attribution",
+            "text_index",
+            "exemplars",
+            "speaker_embeddings_resnet293",
+        ),
     )
     process.add_argument(
         "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
@@ -297,6 +304,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "explicit P1-03 artifact directory for attribution (defaults to its locked generation)"
         ),
+    )
+    process.add_argument("--exemplars-artifact", help="specific completed exemplar directory")
+    process.add_argument(
+        "--speaker-embedding-endpoint",
+        default=os.environ.get("RESNET293_ENDPOINT", "http://127.0.0.1:18084"),
+        help="local ResNet293 endpoint",
     )
     process.add_argument("--ffmpeg", default="ffmpeg")
     process.add_argument("--language")
@@ -620,6 +633,8 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         return _process_attribution_stage(arguments)
     if arguments.stage == "exemplars":
         return _process_exemplars_stage(arguments)
+    if arguments.stage == "speaker_embeddings_resnet293":
+        return _process_speaker_embeddings_resnet293_stage(arguments)
     if arguments.stage == "text_index":
         return _process_text_index_stage(arguments)
     return _process_asr_stage(arguments)
@@ -1359,6 +1374,207 @@ def _process_exemplars_stage(arguments: argparse.Namespace) -> dict[str, Any]:
             speaker["status"] == "voice_searchable" for speaker in speakers.values()
         ),
         "excerpt_count": sum(len(speaker["excerpts"]) for speaker in speakers.values()),
+    }
+
+
+def _process_speaker_embeddings_resnet293_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Embed ordered immutable exemplars with the locked ResNet293 model."""
+
+    from zanzara_archive.inference import (
+        MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES,
+        SpeakerEmbeddingAdapter,
+    )
+
+    corpus = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in corpus.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise CorpusValidationError(f"episode is not present in manifest: {arguments.episode}")
+    if arguments.exemplars_artifact:
+        exemplar_path = Path(arguments.exemplars_artifact)
+    else:
+        root = Path(arguments.artifact_root).expanduser() / episode.sha256 / "exemplars"
+        candidates = sorted(path.parent for path in root.glob("*/exemplars.json"))
+        if len(candidates) != 1:
+            raise ValueError(
+                f"found {len(candidates)} exemplar artifacts for {arguments.episode}; "
+                "expected one or pass --exemplars-artifact"
+            )
+        exemplar_path = candidates[0]
+    exemplar_manifest, payload, _, exemplar_path = _load_stage_payload(
+        arguments.artifact_root,
+        exemplar_path,
+        expected_stage="exemplars",
+        payload_name="exemplars.json",
+    )
+    if (
+        exemplar_manifest.source_sha256 != episode.sha256
+        or payload.get("source_sha256") != episode.sha256
+        or payload.get("episode_id") != episode.relative_filename
+    ):
+        raise ValueError("exemplar identity does not match the frozen episode")
+    speakers = payload.get("speakers")
+    if not isinstance(speakers, dict):
+        raise ValueError("exemplar speakers must be an object")
+    exemplar_digest = _manifest_digest(exemplar_manifest)
+    model = model_fingerprint_from_lock(arguments.model_lock, "resnet293")
+    configuration = {
+        "stage": "speaker_embeddings_resnet293",
+        "manifest_sha256": corpus.sha256,
+        "source_sha256": episode.sha256,
+        "exemplars_manifest_sha256": exemplar_digest,
+        "model_fingerprint_sha256": model.fingerprint_sha256,
+    }
+    stage_key = stage_fingerprint(
+        "speaker_embeddings_resnet293",
+        source_sha256=episode.sha256,
+        upstream_artifact_hashes=(exemplar_digest,),
+        model_fingerprint_sha256=model.fingerprint_sha256,
+        configuration=configuration,
+        pipeline_version="p2-02",
+    )
+    endpoint = arguments.endpoint or arguments.speaker_embedding_endpoint
+    files_by_id: dict[str, str] = {}
+    ordered: list[tuple[AudioArtifact, dict[str, Any]]] = []
+    output_speakers: dict[str, dict[str, Any]] = {}
+    for speaker_id, speaker in speakers.items():
+        if not isinstance(speaker_id, str) or not isinstance(speaker, dict):
+            raise ValueError("invalid exemplar speaker")
+        status, excerpts = speaker.get("status"), speaker.get("excerpts")
+        if status not in {"voice_searchable", "not_voice_searchable"} or not isinstance(
+            excerpts, list
+        ):
+            raise ValueError(f"invalid exemplar speaker status or excerpts: {speaker_id}")
+        if bool(excerpts) != (status == "voice_searchable"):
+            raise ValueError(f"exemplar speaker status disagrees with excerpts: {speaker_id}")
+        output_excerpts: list[dict[str, Any]] = []
+        output_speakers[speaker_id] = {"status": status, "excerpts": output_excerpts}
+        for excerpt in excerpts:
+            if not isinstance(excerpt, dict):
+                raise ValueError(f"invalid exemplar excerpt: {speaker_id}")
+            start_ms, end_ms, name = (
+                excerpt.get("start_ms"),
+                excerpt.get("end_ms"),
+                excerpt.get("file"),
+            )
+            if (
+                type(start_ms) is not int
+                or type(end_ms) is not int
+                or not 0 <= start_ms < end_ms <= episode.duration_ms
+                or not isinstance(name, str)
+                or not name.endswith(".wav")
+                or name not in exemplar_manifest.file_checksums
+            ):
+                raise ValueError(f"invalid exemplar audio or offsets: {speaker_id}")
+            exemplar_id = (
+                "exemplar-"
+                + hashlib.sha256(
+                    json.dumps(
+                        [exemplar_manifest.artifact_id, speaker_id, start_ms, end_ms],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()[:24]
+            )
+            if exemplar_id in files_by_id:
+                raise ValueError(f"duplicate exemplar identity: {exemplar_id}")
+            files_by_id[exemplar_id] = name
+            item = AudioArtifact(
+                artifact_id=exemplar_id,
+                source_sha256=episode.sha256,
+                format="wav",
+                duration_ms=end_ms - start_ms,
+                sample_rate_hz=16_000,
+                channels=1,
+                time_origin_ms=start_ms,
+                transform_hash=exemplar_manifest.file_checksums[name],
+            )
+            output_excerpt = {
+                "exemplar_id": exemplar_id,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+            }
+            output_excerpts.append(output_excerpt)
+            ordered.append((item, output_excerpt))
+
+    adapter = SpeakerEmbeddingAdapter(
+        endpoint,
+        model,
+        lambda item: (exemplar_path / files_by_id[item.artifact_id]).read_bytes(),
+    )
+    batch: list[tuple[AudioArtifact, dict[str, Any]]] = []
+    batch_bytes = 0
+    batch_count = 0
+
+    def embed_batch() -> None:
+        """Attach one ordered response only after the adapter validates it."""
+
+        nonlocal batch_count
+        result = adapter.embed(
+            [item for item, _ in batch],
+            request_id=f"resnet293-{stage_key[:16]}-{batch_count:04d}",
+        )
+        for (_, output_excerpt), vector in zip(batch, result.vectors, strict=True):
+            output_excerpt["vector"] = list(vector)
+        batch_count += 1
+
+    for item, output_excerpt in ordered:
+        audio_bytes = (exemplar_path / files_by_id[item.artifact_id]).stat().st_size
+        if audio_bytes > MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES:
+            raise ValueError(f"exemplar exceeds the embedding payload limit: {item.artifact_id}")
+        if batch and batch_bytes + audio_bytes > MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES:
+            embed_batch()
+            batch = []
+            batch_bytes = 0
+        batch.append((item, output_excerpt))
+        batch_bytes += audio_bytes
+    if batch:
+        embed_batch()
+
+    publisher = ArtifactPublisher(
+        arguments.artifact_root, repository=getattr(arguments, "repository", None)
+    )
+    artifact = publisher.publish(
+        source_sha256=episode.sha256,
+        stage="speaker_embeddings_resnet293",
+        stage_key=stage_key,
+        files={
+            "embeddings.json": json.dumps(
+                {
+                    "episode_id": episode.relative_filename,
+                    "source_sha256": episode.sha256,
+                    "exemplars_artifact_id": exemplar_manifest.artifact_id,
+                    "exemplars_manifest_sha256": exemplar_digest,
+                    "model": model.to_dict(),
+                    "speakers": output_speakers,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        },
+        upstream_artifact_hashes=(exemplar_digest,),
+        pipeline_version="p2-02",
+        model_fingerprint_sha256=model.fingerprint_sha256,
+        artifact_id=f"speaker-embeddings-resnet293-{stage_key[:24]}",
+        provenance={
+            "configuration": configuration,
+            "exemplars_artifact_id": exemplar_manifest.artifact_id,
+            "endpoint": endpoint,
+            "batch_count": batch_count,
+        },
+        job=getattr(arguments, "job", None),
+    )
+    return {
+        "stage": "speaker_embeddings_resnet293",
+        "artifact": artifact.to_dict(),
+        "artifact_path": str(
+            publisher.artifact_path(episode.sha256, "speaker_embeddings_resnet293", stage_key)
+        ),
+        "speaker_count": len(output_speakers),
+        "excerpt_count": len(ordered),
+        "batch_count": batch_count,
     }
 
 

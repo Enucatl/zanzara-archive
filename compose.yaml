@@ -16,6 +16,14 @@ x-gpu: &gpu
     retries: 60
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - ./.git/zanzara-qdrant:/qdrant/storage
+
   shared-base:
     image: zanzara-archive/shared-base:py314-cu130
     build:

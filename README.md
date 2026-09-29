@@ -54,6 +54,29 @@ The durable single-worker queue, stage fingerprints and crash recovery contract
 are documented in [`docs/jobs.md`](docs/jobs.md). Jobs and stage state belong on
 the local SQLite `state` volume; the canonical archive remains read-only.
 
+## ResNet voice index
+
+Start Qdrant with `COMPOSE_ENV_FILES=/dev/null docker compose up -d qdrant`.
+For each episode with a completed exemplar artifact, retain the original ResNet
+vectors:
+
+```bash
+uv run zanzara process --manifest planning/corpus-20.json --episode EPISODE.opus \
+  --stage speaker_embeddings_resnet293 --exemplars-artifact EXEMPLAR_ARTIFACT_DIR
+```
+
+Build or rebuild both voice collections from the returned embedding artifact
+directories, repeating `--embedding-artifact` for each episode:
+
+```bash
+uv run python -m zanzara_archive.voice_index \
+  --embedding-artifact EMBEDDING_ARTIFACT_DIR
+```
+
+The command validates the retained vectors and expected point counts before it
+switches both active Qdrant aliases together. The collections can be rebuilt
+from the private embedding artifacts; no audio inference is needed for a rebuild.
+
 The LAN [ASR review editor](http://complex.home.arpa:8000/chunk-review) lists registered
 chunks, immutable ASR candidates, and separate editable human references. Enter a
 reviewer name, edit the transcript and per-speaker text, then save a draft or

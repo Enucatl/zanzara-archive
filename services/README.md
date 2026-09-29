@@ -86,3 +86,9 @@ source-relative chunk, and writes private RTX 5090 smoke evidence under
 `.git/zanzara-evidence/P1R-08A/`. It never emits speaker-count or overlap
 fields. Its model cache and the frozen archive smoke input are mounted
 read-only.
+
+P2-02 exposes ResNet293 on host loopback port `18084` (or `RESNET293_PORT`).
+`POST /v1/embed-speakers` accepts ordered mono WAV excerpts and returns their
+original 256-component vectors with the locked model revision and preprocessing.
+The application adapter checks response identity, order and vector validity.
+Its focused startup smoke evidence is private under `.git/zanzara-evidence/P2-02/`.

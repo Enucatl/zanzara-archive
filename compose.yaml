@@ -111,6 +111,13 @@ services:
   resnet293:
     <<: *gpu
     image: zanzara-archive/resnet293:py314-shared
+    ports:
+      - "127.0.0.1:${RESNET293_PORT:-18084}:8080"
+    volumes:
+      - ${HF_HOME:-/home/user/.cache/huggingface}:/models/hf:ro
+      - ${ZANZARA_MODEL_CACHE:-/home/user/.cache/zanzara-archive/models}:/models/zanzara:ro
+      - ${SMOKE_AUDIO_HOST:-/home/user/.cache/zanzara-archive/models/eres2net/v1.0.3/examples/speaker1_a_en_16k.wav}:/smoke/audio.wav:ro
+      - ${EVIDENCE_DIR:-.git/zanzara-evidence}/P2-02:/evidence
     depends_on: [shared-base]
     build:
       context: .
@@ -122,6 +129,8 @@ services:
       IMAGE_REF: zanzara-archive/resnet293:py314-shared
       BASE_IMAGE_REF: zanzara-archive/shared-base:py314-cu130
       EVIDENCE_PATH: /evidence/resnet293.json
+      SMOKE_AUDIO_LABEL: "public ERes2Net example, clean 7.8-second voice excerpt"
+      SMOKE_AUDIO_PROVENANCE: "public model example; real audio"
   eres2net:
     <<: *gpu
     image: zanzara-archive/eres2net:py314-shared

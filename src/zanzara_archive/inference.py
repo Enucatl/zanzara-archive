@@ -31,6 +31,7 @@ from .contracts import (
     CapabilityDeclaration,
     ContractValidationError,
     DiarizationResult,
+    EmbeddingBatch,
     ModelFingerprint,
     NativeActivityArtifact,
     Overlap,
@@ -48,12 +49,14 @@ PARAKEET_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 WHISPER_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 VOXTRAL_TRANSCRIPTION_PATH = "/v1/audio/transcriptions"
 DIARIZATION_PATH = "/v1/diarize"
+SPEAKER_EMBEDDING_PATH = "/v1/embed-speakers"
 AUDIOSET_CONDITION_PATH = "/v1/audio/classify"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_WHISPER_REQUEST_TIMEOUT_SECONDS = 120.0
 DEFAULT_DIARIZATION_TIMEOUT_SECONDS = 600.0
 MAX_AUDIO_PAYLOAD_BYTES = 25_000_000
 MAX_DIARIZATION_PAYLOAD_BYTES = 50_000_000
+MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES = 25_000_000
 MAX_AUDIOSET_PAYLOAD_BYTES = 25_000_000
 MAX_WHISPER_AUDIO_MS = 30_000
 MAX_VOXTRAL_AUDIO_MS = 30_000
@@ -1974,6 +1977,169 @@ class AudioSetConditionAdapter:
         ).result
 
 
+def parse_speaker_embedding_response(
+    payload: Mapping[str, Any],
+    *,
+    excerpts: Sequence[AudioArtifact],
+    model: ModelFingerprint,
+    request_id: str,
+) -> EmbeddingBatch:
+    """Validate locked identity, excerpt order, and original model vectors."""
+
+    data = _unwrap_response(payload, request_id, service_name="ResNet293")
+    if (
+        data.get("model") != model.repository
+        or data.get("model_revision") != model.revision
+        or data.get("preprocessing") != model.preprocessing.get("description")
+    ):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "ResNet293 response model does not match the locked model",
+            request_id,
+        )
+    item_ids = data.get("item_ids")
+    vectors = data.get("vectors")
+    if not isinstance(item_ids, list) or not isinstance(vectors, list):
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "ResNet293 response has no ordered vectors",
+            request_id,
+        )
+    if item_ids != [item.artifact_id for item in excerpts]:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            "ResNet293 response excerpt order differs",
+            request_id,
+        )
+    try:
+        return EmbeddingBatch(
+            model,
+            tuple(item_ids),
+            tuple(tuple(vector) for vector in vectors),
+            request_id,
+        )
+    except (ContractValidationError, TypeError, ValueError) as exc:
+        raise _failure(
+            AdapterFailure,
+            "invalid_response",
+            f"ResNet293 response has invalid vectors: {exc}",
+            request_id,
+        ) from exc
+
+
+class SpeakerEmbeddingAdapter:
+    """Application client for ordered ResNet293 excerpt embeddings."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        model: ModelFingerprint | str,
+        audio_loader: Callable[[AudioArtifact], bytes] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        http_post: HttpPost | None = None,
+    ) -> None:
+        if not isinstance(endpoint, str) or not endpoint:
+            raise ValueError("endpoint must be non-empty text")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.endpoint = endpoint.rstrip("/")
+        self.model = (
+            model_fingerprint_from_lock(model, "resnet293") if isinstance(model, str) else model
+        )
+        self.audio_loader = audio_loader
+        self.timeout_seconds = timeout_seconds
+        self._http_post = http_post or _default_http_post
+
+    @property
+    def capabilities(self) -> CapabilityDeclaration:
+        """Return the locked model identity and vector dimension."""
+
+        return CapabilityDeclaration(
+            model=self.model, max_payload_bytes=MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES
+        )
+
+    def embed(self, excerpts: Sequence[AudioArtifact], *, request_id: str) -> EmbeddingBatch:
+        """Embed registered WAV excerpts in their requested order."""
+
+        if self.audio_loader is None:
+            raise ValueError("SpeakerEmbeddingAdapter requires an audio_loader")
+        if not excerpts or len({item.artifact_id for item in excerpts}) != len(excerpts):
+            raise ValueError("excerpts must have distinct artifact IDs")
+        items = []
+        total_bytes = 0
+        for excerpt in excerpts:
+            if excerpt.audio_format != "wav" or excerpt.channels != 1:
+                raise ValueError("speaker excerpts must be mono WAV")
+            audio_bytes = self.audio_loader(excerpt)
+            if not isinstance(audio_bytes, bytes) or not audio_bytes:
+                raise ValueError("speaker excerpt audio must contain bytes")
+            total_bytes += len(audio_bytes)
+            if total_bytes > MAX_SPEAKER_EMBEDDING_PAYLOAD_BYTES:
+                raise ValueError("speaker excerpt batch exceeds the audio payload limit")
+            items.append(
+                {
+                    "item_id": excerpt.artifact_id,
+                    "source_sha256": excerpt.source_sha256,
+                    "time_origin_ms": excerpt.time_origin_ms,
+                    "input_audio": {
+                        "format": "wav",
+                        "data": base64.b64encode(audio_bytes).decode("ascii"),
+                    },
+                }
+            )
+        payload = {
+            "request_id": request_id,
+            "model": self.model.repository,
+            "model_revision": self.model.revision,
+            "items": items,
+        }
+        try:
+            response_bytes = self._http_post(
+                f"{self.endpoint}{SPEAKER_EMBEDDING_PATH}",
+                _as_json_bytes(payload),
+                self.timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise _failure(
+                RequestTimeoutError,
+                "timeout",
+                "ResNet293 embedding request timed out",
+                request_id,
+                retryable=True,
+            ) from exc
+        except OSError as exc:
+            raise _failure(
+                AdapterFailure,
+                "model_unavailable",
+                f"ResNet293 endpoint is unavailable: {exc}",
+                request_id,
+                retryable=True,
+            ) from exc
+        try:
+            response = json.loads(response_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "ResNet293 endpoint returned invalid JSON",
+                request_id,
+            ) from exc
+        if not isinstance(response, Mapping):
+            raise _failure(
+                AdapterFailure,
+                "invalid_response",
+                "ResNet293 endpoint returned no object",
+                request_id,
+            )
+        return parse_speaker_embedding_response(
+            response, excerpts=excerpts, model=self.model, request_id=request_id
+        )
+
+
 AudioSetAdapter = AudioSetConditionAdapter
 LocalAudioSetAdapter = AudioSetConditionAdapter
 
@@ -1993,6 +2159,8 @@ __all__ = [
     "AudioSetConditionAdapter",
     "ChunkParakeetAdapter",
     "DIARIZATION_PATH",
+    "SPEAKER_EMBEDDING_PATH",
+    "SpeakerEmbeddingAdapter",
     "DiarizerAdapter",
     "Community1Adapter",
     "LocalParakeetAdapter",
@@ -2019,6 +2187,7 @@ __all__ = [
     "WhisperAdapter",
     "derive_overlap_intervals",
     "parse_diarization_response",
+    "parse_speaker_embedding_response",
     "parse_audioset_response",
     "parse_parakeet_chunk_response",
     "parse_parakeet_response",

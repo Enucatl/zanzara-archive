@@ -2,6 +2,7 @@ name: zanzara-archive
 
 x-gpu: &gpu
   gpus: all
+  mem_limit: 20g
   restart: "no"
   profiles: [processing]
   volumes:

@@ -1,0 +1,13 @@
+[Unit]
+Description=Zanzara Archive LAN app
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/zanzara-archive
+ExecStart=/home/user/.local/bin/uv run --frozen zanzara web --database .git/zanzara-state/state.db --artifact-root .git/zanzara-artifacts --archive-root /export/scratch/archive/zanzara --manifest planning/corpus-20.json --host 0.0.0.0 --allow-network --port 8000
+Restart=on-failure
+StandardOutput=append:/home/user/zanzara-archive/.git/zanzara-state/web.log
+StandardError=inherit
+
+[Install]
+WantedBy=default.target

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import io
 import json
@@ -12,6 +13,7 @@ import sys
 import wave
 from array import array
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,7 @@ from zanzara_archive.chunking import (
 )
 from zanzara_archive.contracts import (
     AdapterFailure,
+    ApiError,
     AudioArtifact,
     AudioChunk,
     DiarizationResult,
@@ -339,11 +342,15 @@ def build_parser() -> argparse.ArgumentParser:
     cancel.add_argument("job_id")
     recover = job_commands.add_parser("recover", help="requeue expired leases")
     recover.add_argument("--database", required=True)
-    worker = commands.add_parser("worker", help="run the single durable synthetic worker")
+    worker = commands.add_parser("worker", help="run one durable queued job")
     worker_commands = worker.add_subparsers(dest="worker_command", required=True)
     run = worker_commands.add_parser("run", help="claim and complete one queued job")
     run.add_argument("--database", required=True)
     run.add_argument("--owner", required=True)
+    run.add_argument(
+        "--process", action="store_true", help="execute one real queued processing stage"
+    )
+    run.add_argument("--manifest", default="planning/corpus-20.json")
     return parser
 
 
@@ -593,22 +600,74 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             repository = SQLiteRepository.open(arguments.database)
             try:
-                result = DurableWorker(
-                    repository,
-                    arguments.owner,
-                    synthetic_runner(),
-                ).run_once()
+                stage_result: dict[str, Any] = {}
+                runner = synthetic_runner()
+                if arguments.process:
+                    corpus = load_manifest(arguments.manifest)
+                    episodes = {item.sha256: item.relative_filename for item in corpus.episodes}
+
+                    def run_stage(job: Any) -> dict[str, Any]:
+                        row = repository.connection.execute(
+                            "SELECT source_sha256 FROM jobs WHERE job_id = ?", (job.job_id,)
+                        ).fetchone()
+                        episode = episodes.get(row["source_sha256"] if row else None)
+                        if episode is None or job.stage not in {
+                            "asr",
+                            "diarization",
+                            "attribution",
+                            "speaker_embeddings_resnet293",
+                        }:
+                            raise AdapterFailure(
+                                ApiError(
+                                    "invalid_job",
+                                    "job stage or source is not processable",
+                                    False,
+                                    job.request_id or f"job-{job.job_id}",
+                                )
+                            )
+                        stage_arguments = build_parser().parse_args(
+                            [
+                                "process",
+                                "--manifest",
+                                arguments.manifest,
+                                "--episode",
+                                episode,
+                                "--stage",
+                                job.stage,
+                                "--database",
+                                arguments.database,
+                            ]
+                        )
+                        stage_arguments.repository = repository
+                        stage_arguments.job = job
+                        stage_result.update(_process_stage(stage_arguments))
+                        return stage_result
+
+                    runner = run_stage
+                with (
+                    Path(f"{arguments.database}.worker.lock").open("a")
+                    if arguments.process
+                    else nullcontext()
+                ) as lock:
+                    if lock is not None:
+                        try:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            parser.error("another real worker is active for this database")
+                    result = DurableWorker(repository, arguments.owner, runner).run_once()
             finally:
                 repository.close()
-        except (StorageError, KeyError, ValueError) as exc:
+        except (CorpusValidationError, OSError, StorageError, KeyError, ValueError) as exc:
             parser.error(str(exc))
         payload = {
             "job": result.job.to_dict() if result.job else None,
             "completed": result.completed,
             "error": result.error.to_dict() if result.error else None,
         }
+        if stage_result:
+            payload["stage_result"] = stage_result
         print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
-        return 0
+        return 1 if arguments.process and result.error else 0
     try:
         manifest = load_manifest(arguments.manifest)
         report = verify_corpus(

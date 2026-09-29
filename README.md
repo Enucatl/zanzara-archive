@@ -53,6 +53,8 @@ artifacts and generated processing output stay in ignored local directories.
 The durable single-worker queue, stage fingerprints and crash recovery contract
 are documented in [`docs/jobs.md`](docs/jobs.md). Jobs and stage state belong on
 the local SQLite `state` volume; the canonical archive remains read-only.
+Start and recover the LAN app, Qdrant, and serial GPU jobs with the
+[`workstation runbook`](docs/workstation.md).
 
 ## ResNet voice index
 

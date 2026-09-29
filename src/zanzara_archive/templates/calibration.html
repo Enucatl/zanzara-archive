@@ -5,6 +5,7 @@
 body{font:16px system-ui;background:#182027;color:#eef;max-width:760px;margin:2rem auto;padding:0 1rem}
 button,select,input,textarea{font:inherit;padding:.55rem;margin:.2rem}button{cursor:pointer}.labels{display:flex;gap:.5rem;flex-wrap:wrap}.labels button{min-width:9rem}.labels button.selected{outline:3px solid #8de;background:#285}.meta{color:#b9c8d4}#note{width:100%;box-sizing:border-box}audio{width:100%}
 </style></head><body>
+    {% include "navigation.html" %}
 <h1>Music calibration review</h1>
 <p id="guidance">Listen before choosing: <b>none</b> has no music; <b>background</b> accompanies foreground speech; <b>dominant</b> is foreground music or singing; choose <b>uncertain</b> when no single label is clear.</p>
 <label>Reviewer <input id="reviewer" autocomplete="off" required></label>

@@ -1,0 +1,11 @@
+<style>
+  .archive-nav { display: flex; flex-wrap: wrap; gap: .5rem 1rem; padding: .75rem 0; }
+  .archive-nav a { color: inherit; padding: .4rem; }
+  .archive-nav a:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+  .archive-nav [aria-current="page"] { font-weight: bold; }
+</style>
+<nav class="archive-nav" aria-label="Archive">
+  {% for url, label in [('/', 'Archive'), ('/transcripts', 'Transcripts'), ('/speakers', 'Speakers'), ('/p1r-03d', 'Chunk review')] %}
+  <a href="{{ url }}"{% if request.url.path == url %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>

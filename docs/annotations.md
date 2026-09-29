@@ -1,5 +1,13 @@
 # Local annotation and reviewed references
 
+Start at `http://complex.home.arpa:8000/` for archive navigation. The
+`/transcripts` page lists indexed transcript availability and annotation links;
+`/speakers` lists anonymous episode-local labels from indexed transcripts.
+Matching labels across episodes do not establish identity. Each page shows
+recorded processing job states and a refresh link. Search/playback browsing and
+voice comparison remain separate follow-up work. The navigation on annotation,
+calibration, and chunk-review pages returns to the archive.
+
 P1-05 provides a FastAPI/Jinja editor with loopback access by default. For the
 LAN-only review workflow on `complex.home.arpa`, start it with a local SQLite
 state database and explicitly enable the network bind:

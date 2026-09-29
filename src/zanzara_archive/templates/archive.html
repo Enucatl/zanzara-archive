@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% set section = request.url.path %}
+    {% set title = 'Speakers' if section == '/speakers' else 'Transcripts' if section == '/transcripts' else 'Zanzara Archive' %}
+    <title>{{ title }}</title>
+    <style>
+      :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+      body { max-width: 70rem; margin: 1rem auto; padding: 0 1rem; overflow-wrap: anywhere; }
+      a { color: inherit; }
+      li { margin: .8rem 0; }
+      .state { border: 1px solid; border-radius: .4rem; padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    {% include 'navigation.html' %}
+    <main>
+      <h1>{{ title }}</h1>
+      {% if error %}
+      <p class="state" role="alert">{{ error }} <a href="{{ section }}">Retry</a></p>
+      {% else %}
+      {% if section != '/speakers' %}
+      <h2>Episodes</h2>
+      <p>Browse transcript availability and open the annotation editor for an episode.</p>
+      <ul>
+        {% for episode in episodes %}
+        <li>
+          <strong>{{ episode.episode_date }} · {{ episode.episode_id }}</strong><br>
+          {% if episode.chunk_count %}{{ episode.chunk_count }} indexed transcript chunks.{% else %}Transcript unavailable.{% endif %}
+          <a href="/annotations/{{ episode.episode_id|urlencode }}">{{ 'Review annotation' if episode.has_annotation else 'Open annotation editor' }}: {{ episode.episode_id }}</a>
+          {% if not episode.has_annotation %}No saved annotation.{% endif %}
+        </li>
+        {% else %}<li>No episodes registered yet.</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% if section != '/transcripts' %}
+      <h2>Anonymous speakers</h2>
+      <p>Speaker labels belong to one episode; matching labels across episodes do not establish identity.</p>
+      <ul>
+        {% for speaker in speakers %}
+        <li>{{ speaker.speaker_id }} · {{ speaker.episode_id }}
+          <a href="/annotations/{{ speaker.episode_id|urlencode }}">Open episode annotation: {{ speaker.episode_id }}</a>
+        </li>
+        {% else %}<li>No anonymous speakers available yet.</li>{% endfor %}
+      </ul>
+      <p>Voice comparison and identity review are not available yet.</p>
+      {% endif %}
+      <h2>Processing jobs</h2>
+      <ul>
+        {% for job in jobs %}<li>{{ job.stage }} · {{ job.status }}: {{ job.total }}</li>
+        {% else %}<li>No processing jobs recorded.</li>{% endfor %}
+      </ul>
+      <p><a href="{{ section }}">Refresh availability and job status</a></p>
+      {% endif %}
+    </main>
+  </body>
+</html>

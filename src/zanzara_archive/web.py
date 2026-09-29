@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import sqlite3
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -132,6 +133,43 @@ def create_app(
             yield current
         finally:
             current.close()
+
+    @app.get("/", response_class=HTMLResponse)
+    @app.get("/transcripts", response_class=HTMLResponse)
+    @app.get("/speakers", response_class=HTMLResponse)
+    def archive_page(request: Request) -> HTMLResponse:
+        """Show available archive content and durable processing state."""
+
+        episodes, speakers, jobs = [], [], []
+        error = None
+        try:
+            with repository() as current:
+                episodes = current.connection.execute(
+                    """SELECT e.episode_id, e.episode_date,
+                       (SELECT count(*) FROM text_chunks t
+                        WHERE t.episode_id = e.episode_id) AS chunk_count,
+                       EXISTS(SELECT 1 FROM annotation_revisions a
+                              WHERE a.episode_id = e.episode_id) AS has_annotation
+                       FROM episodes e ORDER BY e.episode_date DESC, e.episode_id"""
+                ).fetchall()
+                speakers = current.connection.execute(
+                    """SELECT DISTINCT t.speaker_id, t.episode_id
+                       FROM text_chunks t JOIN episodes e USING (episode_id)
+                       WHERE t.speaker_id IS NOT NULL
+                       ORDER BY e.episode_date DESC, t.episode_id, t.speaker_id"""
+                ).fetchall()
+                jobs = current.connection.execute(
+                    """SELECT stage, status, count(*) AS total FROM jobs
+                       GROUP BY stage, status ORDER BY stage, status"""
+                ).fetchall()
+        except (StorageError, sqlite3.Error):
+            error = "Archive content is unavailable. Reload this page to retry."
+        return templates.TemplateResponse(
+            request=request,
+            name="archive.html",
+            context={"episodes": episodes, "speakers": speakers, "jobs": jobs, "error": error},
+            status_code=503 if error else 200,
+        )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

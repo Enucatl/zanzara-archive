@@ -1,10 +1,10 @@
 # Zanzara Archive
 
 The application has durable jobs, transcript/diarization artifacts, local model
-services, annotation pages and chunk evaluation tools. Search and cross-episode
-voice discovery are the next product work. The revised
-[working plan](planning/README.md) prioritizes FTS5 search/playback and one voice
-encoder, with focused checks and a small human-reviewed ASR pilot.
+services, FTS5 transcript search with original-audio playback, and anonymous
+cross-episode voice discovery with human identity review. The
+[working plan](planning/README.md) covers the current scope and a small
+human-reviewed ASR pilot.
 The [ASR pilot report](docs/asr-pilot.md) records the measured Parakeet default
 and its limitations.
 
@@ -55,6 +55,24 @@ are documented in [`docs/jobs.md`](docs/jobs.md). Jobs and stage state belong on
 the local SQLite `state` volume; the canonical archive remains read-only.
 Start and recover the LAN app, Qdrant, and serial GPU jobs with the
 [`workstation runbook`](docs/workstation.md).
+
+## Use the archive
+
+On the trusted LAN, open <http://complex.home.arpa:8000/> to search indexed
+transcripts by words or quoted phrases, optionally filter by episode and date,
+and play a hit at its source timestamp. For example, search for `archivio`
+to see matching passages if that word occurs in the indexed episodes. The
+[`/speakers` page](http://complex.home.arpa:8000/speakers) plays clean voice
+excerpts and ranks similar voices across episodes. Listen before recording a
+same-person or different-person decision; the score is not an identity claim.
+Confirmed appearances can be named, split, or undone there. The
+[`/chunk-review` page](http://complex.home.arpa:8000/chunk-review) is for the
+separate human ASR pilot.
+
+Only processed episodes have searchable text or voices. Search is lexical,
+voice scores are uncalibrated, and the pilot does not establish archive-wide
+accuracy. The original audio and all transcripts, review decisions, artifacts,
+and credentials remain local and private.
 
 ## ResNet voice index
 

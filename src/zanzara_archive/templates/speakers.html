@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Speakers · Zanzara Archive</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+    body { max-width: 75rem; margin: 1rem auto; padding: 0 1rem; overflow-wrap: anywhere; }
+    a { color: inherit; }
+    button, input, select { font: inherit; padding: .35rem; }
+    audio { display: block; width: min(100%, 32rem); margin: .4rem 0; }
+    .pair, .group { border: 1px solid; border-radius: .4rem; padding: .8rem; margin: 1rem 0; }
+    .clips { display: flex; flex-wrap: wrap; gap: 1rem; }
+    .clips > div { flex: 1 1 18rem; }
+    .state { border: 1px solid; border-radius: .4rem; padding: .8rem; }
+    li { margin: .6rem 0; }
+  </style>
+</head>
+<body>
+{% include 'navigation.html' %}
+<main>
+  <h1>Anonymous speakers</h1>
+  <p>Choose an episode voice to find possible recurring appearances. ResNet293 cosine scores are uncalibrated ranking signals, not identity probabilities.</p>
+  {% if error %}<p class="state" role="alert">{{ error }}</p>{% endif %}
+  <form action="/speakers" method="get">
+    <label>Archive speaker
+      <select name="speaker_id" required>
+        <option value="">Choose a voice</option>
+        {% for speaker in speakers %}
+        <option value="{{ speaker.episode_speaker_id }}"{% if selected and selected.episode_speaker_id == speaker.episode_speaker_id %} selected{% endif %}>{{ speaker.episode_date }} · {{ speaker.episode_id }} · {{ speaker.local_speaker_id }}{% if speaker.display_name %} · {{ speaker.display_name }}{% endif %}{% if speaker.voice_searchable != 'voice_searchable' %} · voice unavailable{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Find candidates</button>
+  </form>
+  {% if not speakers %}<p class="state">No anonymous speakers available yet. Process voice embeddings first.</p>{% endif %}
+  {% if selected %}
+  <h2>Selected voice</h2>
+  <p>{{ selected.episode_date }} · {{ selected.episode_id }} · {{ selected.local_speaker_id }}. {% if not selected.has_transcript %}Transcript unavailable.{% endif %}
+    <a href="/episodes/{{ selected.episode_id|urlencode }}">Open episode</a></p>
+  {% if selected.excerpt %}<audio controls preload="none" src="{{ selected.media_url }}#t={{ selected.excerpt.start_ms / 1000 }},{{ selected.excerpt.end_ms / 1000 }}" aria-label="Selected voice excerpt"></audio>{% else %}<p>Voice not searchable: no clean excerpt.</p>{% endif %}
+  {% endif %}
+  {% if result %}
+  <h2>Voice candidates</h2>
+  <p>Active generation {{ result.generation }} · ResNet293 · {{ result.score_kind }}. Listen before making a decision.</p>
+  {% if result.status == 'not_voice_searchable' %}<p class="state">Selected voice is not voice searchable.</p>{% endif %}
+  {% for candidate in result.candidates %}
+  <section class="pair">
+    <h3>{{ loop.index }}. {{ candidate.speaker.episode_date if candidate.speaker else candidate.episode_id }} · {{ candidate.episode_id }} · {{ candidate.speaker.local_speaker_id if candidate.speaker else candidate.episode_speaker_id }}</h3>
+    <p>ResNet matched score {{ '%.3f'|format(candidate.score) }}; centroid score {{ '%.3f'|format(candidate.centroid_score) }}. {% if candidate.speaker and not candidate.speaker.has_transcript %}Transcript unavailable.{% endif %}
+      <a href="/episodes/{{ candidate.episode_id|urlencode }}">Open episode</a></p>
+    <div class="clips">
+      <div><strong>Selected excerpt</strong><audio controls preload="none" src="{{ candidate.representative_match.query_excerpt.media_url }}" aria-label="Selected excerpt for candidate {{ loop.index }}"></audio></div>
+      <div><strong>Candidate excerpt</strong><audio controls preload="none" src="{{ candidate.representative_match.candidate_excerpt.media_url }}" aria-label="Candidate excerpt {{ loop.index }}"></audio></div>
+    </div>
+    {% if candidate.speaker %}
+    <button type="button" class="decision" data-choice="same_person" data-right="{{ candidate.episode_speaker_id }}" data-evidence="{{ candidate.embedding_artifact_id }}">Same person</button>
+    <button type="button" class="decision" data-choice="different_person" data-right="{{ candidate.episode_speaker_id }}" data-evidence="{{ candidate.embedding_artifact_id }}">Different person</button>
+    <button type="button" class="decision" data-choice="uncertain" data-right="{{ candidate.episode_speaker_id }}" data-evidence="{{ candidate.embedding_artifact_id }}">Uncertain</button>
+    {% else %}<p>Candidate is not registered for identity review.</p>{% endif %}
+  </section>
+  {% else %}<p>No cross episode candidates in this voice generation.</p>{% endfor %}
+  {% endif %}
+  <h2>Confirmed appearance history</h2>
+  {% for global_id, members in groups.items() %}
+  <section class="group">
+    <h3>{{ members[0].display_name or 'Anonymous voice' }}</h3>
+    <form class="name" data-global="{{ global_id }}"><label>Name <input name="display_name" value="{{ members[0].display_name or '' }}" placeholder="Optional name"></label><button type="submit">Save name</button></form>
+    <ol>
+      {% for member in members %}
+      <li>{{ member.episode_date }} · {{ member.episode_id }} · {{ member.local_speaker_id }} · {% if member.has_transcript %}Transcript available{% else %}Transcript unavailable{% endif %}
+        <a href="/episodes/{{ member.episode_id|urlencode }}">Open episode</a>
+        {% if member.excerpt %}<audio controls preload="none" src="{{ member.media_url }}#t={{ member.excerpt.start_ms / 1000 }},{{ member.excerpt.end_ms / 1000 }}" aria-label="Appearance excerpt"></audio>{% endif %}
+        {% if members|length > 1 %}<button type="button" class="split" data-global="{{ global_id }}" data-separate="{{ member.episode_speaker_id }}" data-retain="{{ (members[1] if loop.first else members[0]).episode_speaker_id }}">Split this appearance</button>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% else %}<p>No confirmed recurring appearances yet.</p>{% endfor %}
+  <h2>Review decisions</h2>
+  <ul>{% for decision in decisions %}<li>{{ decision.decision|replace('_', ' ') }} · {{ decision.left_episode_speaker_id }} / {{ decision.right_episode_speaker_id }}
+    <button type="button" class="undo" data-id="{{ decision.decision_id }}" data-revision="{{ decision.revision }}" data-retain="{{ decision.left_episode_speaker_id }}">Undo</button>
+  </li>{% else %}<li>No decisions yet.</li>{% endfor %}</ul>
+  <p><label>Reviewer <input id="reviewer" autocomplete="name" required></label></p>
+  <p id="review-error" role="alert" hidden></p>
+</main>
+<script>
+  let revision = {{ revision|tojson }};
+  const selected = {{ (selected.episode_speaker_id if selected else '')|tojson }};
+  const selectedGlobal = {{ (selected.global_speaker_id if selected else none)|tojson }};
+  const queryEvidence = {{ (result.episode_speaker_id.split(':')[0] if result else '')|tojson }};
+  const globals = {{ speakers|tojson }};
+  const error = document.getElementById('review-error');
+  async function save(path, body, method = 'POST') {
+    const reviewer = document.getElementById('reviewer').value.trim();
+    if (!reviewer) { error.textContent = 'Enter a reviewer name before saving.'; error.hidden = false; return; }
+    const response = await fetch(path, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, reviewer, expected_revision: revision})});
+    const data = await response.json();
+    if (!response.ok) { error.textContent = data.error?.message || 'Review failed.'; error.hidden = false; return; }
+    location.reload();
+  }
+  document.querySelectorAll('.decision').forEach(button => button.onclick = () => {
+    const rightGlobal = globals.find(row => row.episode_speaker_id === button.dataset.right)?.global_speaker_id;
+    save('/api/v1/identity-decisions', {
+      left_episode_speaker_id: selected, right_episode_speaker_id: button.dataset.right,
+      decision: button.dataset.choice, evidence_artifact_ids: [queryEvidence, button.dataset.evidence],
+      keep_global_speaker_id: selectedGlobal || rightGlobal || null
+    });
+  });
+  document.querySelectorAll('.undo').forEach(button => button.onclick = () => save(
+    '/api/v1/identity-decisions/' + encodeURIComponent(button.dataset.id) + '/undo',
+    {expected_decision_revision: Number(button.dataset.revision), retain_episode_speaker_id: button.dataset.retain}
+  ));
+  document.querySelectorAll('.split').forEach(button => button.onclick = () => save(
+    '/api/v1/speakers/' + encodeURIComponent(button.dataset.global) + '/split',
+    {separate_episode_speaker_ids: [button.dataset.separate], retain_episode_speaker_id: button.dataset.retain}
+  ));
+  document.querySelectorAll('.name').forEach(form => form.onsubmit = event => {
+    event.preventDefault();
+    save('/api/v1/speakers/' + encodeURIComponent(form.dataset.global) + '/name',
+      {display_name: form.elements.display_name.value.trim() || null}, 'PATCH');
+  });
+</script>
+</body>
+</html>

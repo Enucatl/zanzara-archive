@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import mimetypes
+import os
 import sqlite3
 import uuid
 from collections.abc import Iterator, Mapping
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
+import niquests
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -33,7 +35,13 @@ from .annotations import (
 from .artifacts import ArtifactPublicationError
 from .calibration import validate_batch, validate_decision
 from .chunk_review import chunk_review_router
-from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError, IdentityDecision
+from .contracts import (
+    AcousticConditionCorrection,
+    ApiEnvelope,
+    ApiError,
+    ArtifactManifest,
+    IdentityDecision,
+)
 from .corpus import CorpusValidationError, load_manifest, resolve_source
 from .qwen_assistance import (
     AnnotationAssistanceRequest,
@@ -41,6 +49,8 @@ from .qwen_assistance import (
     AnnotationAssistanceValidationError,
 )
 from .storage import SearchValidationError, SQLiteRepository, StorageConflictError, StorageError
+from .voice_index import Qdrant, load_embedding_artifacts
+from .voice_search import retrieve_candidates
 
 TEMPLATE_ROOT = Path(__file__).with_name("templates")
 EXPORT_NAMES = frozenset(
@@ -122,10 +132,97 @@ def create_app(
     )
     assistance_service = annotation_assistant or AnnotationAssistanceService()
     frozen_manifest = load_manifest(manifest_path) if manifest_path is not None else None
-    if frozen_manifest is not None:
+    source_hashes = (
+        {episode.sha256 for episode in frozen_manifest.episodes}
+        if frozen_manifest is not None
+        else set()
+    )
+    voice_paths = sorted(
+        path
+        for path in artifact_path.glob("*/speaker_embeddings_resnet293/*/embeddings.json")
+        if path.parents[2].name in source_hashes
+    )
+    voice_records = load_embedding_artifacts([path.parent for path in voice_paths])
+    voice_speakers = {
+        f"{record['embedding_artifact_id']}:{local_id}": (record, local_id)
+        for record in voice_records
+        for local_id in record["speakers"]
+    }
+    if frozen_manifest is not None or voice_records:
         current = SQLiteRepository.open(database_path)
         try:
-            current.register_corpus_manifest(frozen_manifest)
+            if frozen_manifest is not None:
+                current.register_corpus_manifest(frozen_manifest)
+            for record, voice_path in zip(voice_records, voice_paths, strict=True):
+                source = record["source_sha256"]
+                exemplar_paths = list(
+                    (artifact_path / source / "exemplars").glob("*/manifest.json")
+                )
+                exemplar_path = next(
+                    (
+                        path
+                        for path in exemplar_paths
+                        if json.loads(path.read_text())["artifact_id"]
+                        == record["exemplars_artifact_id"]
+                    ),
+                    None,
+                )
+                if exemplar_path is None:
+                    raise ValueError("voice exemplar artifact is missing")
+                exemplar_bytes = exemplar_path.read_bytes()
+                if (
+                    hashlib.sha256(exemplar_bytes).hexdigest()
+                    != record["exemplars_manifest_sha256"]
+                ):
+                    raise ValueError("voice exemplar manifest disagrees with embedding")
+                exemplar = ArtifactManifest.from_dict(json.loads(exemplar_bytes))
+                if exemplar.stage != "exemplars" or exemplar.source_sha256 != source:
+                    raise ValueError("voice exemplar provenance disagrees with source")
+                diarization_paths = list(
+                    (artifact_path / source / "diarization").glob("*/manifest.json")
+                )
+                diarization_path = next(
+                    (
+                        path
+                        for path in diarization_paths
+                        if hashlib.sha256(path.read_bytes()).hexdigest()
+                        in exemplar.upstream_artifact_hashes
+                    ),
+                    None,
+                )
+                if diarization_path is None:
+                    raise ValueError("voice diarization artifact is missing")
+                diarization = ArtifactManifest.from_dict(json.loads(diarization_path.read_text()))
+                if diarization.stage != "diarization" or diarization.source_sha256 != source:
+                    raise ValueError("voice diarization provenance disagrees with source")
+                embedding_path = voice_path.parent
+                embedding = ArtifactManifest.from_dict(
+                    json.loads((embedding_path / "manifest.json").read_text())
+                )
+                for manifest, path in (
+                    (diarization, diarization_path.parent),
+                    (exemplar, exemplar_path.parent),
+                    (embedding, embedding_path),
+                ):
+                    existing = current.connection.execute(
+                        "SELECT source_sha256, stage FROM artifacts WHERE artifact_id = ?",
+                        (manifest.artifact_id,),
+                    ).fetchone()
+                    if existing is None:
+                        current.record_artifact(manifest, path)
+                    elif tuple(existing) != (manifest.source_sha256, manifest.stage):
+                        raise StorageConflictError("voice artifact identity has changed")
+                for local_id, speaker in record["speakers"].items():
+                    speaker_id = f"{record['embedding_artifact_id']}:{local_id}"
+                    current.register_episode_speaker(
+                        speaker_id, record["episode_id"], diarization.artifact_id, local_id
+                    )
+                    current.connection.execute(
+                        """UPDATE episode_speakers SET voice_searchable = ?
+                           WHERE episode_speaker_id = ?""",
+                        (speaker["status"], speaker_id),
+                    )
+                current.connection.commit()
         finally:
             current.close()
 
@@ -139,7 +236,6 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     @app.get("/transcripts", response_class=HTMLResponse)
-    @app.get("/speakers", response_class=HTMLResponse)
     def archive_page(
         request: Request,
         q: str = "",
@@ -231,6 +327,87 @@ def create_app(
                 ),
             },
             status_code=503 if error else 200,
+        )
+
+    @app.get("/speakers", response_class=HTMLResponse)
+    def speakers_page(request: Request, speaker_id: str = "") -> HTMLResponse:
+        """Compare indexed voices and show confirmed appearances in date order."""
+
+        with repository() as current:
+            rows = current.connection.execute(
+                """SELECT s.episode_speaker_id, s.episode_id, s.local_speaker_id,
+                          s.voice_searchable, e.episode_date, m.global_speaker_id,
+                          g.display_name,
+                          EXISTS(SELECT 1 FROM text_chunks t WHERE t.episode_id = s.episode_id)
+                            AS has_transcript
+                   FROM episode_speakers s JOIN episodes e USING (episode_id)
+                   LEFT JOIN identity_memberships m USING (episode_speaker_id)
+                   LEFT JOIN global_speakers g USING (global_speaker_id)
+                   WHERE s.mapping_state = 'current'
+                   ORDER BY e.episode_date, s.episode_id, s.local_speaker_id"""
+            ).fetchall()
+            decisions = current.connection.execute(
+                """SELECT decision_id, left_episode_speaker_id, right_episode_speaker_id,
+                          decision, revision FROM identity_decisions
+                   WHERE state = 'active' ORDER BY created_at DESC, decision_id"""
+            ).fetchall()
+            revision = current.identity_revision()
+        speakers = [dict(row) for row in rows]
+        by_id = {item["episode_speaker_id"]: item for item in speakers}
+        for item in speakers:
+            record_local = voice_speakers.get(item["episode_speaker_id"])
+            excerpts = (
+                record_local[0]["speakers"][record_local[1]]["excerpts"] if record_local else []
+            )
+            item["excerpt"] = (
+                {"start_ms": excerpts[0]["start_ms"], "end_ms": excerpts[0]["end_ms"]}
+                if excerpts
+                else None
+            )
+            item["media_url"] = f"/media/{quote(item['episode_id'], safe='')}" if excerpts else None
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for item in speakers:
+            if item["global_speaker_id"]:
+                groups.setdefault(item["global_speaker_id"], []).append(item)
+        result = None
+        error = None
+        if speaker_id:
+            if speaker_id not in by_id or speaker_id not in voice_speakers:
+                error = "Selected voice is unavailable."
+            else:
+                record, local_id = voice_speakers[speaker_id]
+                try:
+                    result = retrieve_candidates(
+                        record,
+                        local_id,
+                        Qdrant(os.environ.get("QDRANT_ENDPOINT", "http://127.0.0.1:6333")).request,
+                    )
+                except (ValueError, OSError, niquests.exceptions.RequestException):
+                    error = "Voice index is unavailable. Retry when Qdrant is running."
+                if result:
+                    for candidate in result["candidates"]:
+                        candidate["speaker"] = by_id.get(candidate["episode_speaker_id"])
+                        for match in candidate["matches"]:
+                            for side in ("query_excerpt", "candidate_excerpt"):
+                                excerpt = match[side]
+                                excerpt["media_url"] = (
+                                    f"/media/{quote(excerpt['episode_id'], safe='')}"
+                                    f"#t={excerpt['start_ms'] / 1000:g},"
+                                    f"{excerpt['end_ms'] / 1000:g}"
+                                )
+                        candidate["representative_match"] = candidate["matches"][0]
+        return templates.TemplateResponse(
+            request=request,
+            name="speakers.html",
+            context={
+                "speakers": speakers,
+                "selected": by_id.get(speaker_id),
+                "result": result,
+                "error": error,
+                "groups": groups,
+                "decisions": decisions,
+                "revision": revision,
+            },
         )
 
     @app.get("/episodes/{episode_id:path}", response_class=HTMLResponse, response_model=None)

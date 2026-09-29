@@ -36,14 +36,14 @@ def test_archive_navigation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         VALUES ('job', 'asr', 'failed', '2026-01-01', '2026-01-01');
     """)
     repository.close()
-    for route in ("/", "/transcripts", "/speakers"):
+    for route in ("/", "/transcripts"):
         page = client.get(route)
         assert page.status_code == 200
         assert f'href="{route}" aria-current="page"' in page.text
         assert "asr · failed: 1" in page.text
         assert "/annotations/example.opus" in page.text
     assert "1 indexed transcript chunks." in client.get("/transcripts").text
-    assert "&lt;script&gt;" in client.get("/speakers").text
+    assert "No anonymous speakers available yet." in client.get("/speakers").text
     assert 'href="/transcripts"' in client.get("/annotations/example.opus").text
     assert 'href="/speakers"' in client.get("/p1r-03d").text
 

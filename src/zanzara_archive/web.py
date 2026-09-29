@@ -33,7 +33,7 @@ from .annotations import (
 from .artifacts import ArtifactPublicationError
 from .calibration import validate_batch, validate_decision
 from .chunk_review import chunk_review_router
-from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError
+from .contracts import AcousticConditionCorrection, ApiEnvelope, ApiError, IdentityDecision
 from .corpus import CorpusValidationError, load_manifest, resolve_source
 from .qwen_assistance import (
     AnnotationAssistanceRequest,
@@ -369,6 +369,129 @@ def create_app(
             content=ApiEnvelope(
                 request_id, "ok", data={"results": results, "limit": limit, "offset": offset}
             ).to_dict()
+        )
+
+    def identity_revision(body: dict[str, Any]) -> int:
+        value = body.get("expected_revision")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("expected_revision must be a nonnegative integer")
+        return value
+
+    @app.get("/api/v1/identity-state")
+    def get_identity_state() -> JSONResponse:
+        with repository() as current:
+            revision = current.identity_revision()
+        return JSONResponse(
+            content=ApiEnvelope(_request_id(), "ok", data={"revision": revision}).to_dict()
+        )
+
+    @app.post("/api/v1/identity-decisions")
+    def save_identity_decision(body: dict[str, Any]) -> JSONResponse:
+        try:
+            expected = identity_revision(body)
+            evidence = body["evidence_artifact_ids"]
+            if not isinstance(evidence, list) or not all(
+                isinstance(item, str) for item in evidence
+            ):
+                raise ValueError("evidence_artifact_ids must be a list of artifact IDs")
+            decision = IdentityDecision(
+                decision_id=f"decision-{uuid.uuid4().hex}",
+                left_episode_speaker_id=body["left_episode_speaker_id"],
+                right_episode_speaker_id=body["right_episode_speaker_id"],
+                decision=body["decision"],
+                reviewer=body["reviewer"],
+                evidence_artifact_ids=tuple(evidence),
+                created_at=datetime.now(UTC).isoformat(),
+            )
+            with repository() as current:
+                current.append_identity_decision(
+                    decision,
+                    expected_revision=expected,
+                    keep_global_speaker_id=body.get("keep_global_speaker_id"),
+                )
+                revision = current.identity_revision()
+        except StorageConflictError as exc:
+            return _error(_request_id(), "identity_conflict", str(exc), 409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return _error(_request_id(), "invalid_identity_decision", str(exc), 422)
+        return JSONResponse(
+            content=ApiEnvelope(
+                _request_id(),
+                "ok",
+                data={"decision_id": decision.decision_id, "revision": revision},
+            ).to_dict()
+        )
+
+    @app.post("/api/v1/identity-decisions/{decision_id}/undo")
+    def undo_identity_decision(decision_id: str, body: dict[str, Any]) -> JSONResponse:
+        try:
+            expected = identity_revision(body)
+            decision_revision = body["expected_decision_revision"]
+            if (
+                isinstance(decision_revision, bool)
+                or not isinstance(decision_revision, int)
+                or decision_revision < 1
+            ):
+                raise ValueError("expected_decision_revision must be a positive integer")
+            with repository() as current:
+                current.undo_identity_decision(
+                    decision_id,
+                    expected_revision=expected,
+                    expected_decision_revision=decision_revision,
+                    retain_episode_speaker_id=body["retain_episode_speaker_id"],
+                    reviewer=body["reviewer"],
+                )
+                revision = current.identity_revision()
+        except StorageConflictError as exc:
+            return _error(_request_id(), "identity_conflict", str(exc), 409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return _error(_request_id(), "invalid_identity_undo", str(exc), 422)
+        return JSONResponse(
+            content=ApiEnvelope(_request_id(), "ok", data={"revision": revision}).to_dict()
+        )
+
+    @app.post("/api/v1/speakers/{global_id}/split")
+    def split_global_speaker(global_id: str, body: dict[str, Any]) -> JSONResponse:
+        try:
+            expected = identity_revision(body)
+            separate = body["separate_episode_speaker_ids"]
+            if not isinstance(separate, list) or not all(
+                isinstance(item, str) for item in separate
+            ):
+                raise ValueError("separate_episode_speaker_ids must be a list of speaker IDs")
+            with repository() as current:
+                current.split_global_speaker(
+                    global_id,
+                    set(separate),
+                    expected_revision=expected,
+                    retain_episode_speaker_id=body["retain_episode_speaker_id"],
+                    reviewer=body["reviewer"],
+                )
+                revision = current.identity_revision()
+        except StorageConflictError as exc:
+            return _error(_request_id(), "identity_conflict", str(exc), 409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return _error(_request_id(), "invalid_identity_split", str(exc), 422)
+        return JSONResponse(
+            content=ApiEnvelope(_request_id(), "ok", data={"revision": revision}).to_dict()
+        )
+
+    @app.patch("/api/v1/speakers/{global_id}/name")
+    def name_global_speaker(global_id: str, body: dict[str, Any]) -> JSONResponse:
+        try:
+            expected = identity_revision(body)
+            name = body["display_name"]
+            if name is not None and not isinstance(name, str):
+                raise ValueError("display_name must be text or null")
+            with repository() as current:
+                current.name_global_speaker(global_id, name, expected_revision=expected)
+                revision = current.identity_revision()
+        except StorageConflictError as exc:
+            return _error(_request_id(), "identity_conflict", str(exc), 409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return _error(_request_id(), "invalid_speaker_name", str(exc), 422)
+        return JSONResponse(
+            content=ApiEnvelope(_request_id(), "ok", data={"revision": revision}).to_dict()
         )
 
     def p1r03d_queue(filename: str) -> dict[str, Any]:

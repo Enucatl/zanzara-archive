@@ -8,8 +8,9 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
+from fastapi.testclient import TestClient
 
-from zanzara_archive.contracts import EvaluationReport
+from zanzara_archive.contracts import EvaluationReport, IdentityDecision
 from zanzara_archive.storage import (
     MIGRATIONS,
     SCHEMA_VERSION,
@@ -20,6 +21,7 @@ from zanzara_archive.storage import (
     migrate,
     open_database,
 )
+from zanzara_archive.web import create_app
 
 
 def test_fresh_database_enables_wal_fts_and_foreign_keys(tmp_path: Path) -> None:
@@ -87,6 +89,8 @@ def test_upgrade_preserves_fixture_data_and_enforces_fk(tmp_path: Path) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         upgraded.execute(
             """INSERT INTO episode_speakers
+            (episode_speaker_id, episode_id, diarization_artifact_id,
+             local_speaker_id, voice_searchable)
             VALUES ('speaker-1', 'missing-episode', 'missing-artifact', 'SPEAKER_00', 'unknown')"""
         )
     upgraded.close()
@@ -278,6 +282,131 @@ def test_generation_pointer_identity_audit_and_budget_are_relational(tmp_path: P
             request_id="request-2",
             amount_microusd=5_000_001,
         )
+    repository.close()
+
+
+def test_identity_merge_contradiction_undo_split_and_reprocessing(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    connection = repository.connection
+    _insert_interval_provenance(connection)
+    connection.execute(
+        "UPDATE artifacts SET stage = 'diarization' WHERE artifact_id = 'artifact-1'"
+    )
+    connection.execute(
+        """INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "artifact-2",
+            "a" * 64,
+            "diarization",
+            "key-2",
+            "/artifact-2",
+            "f" * 64,
+            "[]",
+            "b" * 64,
+            "{}",
+            "test",
+            1,
+            "{}",
+            "now",
+        ),
+    )
+    connection.commit()
+    for speaker in "ABCDE":
+        repository.register_episode_speaker(speaker, "episode-1", "artifact-1", speaker)
+
+    def decide(decision_id: str, left: str, right: str, action: str) -> None:
+        repository.append_identity_decision(
+            IdentityDecision(decision_id, left, right, action, "human", ("artifact-1",), "now"),
+            expected_revision=repository.identity_revision(),
+        )
+
+    decide("ab", "A", "B", "same_person")
+    decide("bc", "B", "C", "same_person")
+    decide("ad", "A", "D", "different_person")
+    decide("de", "D", "E", "same_person")
+    with pytest.raises(StorageConflictError, match="contradicts"):
+        decide("ce", "C", "E", "same_person")
+    assert repository.identity_revision() == 4
+    global_id = connection.execute(
+        "SELECT global_speaker_id FROM identity_memberships WHERE episode_speaker_id = 'A'"
+    ).fetchone()[0]
+    repository.name_global_speaker(global_id, "Human name", expected_revision=4)
+    with pytest.raises(StorageConflictError, match="stale"):
+        repository.undo_identity_decision(
+            "bc",
+            expected_revision=4,
+            expected_decision_revision=1,
+            retain_episode_speaker_id="A",
+            reviewer="human",
+        )
+    repository.undo_identity_decision(
+        "bc",
+        expected_revision=5,
+        expected_decision_revision=1,
+        retain_episode_speaker_id="A",
+        reviewer="human",
+    )
+    assert (
+        connection.execute(
+            "SELECT 1 FROM identity_memberships WHERE episode_speaker_id = 'C'"
+        ).fetchone()
+        is None
+    )
+    decide("ac", "A", "C", "same_person")
+    repository.split_global_speaker(
+        global_id,
+        {"C"},
+        expected_revision=7,
+        retain_episode_speaker_id="A",
+        reviewer="human",
+    )
+    assert (
+        connection.execute(
+            "SELECT display_name FROM global_speakers WHERE global_speaker_id = ?", (global_id,)
+        ).fetchone()[0]
+        == "Human name"
+    )
+    assert (
+        connection.execute(
+            "SELECT 1 FROM identity_memberships WHERE episode_speaker_id = 'C'"
+        ).fetchone()
+        is None
+    )
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM identity_audit WHERE decision_id IN ('bc', 'ac')"
+        ).fetchone()[0]
+        == 4
+    )
+
+    client = TestClient(create_app(tmp_path / "state.db"))
+    revision = client.get("/api/v1/identity-state").json()["data"]["revision"]
+    request = {
+        "left_episode_speaker_id": "C",
+        "right_episode_speaker_id": "D",
+        "decision": "uncertain",
+        "reviewer": "human",
+        "evidence_artifact_ids": ["artifact-1"],
+        "expected_revision": revision,
+    }
+    assert client.post("/api/v1/identity-decisions", json=request).status_code == 200
+    assert client.post("/api/v1/identity-decisions", json=request).status_code == 409
+
+    repository.register_episode_speaker("A-new", "episode-1", "artifact-2", "A")
+    assert (
+        connection.execute(
+            "SELECT mapping_state FROM episode_speakers WHERE episode_speaker_id = 'A'"
+        ).fetchone()[0]
+        == "stale"
+    )
+    assert (
+        connection.execute(
+            "SELECT 1 FROM identity_memberships WHERE episode_speaker_id = 'A-new'"
+        ).fetchone()
+        is None
+    )
+    with pytest.raises(StorageConflictError, match="stale"):
+        decide("old", "A", "A-new", "same_person")
     repository.close()
 
 

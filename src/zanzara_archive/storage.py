@@ -15,6 +15,7 @@ import os
 import re
 import sqlite3
 import urllib.parse
+import uuid
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -38,7 +39,7 @@ from .corpus import CorpusManifest
 from .stages import stage_fingerprint
 from .text_index import TextChunk
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 RETRY_BACKOFF_SECONDS = (5, 30)
 
@@ -865,6 +866,22 @@ MIGRATIONS: dict[int, str] = {
     12: """
     ALTER TABLE text_chunks ADD COLUMN speaker_id TEXT;
     CREATE INDEX idx_text_chunks_episode ON text_chunks(episode_id);
+    """,
+    13: """
+    ALTER TABLE episode_speakers ADD COLUMN mapping_state TEXT NOT NULL DEFAULT 'current'
+      CHECK (mapping_state IN ('current','stale'));
+    CREATE TABLE identity_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
+    );
+    INSERT INTO identity_state(id) VALUES (1);
+    CREATE TABLE identity_memberships (
+        episode_speaker_id TEXT PRIMARY KEY REFERENCES episode_speakers(episode_speaker_id)
+          ON DELETE RESTRICT,
+        global_speaker_id TEXT NOT NULL REFERENCES global_speakers(global_speaker_id)
+          ON DELETE RESTRICT
+    );
+    CREATE INDEX idx_identity_memberships_global ON identity_memberships(global_speaker_id);
     """,
 }
 
@@ -2972,11 +2989,127 @@ class SQLiteRepository:
                 (pointer_name, generation_id, published_at),
             )
 
-    def append_identity_decision(self, decision: IdentityDecision) -> None:
-        """Append a human decision and its audit revision in one transaction."""
+    def identity_revision(self) -> int:
+        """Return the revision required by the next human identity edit."""
 
-        payload = _json(decision.to_dict())
+        return int(
+            self.connection.execute("SELECT revision FROM identity_state WHERE id = 1").fetchone()[
+                0
+            ]
+        )
+
+    @staticmethod
+    def _claim_identity_revision(connection: sqlite3.Connection, expected_revision: int) -> None:
+        """Reject a stale edit before changing any identity state."""
+
+        if (
+            connection.execute(
+                "UPDATE identity_state SET revision = revision + 1 WHERE id = 1 AND revision = ?",
+                (expected_revision,),
+            ).rowcount
+            != 1
+        ):
+            raise StorageConflictError("identity review revision is stale")
+
+    @staticmethod
+    def _identity_members(
+        connection: sqlite3.Connection, speaker_id: str
+    ) -> tuple[str | None, set[str]]:
+        """Return a speaker's current global ID and its connected members."""
+
+        row = connection.execute(
+            "SELECT global_speaker_id FROM identity_memberships WHERE episode_speaker_id = ?",
+            (speaker_id,),
+        ).fetchone()
+        if row is None:
+            return None, {speaker_id}
+        global_id = str(row[0])
+        return global_id, {
+            str(item[0])
+            for item in connection.execute(
+                "SELECT episode_speaker_id FROM identity_memberships WHERE global_speaker_id = ?",
+                (global_id,),
+            )
+        }
+
+    def append_identity_decision(
+        self,
+        decision: IdentityDecision,
+        *,
+        expected_revision: int,
+        keep_global_speaker_id: str | None = None,
+    ) -> None:
+        """Record a human decision and update membership without contradictions."""
+
+        if decision.state != "active" or decision.revision != 1:
+            raise ValueError("new identity decisions must be active at revision 1")
         with self.transaction() as connection:
+            self._claim_identity_revision(connection, expected_revision)
+            if any(
+                connection.execute(
+                    "SELECT 1 FROM artifacts WHERE artifact_id = ?", (artifact_id,)
+                ).fetchone()
+                is None
+                for artifact_id in decision.evidence_artifact_ids
+            ):
+                raise StorageConflictError("identity evidence artifact is missing")
+            for speaker_id in (decision.left_episode_speaker_id, decision.right_episode_speaker_id):
+                row = connection.execute(
+                    "SELECT mapping_state FROM episode_speakers WHERE episode_speaker_id = ?",
+                    (speaker_id,),
+                ).fetchone()
+                if row is None or row[0] != "current":
+                    raise StorageConflictError(f"episode speaker is missing or stale: {speaker_id}")
+            left_id, left = self._identity_members(connection, decision.left_episode_speaker_id)
+            right_id, right = self._identity_members(connection, decision.right_episode_speaker_id)
+            if decision.decision == "same_person":
+                if any(
+                    (row[0] in left and row[1] in right) or (row[1] in left and row[0] in right)
+                    for row in connection.execute(
+                        """SELECT left_episode_speaker_id, right_episode_speaker_id
+                        FROM identity_decisions
+                        WHERE decision = 'different_person' AND state = 'active'"""
+                    )
+                ):
+                    raise StorageConflictError(
+                        "same-person merge contradicts a different-person decision"
+                    )
+                if left != right:
+                    old_ids = {value for value in (left_id, right_id) if value is not None}
+                    if keep_global_speaker_id is not None and keep_global_speaker_id not in old_ids:
+                        raise StorageConflictError(
+                            "chosen global speaker is not part of this merge"
+                        )
+                    if len(old_ids) == 2 and keep_global_speaker_id is None:
+                        raise StorageConflictError("choose which global speaker retains its name")
+                    global_id = (
+                        keep_global_speaker_id
+                        or left_id
+                        or right_id
+                        or f"global-{uuid.uuid4().hex}"
+                    )
+                    if global_id not in old_ids:
+                        connection.execute(
+                            "INSERT INTO global_speakers(global_speaker_id) VALUES (?)",
+                            (global_id,),
+                        )
+                    for member in left | right:
+                        connection.execute(
+                            """INSERT INTO identity_memberships VALUES (?, ?)
+                            ON CONFLICT(episode_speaker_id) DO UPDATE SET
+                            global_speaker_id = excluded.global_speaker_id""",
+                            (member, global_id),
+                        )
+                    for old_id in old_ids - {global_id}:
+                        connection.execute(
+                            """UPDATE global_speakers SET state = 'superseded',
+                            revision = revision + 1 WHERE global_speaker_id = ?""",
+                            (old_id,),
+                        )
+            elif decision.decision == "different_person" and left & right:
+                raise StorageConflictError(
+                    "different-person decision contradicts current membership"
+                )
             connection.execute(
                 """INSERT INTO identity_decisions (
                     decision_id, left_episode_speaker_id, right_episode_speaker_id,
@@ -2997,8 +3130,232 @@ class SQLiteRepository:
             connection.execute(
                 """INSERT INTO identity_audit(decision_id, revision, payload_json, created_at)
                 VALUES (?, ?, ?, ?)""",
-                (decision.decision_id, decision.revision, payload, _now()),
+                (decision.decision_id, decision.revision, _json(decision.to_dict()), _now()),
             )
+
+    @staticmethod
+    def _rebuild_identity_group(
+        connection: sqlite3.Connection, global_id: str, retain_episode_speaker_id: str
+    ) -> None:
+        """Project active same-person edges after a human undo or split."""
+
+        members = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT episode_speaker_id FROM identity_memberships WHERE global_speaker_id = ?",
+                (global_id,),
+            )
+        }
+        if retain_episode_speaker_id not in members:
+            raise StorageConflictError("retained speaker must belong to the affected identity")
+        parent = {member: member for member in members}
+
+        def root(member: str) -> str:
+            while parent[member] != member:
+                member = parent[member]
+            return member
+
+        for left, right in connection.execute(
+            """SELECT left_episode_speaker_id, right_episode_speaker_id FROM identity_decisions
+            WHERE decision = 'same_person' AND state = 'active'"""
+        ):
+            if left in members and right in members:
+                parent[root(str(left))] = root(str(right))
+        groups: dict[str, set[str]] = {}
+        for member in members:
+            groups.setdefault(root(member), set()).add(member)
+        connection.execute(
+            "DELETE FROM identity_memberships WHERE global_speaker_id = ?", (global_id,)
+        )
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            new_id = (
+                global_id if retain_episode_speaker_id in group else f"global-{uuid.uuid4().hex}"
+            )
+            if new_id != global_id:
+                connection.execute(
+                    "INSERT INTO global_speakers(global_speaker_id) VALUES (?)", (new_id,)
+                )
+            connection.executemany(
+                "INSERT INTO identity_memberships VALUES (?, ?)",
+                ((member, new_id) for member in group),
+            )
+        connection.execute(
+            """UPDATE global_speakers SET state = ?, revision = revision + 1
+            WHERE global_speaker_id = ?""",
+            (
+                "active" if len(groups[root(retain_episode_speaker_id)]) > 1 else "superseded",
+                global_id,
+            ),
+        )
+
+    def undo_identity_decision(
+        self,
+        decision_id: str,
+        *,
+        expected_revision: int,
+        expected_decision_revision: int,
+        retain_episode_speaker_id: str,
+        reviewer: str,
+    ) -> None:
+        """Supersede a decision and preserve its prior revision in the audit."""
+
+        if not isinstance(reviewer, str) or not reviewer.strip():
+            raise ValueError("reviewer is required")
+        with self.transaction() as connection:
+            self._claim_identity_revision(connection, expected_revision)
+            row = connection.execute(
+                """SELECT * FROM identity_decisions WHERE decision_id = ?
+                AND state = 'active' AND revision = ?""",
+                (decision_id, expected_decision_revision),
+            ).fetchone()
+            if row is None:
+                raise StorageConflictError("identity decision is missing or stale")
+            global_id, _ = self._identity_members(connection, str(row["left_episode_speaker_id"]))
+            connection.execute(
+                """UPDATE identity_decisions SET state = 'superseded',
+                revision = revision + 1 WHERE decision_id = ?""",
+                (decision_id,),
+            )
+            connection.execute(
+                """INSERT INTO identity_audit(decision_id, revision, payload_json, created_at)
+                VALUES (?, ?, ?, ?)""",
+                (
+                    decision_id,
+                    expected_decision_revision + 1,
+                    _json({"action": "undo", "reviewer": reviewer}),
+                    _now(),
+                ),
+            )
+            if row["decision"] == "same_person" and global_id is not None:
+                self._rebuild_identity_group(connection, global_id, retain_episode_speaker_id)
+
+    def split_global_speaker(
+        self,
+        global_id: str,
+        separate_episode_speaker_ids: set[str],
+        *,
+        expected_revision: int,
+        retain_episode_speaker_id: str,
+        reviewer: str,
+    ) -> None:
+        """Split a human-chosen set by superseding all crossing merge evidence."""
+
+        if not isinstance(reviewer, str) or not reviewer.strip():
+            raise ValueError("reviewer is required")
+        with self.transaction() as connection:
+            self._claim_identity_revision(connection, expected_revision)
+            members = {
+                str(row[0])
+                for row in connection.execute(
+                    """SELECT episode_speaker_id FROM identity_memberships
+                    WHERE global_speaker_id = ?""",
+                    (global_id,),
+                )
+            }
+            if not separate_episode_speaker_ids or not separate_episode_speaker_ids < members:
+                raise StorageConflictError("split set must be a proper nonempty subset")
+            if retain_episode_speaker_id not in members - separate_episode_speaker_ids:
+                raise StorageConflictError("choose a retained speaker outside the split set")
+            crossing = [
+                row
+                for row in connection.execute(
+                    """SELECT decision_id, revision, left_episode_speaker_id,
+                    right_episode_speaker_id
+                    FROM identity_decisions WHERE decision = 'same_person' AND state = 'active'"""
+                )
+                if row[2] in members
+                and row[3] in members
+                and (
+                    (row[2] in separate_episode_speaker_ids)
+                    != (row[3] in separate_episode_speaker_ids)
+                )
+            ]
+            if not crossing:
+                raise StorageConflictError("split has no active cross-group merge")
+            for row in crossing:
+                connection.execute(
+                    """UPDATE identity_decisions SET state = 'superseded',
+                    revision = revision + 1 WHERE decision_id = ?""",
+                    (row[0],),
+                )
+                connection.execute(
+                    """INSERT INTO identity_audit(decision_id, revision, payload_json, created_at)
+                    VALUES (?, ?, ?, ?)""",
+                    (
+                        row[0],
+                        row[1] + 1,
+                        _json(
+                            {
+                                "action": "split",
+                                "reviewer": reviewer,
+                                "separated": sorted(separate_episode_speaker_ids),
+                            }
+                        ),
+                        _now(),
+                    ),
+                )
+            self._rebuild_identity_group(connection, global_id, retain_episode_speaker_id)
+
+    def name_global_speaker(
+        self, global_id: str, display_name: str | None, *, expected_revision: int
+    ) -> None:
+        """Set a manual name separately from identity membership."""
+
+        if display_name is not None and not display_name.strip():
+            raise ValueError("display name must be nonempty")
+        with self.transaction() as connection:
+            self._claim_identity_revision(connection, expected_revision)
+            if (
+                connection.execute(
+                    """UPDATE global_speakers SET display_name = ?, revision = revision + 1
+                    WHERE global_speaker_id = ? AND state = 'active'""",
+                    (display_name, global_id),
+                ).rowcount
+                != 1
+            ):
+                raise StorageConflictError("global speaker is missing or superseded")
+
+    def register_episode_speaker(
+        self, speaker_id: str, episode_id: str, diarization_artifact_id: str, local_speaker_id: str
+    ) -> None:
+        """Keep reprocessed diarization speakers separate from prior identity links."""
+
+        with self.transaction() as connection:
+            artifact = connection.execute(
+                "SELECT source_sha256, stage FROM artifacts WHERE artifact_id = ?",
+                (diarization_artifact_id,),
+            ).fetchone()
+            episode = connection.execute(
+                "SELECT source_sha256 FROM episodes WHERE episode_id = ?", (episode_id,)
+            ).fetchone()
+            if (
+                artifact is None
+                or episode is None
+                or artifact[0] != episode[0]
+                or artifact[1] != "diarization"
+            ):
+                raise StorageConflictError("diarization artifact does not belong to the episode")
+            connection.execute(
+                """UPDATE episode_speakers SET mapping_state = 'stale'
+                WHERE episode_id = ? AND diarization_artifact_id <> ?""",
+                (episode_id, diarization_artifact_id),
+            )
+            connection.execute(
+                """INSERT INTO episode_speakers
+                (episode_speaker_id, episode_id, diarization_artifact_id, local_speaker_id)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(episode_speaker_id) DO NOTHING""",
+                (speaker_id, episode_id, diarization_artifact_id, local_speaker_id),
+            )
+            row = connection.execute(
+                """SELECT episode_id, diarization_artifact_id, local_speaker_id
+                FROM episode_speakers WHERE episode_speaker_id = ?""",
+                (speaker_id,),
+            ).fetchone()
+            if tuple(row) != (episode_id, diarization_artifact_id, local_speaker_id):
+                raise StorageConflictError("episode speaker ID has conflicting provenance")
 
     def artifact_exists(self, artifact_id: str) -> bool:
         """Return whether an artifact is registered in canonical SQLite state."""

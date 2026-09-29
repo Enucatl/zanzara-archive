@@ -28,3 +28,16 @@ The artifact contains `diarization.json` (canonical typed output),
 private raw service response. Its provenance records the source, full-episode
 decode configuration, model fingerprint, episode-wide scope and all output
 counts. RTTM rendering never changes canonical millisecond offsets.
+
+Clean voice excerpts can be produced from that artifact without an ASR result:
+
+```bash
+uv run zanzara process \
+  --manifest planning/corpus-20.json \
+  --episode 260910-lazanzara.opus \
+  --stage exemplars
+```
+
+The private `exemplars` artifact contains WAV excerpts and `exemplars.json` with
+source offsets, measured signal quality, exclusion reasons, and a
+`not_voice_searchable` status for speakers without a usable excerpt.

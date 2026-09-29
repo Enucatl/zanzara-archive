@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import subprocess
+import sys
+import wave
+from array import array
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from zanzara_archive import __version__
+from zanzara_archive.acoustic_conditions import measure_signal
 from zanzara_archive.artifacts import ArtifactPublicationError, ArtifactPublisher
 from zanzara_archive.asr import ASR_WINDOW_MS, transcribe_windowed
 from zanzara_archive.calibration import build_batch, validate_batch
@@ -42,6 +47,7 @@ from zanzara_archive.evaluation import (
     validate_reference,
     write_evaluation_artifacts,
 )
+from zanzara_archive.exemplars import select_exemplars
 from zanzara_archive.jobs import DurableWorker, synthetic_runner
 from zanzara_archive.model_locks import (
     ModelLockError,
@@ -255,7 +261,9 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--manifest", required=True, help="path to the frozen corpus manifest")
     process.add_argument("--episode", required=True, help="manifest relative filename")
     process.add_argument(
-        "--stage", required=True, choices=("asr", "diarization", "attribution", "text_index")
+        "--stage",
+        required=True,
+        choices=("asr", "diarization", "attribution", "text_index", "exemplars"),
     )
     process.add_argument(
         "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
@@ -610,6 +618,8 @@ def _process_stage(arguments: argparse.Namespace) -> dict[str, Any]:
         return _process_diarization_stage(arguments)
     if arguments.stage == "attribution":
         return _process_attribution_stage(arguments)
+    if arguments.stage == "exemplars":
+        return _process_exemplars_stage(arguments)
     if arguments.stage == "text_index":
         return _process_text_index_stage(arguments)
     return _process_asr_stage(arguments)
@@ -1213,6 +1223,143 @@ def _validate_stage_provenance(
         raise ValueError(f"{stage} artifact source provenance does not match the episode")
     if manifest.model_fingerprint_sha256 != result.model.fingerprint_sha256:
         raise ValueError(f"{stage} artifact model provenance does not match its payload")
+
+
+def _process_exemplars_stage(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Publish bounded clean WAV excerpts from a completed diarization artifact."""
+
+    corpus = load_manifest(arguments.manifest)
+    episode = next(
+        (item for item in corpus.episodes if item.relative_filename == arguments.episode), None
+    )
+    if episode is None:
+        raise CorpusValidationError(f"episode is not present in manifest: {arguments.episode}")
+    source = resolve_source(arguments.archive_root, episode.relative_filename)
+    diarization_path = arguments.diarization_artifact or _default_attribution_input_path(
+        arguments, episode, corpus, stage="diarization"
+    )
+    input_manifest, payload, _, _ = _load_stage_payload(
+        arguments.artifact_root,
+        diarization_path,
+        expected_stage="diarization",
+        payload_name="diarization.json",
+    )
+    diarization = DiarizationResult.from_dict(payload)
+    _validate_stage_provenance(
+        input_manifest, diarization, expected_source_sha256=episode.sha256, stage="diarization"
+    )
+    if diarization.duration_ms != episode.duration_ms:
+        raise ValueError("diarization duration does not match the episode")
+    upstream_digest = _manifest_digest(input_manifest)
+    configuration = {
+        "stage": "exemplars",
+        "manifest_sha256": corpus.sha256,
+        "source_sha256": episode.sha256,
+        "diarization_manifest_sha256": upstream_digest,
+        "transition_ms": 250,
+        "minimum_ms": 3_000,
+        "preferred_ms": [8_000, 15_000],
+        "maximum_per_speaker": 10,
+        "sample_rate_hz": 16_000,
+        "channels": 1,
+    }
+    stage_key = stage_fingerprint(
+        "exemplars",
+        source_sha256=episode.sha256,
+        upstream_artifact_hashes=(upstream_digest,),
+        configuration=configuration,
+        pipeline_version="p2-01",
+    )
+    speakers = select_exemplars(diarization)
+    files: dict[str, bytes] = {}
+    for speaker_index, speaker in enumerate(speakers.values()):
+        for excerpt_index, excerpt in enumerate(speaker["excerpts"]):
+            start_ms, end_ms = excerpt["start_ms"], excerpt["end_ms"]
+            decoded = subprocess.run(
+                [
+                    arguments.ffmpeg,
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-ss",
+                    f"{start_ms / 1000:.3f}",
+                    "-i",
+                    str(source),
+                    "-t",
+                    f"{(end_ms - start_ms) / 1000:.3f}",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-f",
+                    "s16le",
+                    "-",
+                ],
+                capture_output=True,
+                check=False,
+                timeout=120,
+            )
+            if decoded.returncode or not decoded.stdout or len(decoded.stdout) % 2:
+                raise OSError(f"ffmpeg could not decode exemplar {speaker_index}:{excerpt_index}")
+            samples = array("h")
+            samples.frombytes(decoded.stdout)
+            if sys.byteorder != "little":
+                samples.byteswap()
+            measurements = measure_signal([value / 32768 for value in samples])
+            output = io.BytesIO()
+            with wave.open(output, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16_000)
+                wav.writeframes(decoded.stdout)
+            name = f"audio/speaker-{speaker_index:03d}-{excerpt_index:02d}.wav"
+            files[name] = output.getvalue()
+            excerpt["file"] = name
+            excerpt["measurements"] = measurements.to_dict()
+        speaker["excerpts"].sort(
+            key=lambda item: (
+                item["measurements"]["clipping_fraction"],
+                item["measurements"]["silence_fraction"],
+                -(item["end_ms"] - item["start_ms"]),
+                item["start_ms"],
+            )
+        )
+    files["exemplars.json"] = json.dumps(
+        {
+            "episode_id": episode.relative_filename,
+            "source_sha256": episode.sha256,
+            "diarization_artifact_id": diarization.artifact_id,
+            "diarization_model_fingerprint_sha256": diarization.model.fingerprint_sha256,
+            "speakers": speakers,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    publisher = ArtifactPublisher(arguments.artifact_root)
+    artifact = publisher.publish(
+        source_sha256=episode.sha256,
+        stage="exemplars",
+        stage_key=stage_key,
+        files=files,
+        upstream_artifact_hashes=(upstream_digest,),
+        pipeline_version="p2-01",
+        artifact_id=f"exemplars-{stage_key[:24]}",
+        provenance={
+            "configuration": configuration,
+            "diarization_artifact_id": diarization.artifact_id,
+        },
+    )
+    return {
+        "stage": "exemplars",
+        "artifact": artifact.to_dict(),
+        "artifact_path": str(publisher.artifact_path(episode.sha256, "exemplars", stage_key)),
+        "speaker_count": len(speakers),
+        "searchable_speaker_count": sum(
+            speaker["status"] == "voice_searchable" for speaker in speakers.values()
+        ),
+        "excerpt_count": sum(len(speaker["excerpts"]) for speaker in speakers.values()),
+    }
 
 
 def _process_attribution_stage(arguments: argparse.Namespace) -> dict[str, Any]:

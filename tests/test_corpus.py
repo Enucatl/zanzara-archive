@@ -35,8 +35,21 @@ def test_planning_manifest_is_frozen_and_complete() -> None:
 def test_manifest_rejects_count_change() -> None:
     value = json.loads(_manifest_bytes())
     value["episodes"] = value["episodes"][:-1]
-    with pytest.raises(CorpusValidationError, match="exactly 20"):
+    with pytest.raises(CorpusValidationError, match="20 or 400"):
         CorpusManifest.from_bytes(json.dumps(value).encode())
+
+
+def test_expansion_manifest_is_nested_and_stays_before_cutoff() -> None:
+    initial = load_manifest(MANIFEST)
+    expanded = load_manifest(MANIFEST.with_name("corpus-400.json"))
+    assert len(expanded.episodes) == 400
+    assert expanded.episodes[:20] == initial.episodes
+    assert all(
+        left.episode_date >= right.episode_date
+        for left, right in zip(expanded.episodes, expanded.episodes[1:], strict=False)
+    )
+    assert expanded.episodes[0].episode_date.isoformat() == "2026-09-10"
+    assert expanded.episodes[-1].episode_date.isoformat() == "2024-10-31"
 
 
 def test_resolve_source_rejects_traversal_and_escaping_symlink(tmp_path: Path) -> None:

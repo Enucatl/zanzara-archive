@@ -1063,7 +1063,10 @@ class SQLiteRepository:
                         + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         expected_episode,
                     )
-                elif tuple(existing_episode) != expected_episode:
+                elif (
+                    existing_episode[0] != expected_episode[0]
+                    or tuple(existing_episode[2:]) != expected_episode[2:]
+                ):
                     raise StorageConflictError(
                         f"registered episode has conflicting metadata: {episode.relative_filename}"
                     )

@@ -111,7 +111,7 @@ class EpisodeManifest:
 
 @dataclass(frozen=True, slots=True)
 class CorpusManifest:
-    """The frozen 20-episode manifest and its source-byte checksum."""
+    """A frozen episode manifest and its source-byte checksum."""
 
     schema_version: int
     observed_at: date
@@ -146,9 +146,9 @@ class CorpusManifest:
         if not isinstance(golden_episode, str) or not golden_episode:
             raise CorpusValidationError("manifest golden_episode must be non-empty text")
         raw_episodes = value.get("episodes")
-        if not isinstance(raw_episodes, list) or len(raw_episodes) != 20:
+        if not isinstance(raw_episodes, list) or len(raw_episodes) not in (20, 400):
             count = len(raw_episodes) if isinstance(raw_episodes, list) else "not a list"
-            raise CorpusValidationError(f"manifest must contain exactly 20 episodes (got {count})")
+            raise CorpusValidationError(f"manifest must contain 20 or 400 episodes (got {count})")
         episodes = tuple(
             EpisodeManifest.from_mapping(item, index) for index, item in enumerate(raw_episodes)
         )
@@ -158,8 +158,12 @@ class CorpusManifest:
         if golden_episode not in filenames:
             raise CorpusValidationError("manifest golden_episode must name an episode")
         dates = [episode.episode_date for episode in episodes]
-        if min(dates) != date(2026, 7, 1) or max(dates) != date(2026, 9, 10):
+        if len(episodes) == 20 and (
+            min(dates) != date(2026, 7, 1) or max(dates) != date(2026, 9, 10)
+        ):
             raise CorpusValidationError("manifest date range must be 2026-07-01 through 2026-09-10")
+        if len(episodes) == 400 and max(dates) > date(2026, 9, 10):
+            raise CorpusValidationError("400-episode manifest exceeds the 2026-09-10 cutoff")
         return cls(
             schema_version=1,
             observed_at=observed_at,

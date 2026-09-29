@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from zanzara_archive.contracts import EvaluationReport, IdentityDecision
+from zanzara_archive.corpus import load_manifest
 from zanzara_archive.storage import (
     MIGRATIONS,
     SCHEMA_VERSION,
@@ -68,6 +69,22 @@ def test_fresh_database_has_all_d3_canonical_tables(tmp_path: Path) -> None:
         )
     }
     assert required <= actual
+    repository.close()
+
+
+def test_nested_manifest_keeps_registered_episode_identity(tmp_path: Path) -> None:
+    repository = SQLiteRepository.open(tmp_path / "state.db")
+    planning = Path(__file__).parents[1] / "planning"
+    initial_id = repository.register_corpus_manifest(load_manifest(planning / "corpus-20.json"))
+    expanded_id = repository.register_corpus_manifest(load_manifest(planning / "corpus-400.json"))
+    assert initial_id != expanded_id
+    assert repository.connection.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 400
+    assert (
+        repository.connection.execute(
+            "SELECT manifest_id FROM episodes WHERE episode_id = '260910-lazanzara.opus'"
+        ).fetchone()[0]
+        == initial_id
+    )
     repository.close()
 
 

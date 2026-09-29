@@ -77,6 +77,18 @@ The command validates the retained vectors and expected point counts before it
 switches both active Qdrant aliases together. The collections can be rebuilt
 from the private embedding artifacts; no audio inference is needed for a rebuild.
 
+Find cross-episode voice candidates for one episode-local speaker:
+
+```bash
+uv run python -m zanzara_archive.voice_search \
+  --embedding-artifact EMBEDDING_ARTIFACT_DIR --speaker SPEAKER_ID
+```
+
+The JSON lists up to 50 centroid candidates reranked by median matched-exemplar
+cosine similarity, with original offsets and LAN playback links. Scores are
+uncalibrated; candidates are not identity decisions. Speakers without selected
+excerpts return `not_voice_searchable` with an empty candidate list.
+
 The LAN [ASR review editor](http://complex.home.arpa:8000/chunk-review) lists registered
 chunks, immutable ASR candidates, and separate editable human references. Enter a
 reviewer name, edit the transcript and per-speaker text, then save a draft or

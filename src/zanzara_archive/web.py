@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import mimetypes
 import sqlite3
 import uuid
@@ -17,7 +18,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -137,11 +138,30 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     @app.get("/transcripts", response_class=HTMLResponse)
     @app.get("/speakers", response_class=HTMLResponse)
-    def archive_page(request: Request) -> HTMLResponse:
-        """Show available archive content and durable processing state."""
+    def archive_page(
+        request: Request,
+        q: str = "",
+        episode_id: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        offset: int = 0,
+    ) -> HTMLResponse:
+        """Show archive content and filtered transcript results."""
 
-        episodes, speakers, jobs = [], [], []
+        episodes, speakers, jobs, results = [], [], [], []
         error = None
+        search_error = None
+        search_params = {
+            key: value
+            for key, value in (
+                ("q", q),
+                ("episode_id", episode_id),
+                ("date_from", date_from),
+                ("date_to", date_to),
+                ("offset", offset if offset else ""),
+            )
+            if value
+        }
         try:
             with repository() as current:
                 episodes = current.connection.execute(
@@ -162,13 +182,150 @@ def create_app(
                     """SELECT stage, status, count(*) AS total FROM jobs
                        GROUP BY stage, status ORDER BY stage, status"""
                 ).fetchall()
+                if q.strip() and request.url.path != "/speakers":
+                    try:
+                        hits = current.search_text(
+                            q,
+                            episode_id=episode_id or None,
+                            date_from=date_from or None,
+                            date_to=date_to or None,
+                            limit=21,
+                            offset=offset,
+                        )
+                        results = hits[:20]
+                    except SearchValidationError as exc:
+                        search_error = str(exc)
+                    for result in results:
+                        result["episode_url"] = (
+                            f"/episodes/{quote(str(result['episode_id']), safe='')}?"
+                            + urlencode(
+                                {
+                                    **search_params,
+                                    "t": f"{result['start_ms'] / 1000:.3f}",
+                                    "chunk": result["chunk_id"],
+                                }
+                            )
+                        )
         except (StorageError, sqlite3.Error):
             error = "Archive content is unavailable. Reload this page to retry."
         return templates.TemplateResponse(
             request=request,
             name="archive.html",
-            context={"episodes": episodes, "speakers": speakers, "jobs": jobs, "error": error},
+            context={
+                "episodes": episodes,
+                "speakers": speakers,
+                "jobs": jobs,
+                "results": results,
+                "error": error,
+                "search_error": search_error,
+                "q": q,
+                "episode_id": episode_id,
+                "date_from": date_from,
+                "date_to": date_to,
+                "next_url": (
+                    f"/transcripts?{urlencode({**search_params, 'offset': offset + 20})}"
+                    if len(results) == 20 and not search_error and len(hits) > 20
+                    else None
+                ),
+            },
             status_code=503 if error else 200,
+        )
+
+    @app.get("/episodes/{episode_id:path}", response_class=HTMLResponse, response_model=None)
+    def episode_page(
+        request: Request,
+        episode_id: str,
+        t: float = 0,
+        chunk: str = "",
+        page: int | None = None,
+    ) -> HTMLResponse | JSONResponse:
+        """Show one indexed transcript beside its original audio."""
+
+        with repository() as current:
+            episode = current.connection.execute(
+                "SELECT episode_date, duration_ms FROM episodes WHERE episode_id = ?",
+                (episode_id,),
+            ).fetchone()
+            if episode is None:
+                return _error(_request_id(), "unknown_episode", "episode was not found", 404)
+            if not math.isfinite(t) or not 0 <= t < episode["duration_ms"] / 1000:
+                return _error(
+                    _request_id(), "invalid_offset", "playback offset is out of range", 422
+                )
+            if chunk and page is not None:
+                return _error(
+                    _request_id(), "invalid_page", "choose a transcript offset or page", 422
+                )
+            count = current.connection.execute(
+                "SELECT count(*) FROM text_chunks WHERE episode_id = ?", (episode_id,)
+            ).fetchone()[0]
+            if chunk:
+                target = current.connection.execute(
+                    "SELECT start_ms FROM text_chunks WHERE episode_id = ? AND chunk_id = ?",
+                    (episode_id, chunk),
+                ).fetchone()
+                if target is None or target["start_ms"] != round(t * 1000):
+                    return _error(
+                        _request_id(), "invalid_offset", "transcript offset is invalid", 422
+                    )
+            if page is None:
+                before = current.connection.execute(
+                    """SELECT count(*) FROM text_chunks WHERE episode_id = ?
+                       AND (start_ms < ? OR (start_ms = ? AND chunk_id < ?))""",
+                    (episode_id, round(t * 1000), round(t * 1000), chunk),
+                ).fetchone()[0]
+                page = before // 100
+            if page < 0 or (page > 0 and page * 100 >= count):
+                return _error(_request_id(), "invalid_page", "transcript page is out of range", 422)
+            chunks = current.connection.execute(
+                """SELECT chunk_id, start_ms, end_ms, speaker_id, text, overlap
+                   FROM text_chunks WHERE episode_id = ?
+                   ORDER BY start_ms, chunk_id LIMIT 100 OFFSET ?""",
+                (episode_id, page * 100),
+            ).fetchall()
+        media_url = None
+        if (
+            frozen_manifest is not None
+            and source_root is not None
+            and any(item.relative_filename == episode_id for item in frozen_manifest.episodes)
+        ):
+            try:
+                resolve_source(source_root, episode_id)
+            except CorpusValidationError:
+                pass
+            else:
+                media_url = f"/media/{quote(episode_id, safe='')}"
+        search_params = {
+            key: request.query_params[key]
+            for key in ("q", "episode_id", "date_from", "date_to", "offset")
+            if request.query_params.get(key)
+        }
+        episode_path = f"/episodes/{quote(episode_id, safe='')}"
+        return templates.TemplateResponse(
+            request=request,
+            name="episode.html",
+            context={
+                "episode_id": episode_id,
+                "episode_date": episode["episode_date"],
+                "chunks": chunks,
+                "media_url": media_url,
+                "start_seconds": t,
+                "page": page,
+                "page_count": (count + 99) // 100,
+                "previous_url": (
+                    f"{episode_path}?{urlencode({**search_params, 'page': page - 1})}"
+                    if page > 0
+                    else None
+                ),
+                "next_url": (
+                    f"{episode_path}?{urlencode({**search_params, 'page': page + 1})}"
+                    if (page + 1) * 100 < count
+                    else None
+                ),
+                "back_url": f"/transcripts?{urlencode(search_params)}"
+                if search_params
+                else "/transcripts",
+            },
         )
 
     @app.get("/healthz")
@@ -755,7 +912,9 @@ def create_app(
         except CorpusValidationError as exc:
             return _error(request_id, "unknown_episode", str(exc), 404)
         media_type = mimetypes.guess_type(source.name)[0] or "audio/ogg"
-        return FileResponse(source, media_type=media_type, filename=source.name)
+        return FileResponse(
+            source, media_type=media_type, filename=source.name, content_disposition_type="inline"
+        )
 
     return app
 

@@ -12,6 +12,10 @@
       a { color: inherit; }
       li { margin: .8rem 0; }
       .state { border: 1px solid; border-radius: .4rem; padding: 1rem; }
+      form { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+      label { display: grid; gap: .2rem; }
+      input, select, button { font: inherit; padding: .35rem; }
+      .search-result { border-bottom: 1px solid; padding: .7rem 0; }
     </style>
   </head>
   <body>
@@ -22,13 +26,45 @@
       <p class="state" role="alert">{{ error }} <a href="{{ section }}">Retry</a></p>
       {% else %}
       {% if section != '/speakers' %}
+      <form action="/transcripts" method="get" role="search">
+        <label>Transcript words <input name="q" type="search" value="{{ q }}" required></label>
+        <label>Episode
+          <select name="episode_id">
+            <option value="">All episodes</option>
+            {% for episode in episodes %}
+            <option value="{{ episode.episode_id }}"{% if episode.episode_id == episode_id %} selected{% endif %}>{{ episode.episode_date }} · {{ episode.episode_id }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>From <input name="date_from" type="date" value="{{ date_from }}"></label>
+        <label>To <input name="date_to" type="date" value="{{ date_to }}"></label>
+        <button type="submit">Search</button>
+      </form>
+      {% if q %}
+      <h2>Search results</h2>
+      {% if search_error %}<p class="state" role="alert">{{ search_error }} Change your search and try again.</p>
+      {% elif results %}
+        <ol>
+          {% for result in results %}
+          <li class="search-result">
+            <a href="{{ result.episode_url }}">{{ result.episode_date }} · {{ result.episode_id }} · {{ "%.1f"|format(result.start_ms / 1000) }}s</a>
+            {% if result.speaker_id %}<span>· Speaker {{ result.speaker_id }}</span>{% else %}<span>· Unassigned speaker</span>{% endif %}
+            {% if result.overlap %}<span>· Overlap</span>{% endif %}
+            <p>{{ result.snippet }}</p>
+          </li>
+          {% endfor %}
+        </ol>
+        {% if next_url %}<p><a href="{{ next_url }}">More results</a></p>{% endif %}
+      {% else %}<p class="state">No results. Try different words or widen the date and episode filters.</p>{% endif %}
+      {% endif %}
       <h2>Episodes</h2>
-      <p>Browse transcript availability and open the annotation editor for an episode.</p>
+      <p>Browse transcript availability and listen to an episode.</p>
       <ul>
         {% for episode in episodes %}
         <li>
           <strong>{{ episode.episode_date }} · {{ episode.episode_id }}</strong><br>
           {% if episode.chunk_count %}{{ episode.chunk_count }} indexed transcript chunks.{% else %}Transcript unavailable.{% endif %}
+          <a href="/episodes/{{ episode.episode_id|urlencode }}">Open episode</a>.
           <a href="/annotations/{{ episode.episode_id|urlencode }}">{{ 'Review annotation' if episode.has_annotation else 'Open annotation editor' }}: {{ episode.episode_id }}</a>
           {% if not episode.has_annotation %}No saved annotation.{% endif %}
         </li>

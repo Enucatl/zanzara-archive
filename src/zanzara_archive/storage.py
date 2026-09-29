@@ -1212,6 +1212,7 @@ class SQLiteRepository:
         rows = self.connection.execute(
             """SELECT c.chunk_id, c.episode_id, e.episode_date, c.speaker_id,
                       c.start_ms, c.end_ms, c.text, c.word_ids_json, c.overlap,
+                      snippet(text_chunks_fts, 1, '', '', ' … ', 28) AS snippet,
                       bm25(text_chunks_fts) AS score
                FROM text_chunks_fts
                JOIN text_chunks AS c ON c.chunk_id = text_chunks_fts.chunk_id
@@ -1230,6 +1231,7 @@ class SQLiteRepository:
                 "start_ms": row["start_ms"],
                 "end_ms": row["end_ms"],
                 "text": row["text"],
+                "snippet": row["snippet"],
                 "word_ids": json.loads(row["word_ids_json"]),
                 "overlap": bool(row["overlap"]),
                 "score": row["score"],

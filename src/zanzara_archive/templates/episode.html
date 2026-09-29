@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ episode_date }} · {{ episode_id }} · Zanzara Archive</title>
+    <style>
+      :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+      body { max-width: 70rem; margin: 1rem auto; padding: 0 1rem; overflow-wrap: anywhere; }
+      a { color: inherit; }
+      audio { display: block; width: 100%; margin: 1rem 0; }
+      li { margin: 1rem 0; }
+      button { font: inherit; padding: .3rem .6rem; }
+      .state { border: 1px solid; border-radius: .4rem; padding: 1rem; }
+    </style>
+  </head>
+  <body>
+    {% include 'navigation.html' %}
+    <main>
+      <p><a href="{{ back_url }}">Back to transcripts</a></p>
+      <h1>{{ episode_date }} · {{ episode_id }}</h1>
+      {% if media_url %}
+      <audio id="episode-audio" controls preload="metadata" src="{{ media_url }}#t={{ start_seconds }}"></audio>
+      <p id="audio-error" class="state" role="alert" hidden>Original audio unavailable. Check the archive source and reload this page.</p>
+      {% else %}
+      <p class="state" role="alert">Original audio unavailable. Configure the frozen archive or restore this episode’s source file.</p>
+      {% endif %}
+      <h2>Transcript</h2>
+      {% if chunks %}
+      <p>Page {{ page + 1 }} of {{ page_count }}. {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %} {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}</p>
+      <ol>
+        {% for chunk in chunks %}
+        <li data-start-ms="{{ chunk.start_ms }}">
+          <button type="button" class="seek" data-seconds="{{ chunk.start_ms / 1000 }}"{% if not media_url %} disabled{% endif %}>Play from {{ "%.1f"|format(chunk.start_ms / 1000) }}s</button>
+          {% if chunk.speaker_id %}<strong>Speaker {{ chunk.speaker_id }}</strong>{% else %}<strong>Unassigned speaker</strong>{% endif %}
+          {% if chunk.overlap %}<span>· Overlap</span>{% endif %}
+          <p>{{ chunk.text }}</p>
+        </li>
+        {% endfor %}
+      </ol>
+      <p>{% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %} {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}</p>
+      {% else %}<p class="state">Transcript unavailable for this episode. Check processing jobs on the archive page.</p>{% endif %}
+    </main>
+    {% if media_url %}
+    <script>
+      const audio = document.getElementById('episode-audio');
+      const start = {{ start_seconds|tojson }};
+      audio.addEventListener('loadedmetadata', () => { audio.currentTime = start; }, { once: true });
+      audio.addEventListener('error', () => { document.getElementById('audio-error').hidden = false; });
+      document.querySelectorAll('.seek').forEach(button => button.addEventListener('click', () => {
+        audio.currentTime = Number(button.dataset.seconds);
+        audio.play();
+      }));
+    </script>
+    {% endif %}
+  </body>
+</html>

@@ -37,7 +37,7 @@ from .qwen_assistance import (
     AnnotationAssistanceService,
     AnnotationAssistanceValidationError,
 )
-from .storage import SQLiteRepository, StorageConflictError, StorageError
+from .storage import SearchValidationError, SQLiteRepository, StorageConflictError, StorageError
 
 TEMPLATE_ROOT = Path(__file__).with_name("templates")
 EXPORT_NAMES = frozenset(
@@ -139,6 +139,40 @@ def create_app(
             "status": "ok",
             "access": "network-enabled" if network_access else "loopback-default",
         }
+
+    @app.get("/api/v1/search")
+    def search(
+        q: str,
+        episode_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        global_speaker_id: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> JSONResponse:
+        """Return ranked transcript chunks with original playback intervals."""
+
+        request_id = _request_id()
+        try:
+            with repository() as current:
+                results = current.search_text(
+                    q,
+                    episode_id=episode_id,
+                    date_from=date_from,
+                    date_to=date_to,
+                    global_speaker_id=global_speaker_id,
+                    limit=limit,
+                    offset=offset,
+                )
+        except SearchValidationError as exc:
+            return _error(request_id, "invalid_search", str(exc), 422)
+        except StorageError as exc:
+            return _error(request_id, "storage_unavailable", str(exc), 503)
+        return JSONResponse(
+            content=ApiEnvelope(
+                request_id, "ok", data={"results": results, "limit": limit, "offset": offset}
+            ).to_dict()
+        )
 
     def p1r03d_queue(filename: str) -> dict[str, Any]:
         path = review_root / filename

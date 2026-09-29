@@ -12,11 +12,12 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import urllib.parse
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from threading import get_ident
 
@@ -56,6 +57,33 @@ class StorageCapabilityError(StorageError):
 
 class StorageConflictError(StorageError):
     """Raised when an immutable or optimistic publication conflicts."""
+
+
+class SearchValidationError(ValueError):
+    """Raised for an invalid lexical search request."""
+
+
+def _fts_query(value: str) -> str:
+    """Convert plain words and quoted phrases to safe FTS5 terms."""
+
+    if not isinstance(value, str) or not value.strip() or len(value) > 256:
+        raise SearchValidationError("query must contain 1 to 256 characters")
+    terms = []
+    position = 0
+    for match in re.finditer(r'"([^"]*)"|([^\s"]+)', value):
+        if value[position : match.start()].strip():
+            raise SearchValidationError("query has an unmatched quote")
+        token = match.group(1) if match.group(1) is not None else match.group(2)
+        if not any(character.isalnum() for character in token) or not all(
+            character.isalnum() or character.isspace() or character in "'’-,."
+            for character in token
+        ):
+            raise SearchValidationError("query accepts words and quoted phrases only")
+        terms.append('"' + token + '"')
+        position = match.end()
+    if value[position:].strip() or not terms or len(terms) > 20:
+        raise SearchValidationError("query has an unmatched quote or too many terms")
+    return " AND ".join(terms)
 
 
 NETWORK_FILESYSTEMS = frozenset(
@@ -1135,6 +1163,79 @@ class SQLiteRepository:
                     "INSERT INTO text_chunks_fts (chunk_id, text) VALUES (?, ?)",
                     (chunk.chunk_id, chunk.text),
                 )
+
+    def search_text(
+        self,
+        query: str,
+        *,
+        episode_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        global_speaker_id: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, object]]:
+        """Find ranked transcript chunks with bounded, filtered pagination."""
+
+        expression = _fts_query(query)
+        if global_speaker_id is not None:
+            raise SearchValidationError(
+                "global speaker filtering is unavailable until membership exists"
+            )
+        if episode_id is not None and not episode_id:
+            raise SearchValidationError("episode_id must not be empty")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise SearchValidationError("limit must be between 1 and 100")
+        if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 10_000:
+            raise SearchValidationError("offset must be between 0 and 10000")
+        for name, value in (("date_from", date_from), ("date_to", date_to)):
+            if value is not None:
+                try:
+                    valid = date.fromisoformat(value)
+                except (TypeError, ValueError) as exc:
+                    raise SearchValidationError(f"{name} must be YYYY-MM-DD") from exc
+                if valid.isoformat() != value:
+                    raise SearchValidationError(f"{name} must be YYYY-MM-DD")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise SearchValidationError("date_from must not follow date_to")
+
+        conditions = ["text_chunks_fts MATCH ?"]
+        parameters: list[object] = [expression]
+        for condition, value in (
+            ("c.episode_id = ?", episode_id),
+            ("e.episode_date >= ?", date_from),
+            ("e.episode_date <= ?", date_to),
+        ):
+            if value is not None:
+                conditions.append(condition)
+                parameters.append(value)
+        rows = self.connection.execute(
+            """SELECT c.chunk_id, c.episode_id, e.episode_date, c.speaker_id,
+                      c.start_ms, c.end_ms, c.text, c.word_ids_json, c.overlap,
+                      bm25(text_chunks_fts) AS score
+               FROM text_chunks_fts
+               JOIN text_chunks AS c ON c.chunk_id = text_chunks_fts.chunk_id
+               JOIN episodes AS e ON e.episode_id = c.episode_id
+               WHERE """
+            + " AND ".join(conditions)
+            + " ORDER BY score, c.chunk_id LIMIT ? OFFSET ?",
+            (*parameters, limit, offset),
+        ).fetchall()
+        return [
+            {
+                "chunk_id": row["chunk_id"],
+                "episode_id": row["episode_id"],
+                "episode_date": row["episode_date"],
+                "speaker_id": row["speaker_id"],
+                "start_ms": row["start_ms"],
+                "end_ms": row["end_ms"],
+                "text": row["text"],
+                "word_ids": json.loads(row["word_ids_json"]),
+                "overlap": bool(row["overlap"]),
+                "score": row["score"],
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _chunk_episode_check(connection: sqlite3.Connection, chunk: AudioChunk) -> None:

@@ -49,7 +49,7 @@ from zanzara_archive.model_locks import (
     validate_model_lock,
 )
 from zanzara_archive.stages import stage_fingerprint
-from zanzara_archive.storage import SQLiteRepository, StorageError
+from zanzara_archive.storage import SearchValidationError, SQLiteRepository, StorageError
 from zanzara_archive.text_index import build_text_chunks
 from zanzara_archive.transcripts import build_attributed_transcript, render_exports
 
@@ -161,6 +161,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly allow non-loopback access to the unauthenticated local editor",
     )
+    search = commands.add_parser("search", help="search indexed transcripts")
+    search.add_argument("query", help="words and quoted phrases")
+    search.add_argument(
+        "--database", default=os.environ.get("ZANZARA_DATABASE", ".git/zanzara-state/state.db")
+    )
+    search.add_argument("--episode-id")
+    search.add_argument("--date-from")
+    search.add_argument("--date-to")
+    search.add_argument("--global-speaker-id")
+    search.add_argument("--limit", type=int, default=20)
+    search.add_argument("--offset", type=int, default=0)
     calibration = commands.add_parser(
         "calibration", help="prepare and export development music review batches"
     )
@@ -319,6 +330,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the currently available application commands."""
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "search":
+        try:
+            repository = SQLiteRepository.open(arguments.database)
+            try:
+                results = repository.search_text(
+                    arguments.query,
+                    episode_id=arguments.episode_id,
+                    date_from=arguments.date_from,
+                    date_to=arguments.date_to,
+                    global_speaker_id=arguments.global_speaker_id,
+                    limit=arguments.limit,
+                    offset=arguments.offset,
+                )
+            finally:
+                repository.close()
+        except (SearchValidationError, StorageError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
     if arguments.command == "evaluation":
         if arguments.evaluation_command == "validate-reference":
             report = validate_reference(arguments.corpus, arguments.reference)

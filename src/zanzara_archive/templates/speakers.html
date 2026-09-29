@@ -92,9 +92,11 @@
   const queryEvidence = {{ (result.episode_speaker_id.split(':')[0] if result else '')|tojson }};
   const globals = {{ speakers|tojson }};
   const error = document.getElementById('review-error');
+  document.getElementById('reviewer').value = localStorage.getItem('speakers-reviewer') || '';
   async function save(path, body, method = 'POST') {
     const reviewer = document.getElementById('reviewer').value.trim();
     if (!reviewer) { error.textContent = 'Enter a reviewer name before saving.'; error.hidden = false; return; }
+    localStorage.setItem('speakers-reviewer', reviewer);
     const response = await fetch(path, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, reviewer, expected_revision: revision})});
     const data = await response.json();
     if (!response.ok) { error.textContent = data.error?.message || 'Review failed.'; error.hidden = false; return; }

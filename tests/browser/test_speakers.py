@@ -238,7 +238,7 @@ def test_voice_review_keyboard_in_chromium(tmp_path: Path, monkeypatch: pytest.M
         older, newer = sorted(episodes, key=lambda episode: episode.episode_date)
         assert older.relative_filename in appearances.nth(0).inner_text()
         assert newer.relative_filename in appearances.nth(1).inner_text()
-        page.locator("#reviewer").fill("Browser operator")
+        playwright.expect(page.locator("#reviewer")).to_have_value("Browser operator")
         page.get_by_role("button", name="Undo").focus()
         page.keyboard.press("Enter")
         playwright.expect(page.get_by_role("button", name="Split this appearance")).to_have_count(0)

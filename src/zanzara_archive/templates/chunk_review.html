@@ -175,8 +175,9 @@ document.addEventListener('keydown', event => {
 });
 (async () => {
   try {
-    chunks = (await request('/api/v1/chunk-review')).chunks;
-    chunks.forEach((chunk, i) => { const option = document.createElement('option'); option.value = i; option.textContent = `${chunk.episode_id} · ${chunk.start_ms} ms`; $('queue').append(option); });
+    const manifest = new URLSearchParams(location.search).get('manifest_id');
+    chunks = (await request(`/api/v1/chunk-review${manifest ? `?manifest_id=${encodeURIComponent(manifest)}` : ''}`)).chunks;
+    chunks.forEach((chunk, i) => { const option = document.createElement('option'); option.value = i; option.textContent = `${chunk.partition || 'unassigned'} · ${chunk.episode_id} · ${chunk.start_ms} ms`; $('queue').append(option); });
     if (chunks.length) await navigate(0); else message('No frozen chunks have been registered.');
   } catch (error) { message(error.message); }
 })();

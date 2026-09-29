@@ -90,6 +90,7 @@ def test_chunk_review_history_validation_and_seed_optional(tmp_path: Path) -> No
         client.get("/api/v1/chunk-review").json()["data"]["chunks"][0]["review_status"]
         == "human_truth"
     )
+    assert client.get("/api/v1/chunk-review?manifest_id=other").json()["data"]["chunks"] == []
     body["expected_revision"] = 2
     for patch in (
         {"reviewer": "machine"},

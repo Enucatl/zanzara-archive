@@ -127,11 +127,11 @@ def chunk_review_router(database: Path) -> APIRouter:
         return ApiEnvelope(uuid4().hex, "ok", data=data).to_dict()
 
     @router.get("/api/v1/chunk-review")
-    def queue() -> dict[str, Any]:
+    def queue(manifest_id: str | None = None) -> dict[str, Any]:
         """List frozen chunks and their human review progress."""
         with closing(SQLiteRepository.open(database)) as repository:
             rows = repository.connection.execute(
-                """SELECT c.chunk_id, c.episode_id, c.start_ms, c.end_ms,
+                """SELECT c.chunk_id, c.episode_id, c.start_ms, c.end_ms, c.partition,
                 (SELECT COUNT(*) FROM reference_revisions r
                  WHERE r.chunk_id = c.chunk_id) AS revision,
                 COALESCE(
@@ -141,7 +141,10 @@ def chunk_review_router(database: Path) -> APIRouter:
                      WHERE t.chunk_id = c.chunk_id ORDER BY t.rowid DESC LIMIT 1),
                     'unreviewed'
                 ) AS review_status
-                FROM audio_chunks c ORDER BY c.episode_id, c.start_ms, c.chunk_id"""
+                FROM audio_chunks c
+                WHERE (? IS NULL OR c.manifest_id = ?)
+                ORDER BY c.episode_id, c.start_ms, c.chunk_id""",
+                (manifest_id, manifest_id),
             ).fetchall()
             return response({"chunks": [dict(row) for row in rows]})
 

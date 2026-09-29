@@ -5,6 +5,8 @@ services, annotation pages and chunk evaluation tools. Search and cross-episode
 voice discovery are the next product work. The revised
 [working plan](planning/README.md) prioritizes FTS5 search/playback and one voice
 encoder, with focused checks and a small human-reviewed ASR pilot.
+The [ASR pilot report](docs/asr-pilot.md) records the measured Parakeet default
+and its limitations.
 
 The binding implementation specification is in [`planning/README.md`](planning/README.md),
 with the architecture in [`planning/SYSTEM-DESIGN.md`](planning/SYSTEM-DESIGN.md)
